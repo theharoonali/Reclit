@@ -1,0 +1,45 @@
+{
+  "name": "repo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "turbo build",
+    "clean": "git clean -xdf node_modules",
+    "clean:workspaces": "turbo clean",
+    "dev": "turbo dev --parallel",
+    "test": "turbo test --parallel",
+    "dev:api": "turbo dev --filter=@repo/api",
+    "dev:dashboard": "turbo dev --filter=@repo/dashboard",
+    "start:dashboard": "turbo start --filter=@repo/dashboard",
+    "build:dashboard": "turbo build --filter=@repo/dashboard",
+    "format": "biome format --write .",
+    "lint": "turbo lint",
+    "lint:fix": "turbo lint:fix",
+    "typecheck": "turbo typecheck"
+  },
+  "packageManager": "bun@1.3.11",
+  "catalog": {
+    "date-fns": "^4.1.0",
+    "hono": "4.12.9",
+    "jose": "^6.2.2",
+    "nanoid": "^5.1.7",
+    "pino": "^10.3.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "typescript": "^6.0.2",
+    "zod": "^4.3.6"
+  },
+  "trustedDependencies": [
+    "@biomejs/biome",
+    "core-js",
+    "protobufjs"
+  ],
+  "devDependencies": {
+    "@biomejs/biome": "2.4.10",
+    "turbo": "2.9.3",
+    "typescript": "^6.0.2"
+  }
+}

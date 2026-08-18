@@ -1,0 +1,20 @@
+{
+  "extends": "@repo/tsconfig/nextjs.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@api/*": ["../api/src/*"]
+    },
+    "strict": true
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "../../types",
+    "next-env.d.ts",
+    "next.config.js",
+    "tailwind.config.ts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules", ".next"]
+}

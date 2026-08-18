@@ -1,0 +1,32 @@
+import { logger } from "@repo/logger";
+import type { Context, MiddlewareHandler } from "hono";
+import { getRequestTrace } from "./request-trace";
+
+export const httpLogger = (): MiddlewareHandler => {
+  return async (context: Context, next) => {
+    const start = process.hrtime.bigint();
+
+    const method = context.req.method;
+    const url = context.req.url;
+    const path = new URL(url).pathname;
+    const { requestId, cfRay } = getRequestTrace(context.req);
+
+    logger.info(`${method} ${path} - incoming request`, {
+      requestId,
+      cfRay,
+    });
+
+    await next();
+
+    const duration = Number(process.hrtime.bigint() - start) / 1000000; // Convert to ms
+    const statusCode = context.res.status;
+
+    logger.info(
+      `${method} ${path} ${statusCode} - completed in ${duration.toFixed(2)}ms`,
+      {
+        requestId,
+        cfRay,
+      },
+    );
+  };
+};

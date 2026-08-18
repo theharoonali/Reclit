@@ -1,0 +1,25 @@
+{
+  "name": "@repo/trpc",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "echo 'Types validated by @repo/api and consumer packages'"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./internal": "./src/internal.ts",
+    "./fetch-with-retry": "./src/fetch-with-retry.ts"
+  },
+  "dependencies": {
+    "@trpc/client": "^11.16.0",
+    "@trpc/server": "^11.16.0",
+    "superjson": "^2.2.6"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

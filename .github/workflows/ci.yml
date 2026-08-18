@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Lint
+        run: bunx turbo lint
+
+      - name: Typecheck
+        run: bunx turbo typecheck
+
+      - name: Test
+        run: bunx turbo test
+
+      - name: Build
+        run: bunx turbo build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3003
+          NEXT_PUBLIC_URL: http://localhost:3001
+          NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: placeholder

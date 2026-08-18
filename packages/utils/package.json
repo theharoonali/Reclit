@@ -1,0 +1,25 @@
+{
+  "name": "@repo/utils",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "private": true,
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rm -rf .turbo node_modules",
+    "lint": "biome check .",
+    "lint:fix": "biome format --write .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "date-fns": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./envs": "./src/envs.ts",
+    "./format": "./src/format.ts",
+    "./sanitize-redirect": "./src/sanitize-redirect.ts"
+  }
+}
