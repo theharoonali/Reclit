@@ -48,7 +48,7 @@ export function TRPCReactProvider(
     createTRPCClient<AppRouter>({
       links: [
         httpBatchStreamLink({
-          url: `${process.env.NEXT_PUBLIC_API_URL}/trpc`,
+          url: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003"}/trpc`,
           transformer: superjson,
           async headers() {
             const accessToken = await getAccessToken();

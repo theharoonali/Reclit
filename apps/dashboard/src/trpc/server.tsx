@@ -21,9 +21,12 @@ import {
 export const getQueryClient = cache(makeQueryClient);
 
 // Server-side: prefer Railway private networking (skips DNS + TLS + Cloudflare)
-// Falls back to public URL for local dev / non-Railway environments
+// Server-side: prefer the internal URL (private networking) when set,
+// then the public URL, then the local-dev default.
 const API_BASE_URL =
-  process.env.API_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL;
+  process.env.API_INTERNAL_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:3003";
 
 const SSR_FETCH_TIMEOUT_MS = 8_000;
 

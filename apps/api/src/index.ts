@@ -31,7 +31,10 @@ app.use(
 app.use(
   "*",
   cors({
-    origin: process.env.ALLOWED_API_ORIGINS?.split(",") ?? [],
+    // Defaults to the local dashboard so dev works with zero config.
+    origin: process.env.ALLOWED_API_ORIGINS?.split(",") ?? [
+      "http://localhost:3001",
+    ],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allowHeaders: [
       "Authorization",
