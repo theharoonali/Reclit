@@ -1,0 +1,24 @@
+// Prisma schema for the API. Docs: https://pris.ly/d/prisma-schema
+//
+// The connection URL is not declared here — `prisma.config.ts` reads it from
+// DATABASE_URL (Prisma 7 config-based datasource).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// The one example table. Copy this shape for new models.
+model Note {
+  id        String   @id @default(uuid())
+  title     String
+  content   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}

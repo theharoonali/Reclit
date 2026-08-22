@@ -1,9 +1,9 @@
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { createTRPCRouter } from "../init";
-import { exampleRouter } from "./example";
+import { noteRouter } from "./note";
 
 export const appRouter = createTRPCRouter({
-  example: exampleRouter,
+  note: noteRouter,
 });
 
 export type AppRouter = typeof appRouter;

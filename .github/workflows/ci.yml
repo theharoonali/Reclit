@@ -31,6 +31,3 @@ jobs:
         run: bunx turbo build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:3003
-          NEXT_PUBLIC_URL: http://localhost:3001
-          NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: placeholder

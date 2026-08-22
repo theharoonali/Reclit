@@ -1,34 +1,37 @@
 {
   "name": "@repo/api",
   "scripts": {
-    "dev": "TZ=UTC PORT=3003 bun run --hot src/index.ts",
+    "dev": "PORT=3003 bun --watch src/main.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit",
-    "test": "bun test --exit --timeout 30000 src"
+    "test": "bun test --exit --timeout 30000 src",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "postinstall": "prisma generate"
   },
   "exports": {
     "./trpc/routers/_app": "./src/trpc/routers/_app.ts"
   },
   "dependencies": {
-    "@hono/trpc-server": "^0.4.2",
-    "@hono/zod-openapi": "1.2.3",
-    "@repo/db": "workspace:*",
-    "@repo/encryption": "workspace:*",
-    "@repo/health": "workspace:*",
-    "@repo/logger": "workspace:*",
-    "@repo/supabase": "workspace:*",
-    "@repo/utils": "workspace:*",
-    "@scalar/hono-api-reference": "^0.10.5",
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/core": "^11.1.6",
+    "@nestjs/platform-express": "^11.1.6",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
     "@trpc/server": "^11.16.0",
-    "hono": "catalog:",
-    "jose": "catalog:",
-    "nanoid": "catalog:",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
     "superjson": "^2.2.6",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/express": "^5.0.1",
+    "dotenv": "^17.4.2",
+    "prisma": "^7.9.1"
   }
 }

@@ -7,7 +7,6 @@
       "Bash(bun dev:*)",
       "Bash(bunx turbo:*)",
       "Bash(bunx biome:*)",
-      "Bash(bunx drizzle-kit generate:*)",
       "Bash(git status)",
       "Bash(git diff:*)",
       "Bash(git log:*)"

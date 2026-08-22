@@ -1,6 +1,12 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
   "files": {
     "includes": [
       "**",
@@ -8,14 +14,18 @@
       "!**/node_modules",
       "!**/.turbo",
       "!**/.next",
-      "!**/.react-email",
-      "!**/.wrangler"
+      "!**/generated"
     ]
   },
   "css": {
     "parser": {
       "cssModules": true,
       "tailwindDirectives": true
+    }
+  },
+  "javascript": {
+    "parser": {
+      "unsafeParameterDecoratorsEnabled": true
     }
   },
   "linter": {
@@ -61,5 +71,17 @@
   },
   "formatter": {
     "indentStyle": "space"
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["apps/api/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useImportType": "off"
+          }
+        }
+      }
+    }
+  ]
 }

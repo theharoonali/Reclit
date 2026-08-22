@@ -41,6 +41,9 @@ yarn-error.log*
 # turbo
 .turbo
 
+# prisma generated client
+apps/api/generated
+
 # Supabase
 .branches
 .temp

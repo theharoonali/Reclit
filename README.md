@@ -1,43 +1,47 @@
-# Monorepo Skeleton
+# Monorepo Template
 
-A Bun + Turborepo monorepo skeleton with a Next.js frontend and a Hono/tRPC backend.
+A Bun + Turborepo monorepo template with a Next.js frontend and a NestJS backend,
+connected end-to-end with tRPC. It contains exactly one example of each pattern —
+copy the pattern to build features.
 
 ## Stack
 
 - **Runtime / package manager:** [Bun](https://bun.sh)
 - **Monorepo:** [Turborepo](https://turborepo.dev) with Bun workspaces
-- **Frontend:** Next.js 16 (App Router) + React 19 + Tailwind + shadcn-style UI kit
-- **Backend:** Hono + tRPC 11 + OpenAPI (Scalar docs)
-- **Database:** Postgres via Drizzle ORM
-- **Auth:** Supabase
+- **Frontend:** Next.js 16 (App Router) + React 19 + Tailwind + a shadcn-style `Button`
+- **Backend:** NestJS 11 (running directly on Bun) + tRPC 11
+- **Database:** PostgreSQL via Prisma 7
 - **Lint/format:** Biome
 
 ## Structure
 
 | Path | Description |
 | --- | --- |
-| `apps/api` | Hono + tRPC API server (port 3003) |
+| `apps/api` | NestJS API server (port 3003), tRPC at `/trpc`, Prisma schema in `prisma/` |
 | `apps/dashboard` | Next.js web app (port 3001) |
-| `packages/ui` | Shared UI component library (shadcn/Radix) |
-| `packages/db` | Drizzle ORM client, schema, migrations |
-| `packages/supabase` | Supabase auth clients (server/client/middleware) |
-| `packages/trpc` | Shared tRPC client helpers |
-| `packages/logger` | Pino logger |
-| `packages/encryption` | Encryption helpers |
-| `packages/health` | Health check probes |
-| `packages/utils` | Shared utilities |
-| `packages/tsconfig` | Shared TypeScript configs |
+| `packages/ui` | The one shared package: `Button` component + Tailwind preset |
 
 ## Getting started
 
 ```bash
 bun install
-cp apps/api/.env.example apps/api/.env
-cp apps/dashboard/.env.example apps/dashboard/.env
+cp apps/api/.env.example apps/api/.env   # set DATABASE_URL
+bun run --filter=@repo/api db:migrate    # create the tables
 bun dev
 ```
 
-- API: http://localhost:3003 (Scalar API docs at `/`)
-- Dashboard: http://localhost:3001
+- API: http://localhost:3003 (`/health`, `/trpc/*`)
+- Dashboard: http://localhost:3001 — `/` notes CRUD
 
-See [CLAUDE.md](CLAUDE.md) for development conventions and commands.
+`DATABASE_URL` is the only variable you must set; everything else has a working
+local-dev default (`.env.example` files document them). On Supabase, the direct
+`db.<ref>.supabase.co` host resolves IPv6-only — if your network has no IPv6
+route, use the **Session pooler** connection string instead.
+
+## Docs
+
+- [AGENTS.md](AGENTS.md) — map for AI coding agents (commands, conventions, invariants)
+- [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces connect
+- [docs/rules/](docs/rules/COMMON.md) — coding rules: common, backend, frontend
+- [docs/routes/](docs/routes/index.md) — one doc per route: files, APIs, what's missing
+- `docs/` — security/reliability notes, design docs, exec plans

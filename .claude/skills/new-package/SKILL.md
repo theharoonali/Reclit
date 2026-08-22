@@ -41,15 +41,32 @@ Rules:
 
 ## tsconfig.json
 
+Each package carries its own self-contained tsconfig (there is no shared
+tsconfig package). Copy `packages/ui/tsconfig.json` and adjust:
+
 ```json
 {
-  "extends": "@repo/tsconfig/base.json",
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "incremental": false,
+    "isolatedModules": true,
+    "lib": ["es2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleDetection": "force",
+    "moduleResolution": "NodeNext",
+    "noUncheckedIndexedAccess": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022",
+    "types": ["node", "bun"]
+  },
   "include": ["src"],
   "exclude": ["node_modules"]
 }
 ```
 
-For React component packages, extend `@repo/tsconfig/react-library.json` instead.
+For React component packages, add `"jsx": "react-jsx"` to `compilerOptions`.
 
 ## src/index.ts
 

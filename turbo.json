@@ -3,58 +3,37 @@
   "globalDependencies": ["**/.env"],
   "globalPassThroughEnv": [
     "DATABASE_URL",
-    "DATABASE_REPLICA_URL",
-    "SUPABASE_URL",
-    "SUPABASE_SECRET_KEY",
-    "SUPABASE_JWT_SECRET",
+    "PORT",
     "ALLOWED_API_ORIGINS",
-    "INTERNAL_API_KEY",
-    "APP_ENCRYPTION_KEY",
-    "API_URL",
-    "API_INTERNAL_URL",
-    "DASHBOARD_URL"
+    "API_INTERNAL_URL"
   ],
   "ui": "stream",
   "tasks": {
     "topo": {
       "dependsOn": ["^topo"]
     },
+    "db:generate": {
+      "inputs": ["prisma/schema.prisma", "prisma.config.ts"],
+      "outputs": ["generated/**"]
+    },
     "build": {
       "inputs": ["$TURBO_DEFAULT$", ".env"],
-      "dependsOn": ["^build"],
-      "outputs": [
-        ".next/**",
-        "!.next/cache/**",
-        "next-env.d.ts",
-        ".expo/**",
-        "dist/**",
-        "build/**",
-        "lib/**"
-      ],
-      "passThroughEnv": [
-        "DATABASE_URL",
-        "DATABASE_REPLICA_URL",
-        "SUPABASE_URL",
-        "SUPABASE_SECRET_KEY",
-        "NEXT_PUBLIC_URL",
-        "NEXT_PUBLIC_API_URL",
-        "NEXT_PUBLIC_SUPABASE_URL",
-        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-        "APP_ENCRYPTION_KEY",
-        "INTERNAL_API_KEY"
-      ]
+      "dependsOn": ["^build", "db:generate"],
+      "outputs": [".next/**", "!.next/cache/**", "next-env.d.ts"],
+      "passThroughEnv": ["NEXT_PUBLIC_API_URL", "API_INTERNAL_URL"]
     },
     "start": {
       "cache": false
     },
     "test": {
       "cache": false,
-      "env": ["TEST_DATABASE_URL"]
+      "dependsOn": ["db:generate"]
     },
     "dev": {
       "inputs": ["$TURBO_DEFAULT$", ".env"],
       "persistent": true,
-      "cache": false
+      "cache": false,
+      "dependsOn": ["db:generate"]
     },
     "format": {},
     "lint": {
@@ -65,7 +44,8 @@
       "cache": false
     },
     "typecheck": {
-      "outputs": []
+      "outputs": [],
+      "dependsOn": ["db:generate"]
     }
   }
 }

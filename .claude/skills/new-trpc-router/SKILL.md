@@ -5,31 +5,39 @@ description: Add a new tRPC router to the API and consume it from the dashboard.
 
 # Add a tRPC router (api → dashboard)
 
+Full rules: [docs/rules/BACKEND.md](../../../docs/rules/BACKEND.md).
+Rules that must hold (see AGENTS.md "Hard invariants"):
+- Files under `apps/api/src/trpc/` must NOT import `@nestjs/*` or any decorated
+  class — the dashboard transpiles this import graph.
+- `_app.ts` must keep exporting `AppRouter`, `RouterInputs`, `RouterOutputs`.
+
 ## 1. Router file — `apps/api/src/trpc/routers/<name>.ts`
 
 ```ts
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure, publicProcedure } from "../init";
+import { createTRPCRouter, publicProcedure } from "../init";
 
 export const <name>Router = createTRPCRouter({
-  list: publicProcedure.query(async ({ ctx }) => {
-    // ctx.db (Drizzle), ctx.session (null unless authed), ctx.supabase
+  list: publicProcedure.query(async () => {
     return [];
   }),
 
-  create: protectedProcedure
+  create: publicProcedure
     .input(z.object({ title: z.string().min(1) }))
-    .mutation(async ({ ctx, input }) => {
-      // ctx.session is guaranteed here
+    .mutation(async ({ input }) => {
       return { ok: true };
     }),
 });
 ```
 
-Procedure types (from `apps/api/src/trpc/init.ts`):
-- `publicProcedure` — no auth
-- `protectedProcedure` — requires a valid Supabase JWT (`ctx.session` non-null)
-- `internalProcedure` — service-to-service only via `x-internal-key`
+Routers **validate and delegate only**. Anything touching the database goes in a
+service under `apps/api/src/modules/<name>/` — copy `src/modules/note/`
+(`schema` + `service`). Services stay decorator-free so this router can import
+them.
+
+`publicProcedure` is the only procedure type — there is no auth yet. The tRPC
+context is empty (`apps/api/src/trpc/init.ts`); extend `createTRPCContext` there
+if procedures need request data.
 
 ## 2. Register — `apps/api/src/trpc/routers/_app.ts`
 
@@ -41,9 +49,6 @@ export const appRouter = createTRPCRouter({
   <name>: <name>Router,
 });
 ```
-
-Do NOT remove the `AppRouter`, `RouterInputs`, `RouterOutputs` exports — the dashboard
-depends on them via `@repo/api/trpc/routers/_app`.
 
 ## 3. Consume from the dashboard
 
@@ -60,14 +65,24 @@ const { data } = useQuery(trpc.<name>.list.queryOptions());
 
 Server component (prefetch/SSR): use `trpc` + `prefetch`/`HydrateClient` from `@/trpc/server`.
 
-## 4. Database access
+## 4. REST instead?
 
-Use `ctx.db` with schema from `@repo/db/schema`. If a new table is needed:
-edit `packages/db/src/schema.ts`, then from `packages/db` run `bunx drizzle-kit generate`.
+The default is tRPC only (`GET /health` in `src/app.controller.ts` is the sole
+REST endpoint). If a non-tRPC consumer needs REST, add `<name>.controller.ts` +
+`<name>.module.ts` (a `@Module` binding the service singleton with `useValue`) to
+the feature folder and import that module in `src/app.module.ts`. Never mix
+controllers into `src/trpc/`. Import an injected service as a **value**, never
+`import type`.
+
+## 4b. Update the route doc
+
+Add the new procedures to the "APIs called" table of every affected page in
+[docs/routes/](../../../docs/routes/index.md), in this same change.
 
 ## 5. Verify
 
 ```bash
 bunx turbo typecheck --filter=@repo/api --filter=@repo/dashboard
+bunx turbo build          # confirms no server-only code leaked into the dashboard
 curl "http://localhost:3003/trpc/<name>.list"
 ```

@@ -16,11 +16,10 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false,
-    "jsx": "react-jsx",
-    "jsxImportSource": "react",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "paths": {
-      "@api/*": ["./src/*"],
-      "@db/*": ["../../packages/db/src/*"]
+      "@api/*": ["./src/*"]
     },
     "types": ["bun"]
   },
