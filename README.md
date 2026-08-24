@@ -44,4 +44,4 @@ route, use the **Session pooler** connection string instead.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces connect
 - [docs/rules/](docs/rules/COMMON.md) — coding rules: common, backend, frontend
 - [docs/routes/](docs/routes/index.md) — one doc per route: files, APIs, what's missing
-- `docs/` — security/reliability notes, exec plans
+- `docs/` — security and reliability notes, generated database schema

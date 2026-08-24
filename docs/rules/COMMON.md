@@ -19,14 +19,6 @@ Applies to both apps. See also [BACKEND.md](BACKEND.md) and [FRONTEND.md](FRONTE
    reach the dashboard, that rule was broken.
 5. The dashboard imports API code **type-only**. Never import API runtime code.
 
-## Plans
-
-- A plan that is written but **not yet executed** goes in
-  `docs/exec-plans/active/` — one file per plan, numbered (`001-…`).
-- Once executed, **move** it to `docs/exec-plans/completed/` and tick its
-  checklist. Never delete a plan.
-- Deliberate gaps go in [../exec-plans/tech-debt-tracker.md](../exec-plans/tech-debt-tracker.md).
-
 ## Docs
 
 - Every route has a doc in [`docs/routes/`](../routes/index.md), created from
@@ -35,6 +27,8 @@ Applies to both apps. See also [BACKEND.md](BACKEND.md) and [FRONTEND.md](FRONTE
   change.** The doc is the contract; stale docs are worse than none.
 - Read the route doc before opening code. Open code only when the doc is
   insufficient — then fix the doc.
+- Docs describe the code as it is now — not what changed, when, or why it was
+  removed. No changelogs, no dated entries, no done/not-done checklists.
 
 ## Naming
 

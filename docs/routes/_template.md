@@ -29,15 +29,10 @@
 | --- | --- | --- | --- | --- | --- |
 | `<feature>.<proc>` | query/mutation | … | … | `<Service>.<method>` | `<Table>` |
 
-REST equivalents (not used by this page): …
+## Behaviour
 
-## Implemented
-
-- [x] …
-
-## Not implemented
-
-- [ ] … — where it would go if added.
+- How the page behaves now: states handled, validation, and the limits of what
+  the procedures accept. Describe the code as it is — no done/not-done checklist.
 
 ## Reusable pieces
 
@@ -45,4 +40,4 @@ REST equivalents (not used by this page): …
 
 ## Linked routes
 
-- [`/other`](other.md) — how they relate.
+- `/other` (link to its doc) — how they relate.

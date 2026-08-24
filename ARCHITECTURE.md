@@ -80,6 +80,5 @@ Build-time pass-through vars live in `turbo.json`; add new ones there too.
 
 ## What is intentionally absent
 
-No auth, no logger package, no Docker files, no i18n, no pagination, no REST
-mirror of the tRPC procedures. See
-[docs/exec-plans/tech-debt-tracker.md](docs/exec-plans/tech-debt-tracker.md).
+No auth, no logger package, no Docker files, no i18n, no pagination, no CI
+pipeline, and no REST beyond `GET /health`. Add them when a feature needs them.

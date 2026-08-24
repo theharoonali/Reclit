@@ -18,5 +18,4 @@ adapter, generated to `apps/api/generated/prisma` (gitignored).
 
 Indexes: `Note_createdAt_idx` on `createdAt` (the list query sorts by it).
 
-Migrations: `apps/api/prisma/migrations/` — `20260820004848_init_note` created
-the table.
+Migrations live in `apps/api/prisma/migrations/`.

@@ -1,12 +1,13 @@
 # Security
 
-Current posture of the template (from the code as it stands).
+Security posture of the template.
 
 ## Auth
 
-**There is no authentication.** All tRPC procedures are `publicProcedure`; both
-REST endpoints are open. When auth is added, introduce a `protectedProcedure` in
-`apps/api/src/trpc/init.ts` that reads the request in `createTRPCContext`.
+**There is no authentication.** All tRPC procedures are `publicProcedure`, and
+the one REST endpoint (`GET /health`) is open. When auth is added, introduce a
+`protectedProcedure` in `apps/api/src/trpc/init.ts` that reads the request in
+`createTRPCContext`.
 
 ## CORS
 

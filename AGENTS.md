@@ -111,9 +111,7 @@ Anything touching the database goes through a service in
 **Reference:**
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces connect, request/type flow
-- [docs/FRONTEND.md](docs/FRONTEND.md) — dashboard structure as it stands
+- [docs/FRONTEND.md](docs/FRONTEND.md) — dashboard structure and conventions
 - [docs/generated/db-schema.md](docs/generated/db-schema.md) — database tables
 - [docs/SECURITY.md](docs/SECURITY.md) — CORS and auth posture
 - [docs/RELIABILITY.md](docs/RELIABILITY.md) — health checks and testing
-- [docs/PLANS.md](docs/PLANS.md) — how execution plans are tracked
-- [docs/exec-plans/tech-debt-tracker.md](docs/exec-plans/tech-debt-tracker.md) — known intentional gaps

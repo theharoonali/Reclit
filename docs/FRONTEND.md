@@ -1,6 +1,6 @@
 # Frontend
 
-How `apps/dashboard` is put together **today**. The rules you must follow when
+How `apps/dashboard` is put together. The rules you must follow when
 adding to it are in [rules/FRONTEND.md](rules/FRONTEND.md); per-page file and API
 maps are in [routes/](routes/index.md).
 
@@ -16,7 +16,7 @@ apps/dashboard/src/
 └── trpc/                   # client.tsx (browser), server.tsx (RSC), query-client.ts
 ```
 
-## Conventions (from the code as it stands)
+## Conventions
 
 - Fonts: Geist + Geist Mono loaded in `app/layout.tsx`, exposed as `--font-sans` /
   `--font-mono`; the `@reclit/ui` Tailwind preset maps `font-sans`/`font-mono` to them.

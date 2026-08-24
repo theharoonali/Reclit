@@ -48,26 +48,16 @@ it** — the panel already has each row's data.
 `GET /health` (`apps/api/src/app.controller.ts`) is the only REST endpoint; it
 reports database reachability and is not called by this page.
 
-## Implemented
+## Behaviour
 
-- [x] List, create, update, delete, with the list query invalidated after each mutation
-- [x] Server-side prefetch + hydration (no loading flash on first paint)
-- [x] Loading, error, and empty states
-- [x] Title required and trimmed; partial update keeps `content` intact
-- [x] `NOT_FOUND` on a missing id
-- [x] `GET /health` reports database reachability
-- [x] API tests in `apps/api/src/__tests__/` (skip DB-backed checks when the DB is unreachable)
-
-## Not implemented
-
-- [ ] **Pagination / search / sorting** — `note.list` returns every row.
-      Add input to `note.list` + `NoteService.list`, then a control in `notes-panel.tsx`.
-- [ ] **Delete confirmation** — Delete fires immediately.
-- [ ] **Optimistic updates / toasts** — mutations wait for the refetch.
-- [ ] **Ownership / auth** — every procedure is `publicProcedure`; `Note` has no
-      user column. Needs a `protectedProcedure` in `apps/api/src/trpc/init.ts` first.
-- [ ] **Detail route** (`/notes/[id]`) — `note.byId` is already there for it.
-- [ ] **Frontend tests** — the dashboard has no test setup yet.
+- The list query is invalidated after every mutation.
+- Server-side prefetch + hydration, so there is no loading flash on first paint.
+- Loading, error, and empty states are all handled.
+- Title is required and trimmed; a partial update leaves `content` intact.
+- A missing id yields `NOT_FOUND`.
+- `note.list` returns every row — there is no pagination, search, or sorting
+  input. Delete fires immediately, with no confirmation step.
+- Every procedure is `publicProcedure`; `Note` has no user column.
 
 ## Reusable pieces
 

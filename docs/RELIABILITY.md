@@ -28,12 +28,9 @@ The Postgres pool is closed on shutdown by `PrismaModule`
   (see `expectTRPCError` in that file).
 - The dashboard has no tests yet; its `test` script no-ops until a `*.test.ts` exists.
 
-## CI
-
-`.github/workflows/ci.yml`: lint → typecheck → test → build on every push to
-`main` and every PR. The Prisma client is generated automatically — `db:generate`
-is a Turbo dependency of `typecheck`, `test`, `build`, and `dev`, and also runs as
-`apps/api`'s `postinstall`. CI has no database, so the note tests skip there.
+The Prisma client is generated automatically before these run: `db:generate` is a
+Turbo dependency of `typecheck`, `test`, `build`, and `dev`, and also runs as
+`apps/api`'s `postinstall`.
 
 ## Timeouts
 
