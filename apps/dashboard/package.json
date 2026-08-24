@@ -1,11 +1,11 @@
 {
-  "name": "@repo/dashboard",
+  "name": "@reclit/dashboard",
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "build": "NODE_ENV=production next build --turbopack",
     "clean": "git clean -xdf .next .turbo node_modules",
-    "dev": "TZ=UTC next dev -p 3001 --turbopack",
+    "dev": "TZ=UTC next dev -p 4000 --turbopack",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
@@ -14,8 +14,8 @@
     "test": "find src -name '*.test.ts' -o -name '*.spec.ts' | grep -q . && bun test --exit src || echo 'No tests yet'"
   },
   "dependencies": {
-    "@repo/api": "workspace:*",
-    "@repo/ui": "workspace:*",
+    "@reclit/api": "workspace:*",
+    "@reclit/ui": "workspace:*",
     "@tanstack/react-query": "^5.95.2",
     "@trpc/client": "^11.16.0",
     "@trpc/tanstack-react-query": "^11.16.0",
@@ -23,8 +23,7 @@
     "next-themes": "^0.4.6",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "superjson": "^2.2.6",
-    "zod": "catalog:"
+    "superjson": "^2.2.6"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

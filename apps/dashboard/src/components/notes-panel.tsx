@@ -1,7 +1,7 @@
 "use client";
 
-import type { RouterOutputs } from "@repo/api/trpc/routers/_app";
-import { Button } from "@repo/ui/button";
+import type { RouterOutputs } from "@reclit/api/trpc/routers/_app";
+import { Button } from "@reclit/ui/button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { useTRPC } from "@/trpc/client";

@@ -5,12 +5,12 @@
 Two apps, one shared package, one type bridge, one database.
 
 ```
-apps/dashboard (Next.js 16, port 3001)
-  │  imports type AppRouter from "@repo/api/trpc/routers/_app"   ← types only
+apps/dashboard (Next.js 16, port 4000)
+  │  imports type AppRouter from "@reclit/api/trpc/routers/_app"   ← types only
   │
-  │  HTTP: httpBatchStreamLink → http://localhost:3003/trpc
+  │  HTTP: httpBatchStreamLink → http://localhost:4001/trpc
   ▼
-apps/api (NestJS on Bun, port 3003)
+apps/api (NestJS on Bun, port 4001)
   ├── /trpc/*   tRPC 11 express adapter, mounted in src/bootstrap.ts
   │             └── appRouter → note.{list,byId,create,update,remove}
   └── /health   AppController (reports database reachability)
@@ -47,7 +47,7 @@ packages/ui  → Button + cn + Tailwind preset, consumed by dashboard
 
 `apps/api/package.json` exports `"./trpc/routers/_app"` pointing at the raw
 TypeScript source. The dashboard imports `AppRouter` **as a type only** and Next
-transpiles the import graph (`transpilePackages: ["@repo/api"]`). That graph is
+transpiles the import graph (`transpilePackages: ["@reclit/api"]`). That graph is
 `_app.ts → note.ts → init.ts → {@trpc/server, superjson, zod}` plus the note
 service and Prisma client — no NestJS — which is why the trpc directory must
 stay free of decorator code.
@@ -71,9 +71,9 @@ no Prisma code; `bunx turbo build` is the check.
 | Var | App | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | api | Postgres connection string, read by `prisma.config.ts` |
-| `PORT` | api | listen port (dev script sets 3003) |
-| `ALLOWED_API_ORIGINS` | api | CORS allowlist (default `http://localhost:3001`) |
-| `NEXT_PUBLIC_API_URL` | dashboard | browser tRPC target (default `http://localhost:3003`) |
+| `PORT` | api | listen port (dev script sets 4001) |
+| `ALLOWED_API_ORIGINS` | api | CORS allowlist (default `http://localhost:4000`) |
+| `NEXT_PUBLIC_API_URL` | dashboard | browser tRPC target (default `http://localhost:4001`) |
 | `API_INTERNAL_URL` | dashboard | optional SSR-side override |
 
 Build-time pass-through vars live in `turbo.json`; add new ones there too.

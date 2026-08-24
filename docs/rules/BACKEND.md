@@ -49,9 +49,9 @@ The default is tRPC only.
 ## Database
 
 ```bash
-bun run --filter=@repo/api db:generate   # regenerate the client after a schema edit
-bun run --filter=@repo/api db:migrate    # create + apply a migration (dev)
-bun run --filter=@repo/api db:deploy     # apply existing migrations (prod/CI)
+bun run --filter=@reclit/api db:generate   # regenerate the client after a schema edit
+bun run --filter=@reclit/api db:migrate    # create + apply a migration (dev)
+bun run --filter=@reclit/api db:deploy     # apply existing migrations (prod/CI)
 ```
 
 - Schema changes go through `db:migrate`. Never hand-edit the database or an

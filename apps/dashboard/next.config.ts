@@ -3,7 +3,7 @@ const config = {
   output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,
-  transpilePackages: ["@repo/ui", "@repo/api"],
+  transpilePackages: ["@reclit/ui", "@reclit/api"],
   devIndicators: false,
   async headers() {
     return [

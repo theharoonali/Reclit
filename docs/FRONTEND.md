@@ -12,19 +12,19 @@ apps/dashboard/src/
 │   └── page.tsx            # `/` → docs/routes/root.md
 ├── components/
 │   └── notes-panel.tsx     # the notes CRUD — the one feature component
-├── styles/globals.css      # app-level CSS (minimal; theme vars live in @repo/ui)
+├── styles/globals.css      # app-level CSS (minimal; theme vars live in @reclit/ui)
 └── trpc/                   # client.tsx (browser), server.tsx (RSC), query-client.ts
 ```
 
 ## Conventions (from the code as it stands)
 
 - Fonts: Geist + Geist Mono loaded in `app/layout.tsx`, exposed as `--font-sans` /
-  `--font-mono`; the `@repo/ui` Tailwind preset maps `font-sans`/`font-mono` to them.
+  `--font-mono`; the `@reclit/ui` Tailwind preset maps `font-sans`/`font-mono` to them.
 - Theming: `next-themes` with `attribute="class"`; color tokens are CSS variables
-  defined in `@repo/ui`'s `globals.css`, referenced via the Tailwind preset
+  defined in `@reclit/ui`'s `globals.css`, referenced via the Tailwind preset
   (`bg-background`, `text-muted-foreground`, …).
-- UI components come from `@repo/ui` subpath imports — currently just
-  `@repo/ui/button`. Add new shadcn-style components to
+- UI components come from `@reclit/ui` subpath imports — currently just
+  `@reclit/ui/button`. Add new shadcn-style components to
   `packages/ui/src/components/` and register them in its `exports` map. They are
   unanimated by design. Everything else is plain markup styled with the
   Tailwind theme tokens.

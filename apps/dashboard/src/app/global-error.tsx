@@ -1,7 +1,7 @@
 "use client";
 
 import "@/styles/globals.css";
-import { Button } from "@repo/ui/button";
+import { Button } from "@reclit/ui/button";
 
 export default function GlobalError({
   error,

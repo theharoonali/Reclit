@@ -1,3 +1,0 @@
-# Design
-
-<!-- No data yet. -->

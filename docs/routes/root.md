@@ -15,7 +15,7 @@ database rows, so it must not be prerendered at build time.
 | `apps/dashboard/src/app/layout.tsx` | RSC | Root layout: Geist fonts, `Providers` |
 | `apps/dashboard/src/app/providers.tsx` | client | `TRPCReactProvider` + `next-themes` |
 
-`@repo/ui` usage: `Button` (the package's only component); everything else is
+`@reclit/ui` usage: `Button` (the package's only component); everything else is
 plain markup + Tailwind tokens.
 
 ## Backend files

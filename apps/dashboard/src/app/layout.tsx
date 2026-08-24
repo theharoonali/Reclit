@@ -1,5 +1,5 @@
 import "@/styles/globals.css";
-import "@repo/ui/globals.css";
+import "@reclit/ui/globals.css";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import type { ReactElement } from "react";

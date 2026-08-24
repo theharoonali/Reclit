@@ -1,6 +1,6 @@
-# Monorepo Template
+# reclit
 
-A Bun + Turborepo monorepo template with a Next.js frontend and a NestJS backend,
+reclit — a Bun + Turborepo monorepo template with a Next.js frontend and a NestJS backend,
 connected end-to-end with tRPC. It contains exactly one example of each pattern —
 copy the pattern to build features.
 
@@ -17,8 +17,8 @@ copy the pattern to build features.
 
 | Path | Description |
 | --- | --- |
-| `apps/api` | NestJS API server (port 3003), tRPC at `/trpc`, Prisma schema in `prisma/` |
-| `apps/dashboard` | Next.js web app (port 3001) |
+| `apps/api` | NestJS API server (port 4001), tRPC at `/trpc`, Prisma schema in `prisma/` |
+| `apps/dashboard` | Next.js web app (port 4000) |
 | `packages/ui` | The one shared package: `Button` component + Tailwind preset |
 
 ## Getting started
@@ -26,12 +26,12 @@ copy the pattern to build features.
 ```bash
 bun install
 cp apps/api/.env.example apps/api/.env   # set DATABASE_URL
-bun run --filter=@repo/api db:migrate    # create the tables
+bun run --filter=@reclit/api db:migrate    # create the tables
 bun dev
 ```
 
-- API: http://localhost:3003 (`/health`, `/trpc/*`)
-- Dashboard: http://localhost:3001 — `/` notes CRUD
+- API: http://localhost:4001 (`/health`, `/trpc/*`)
+- Dashboard: http://localhost:4000 — `/` notes CRUD
 
 `DATABASE_URL` is the only variable you must set; everything else has a working
 local-dev default (`.env.example` files document them). On Supabase, the direct
@@ -44,4 +44,4 @@ route, use the **Session pooler** connection string instead.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces connect
 - [docs/rules/](docs/rules/COMMON.md) — coding rules: common, backend, frontend
 - [docs/routes/](docs/routes/index.md) — one doc per route: files, APIs, what's missing
-- `docs/` — security/reliability notes, design docs, exec plans
+- `docs/` — security/reliability notes, exec plans

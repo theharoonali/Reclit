@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { AppRouter } from "@repo/api/trpc/routers/_app";
+import type { AppRouter } from "@reclit/api/trpc/routers/_app";
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 import { createTRPCClient, httpLink, loggerLink } from "@trpc/client";
 import {
@@ -20,7 +20,7 @@ export const getQueryClient = cache(makeQueryClient);
 const API_BASE_URL =
   process.env.API_INTERNAL_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
-  "http://localhost:3003";
+  "http://localhost:4001";
 
 const SSR_FETCH_TIMEOUT_MS = 8_000;
 
@@ -77,13 +77,5 @@ export function prefetch<T extends ReturnType<TRPCQueryOptions<any>>>(
     void queryClient.prefetchQuery(queryOptions).catch(() => {
       // Avoid unhandled promise rejections from fire-and-forget prefetches.
     });
-  }
-}
-
-export function batchPrefetch<T extends ReturnType<TRPCQueryOptions<any>>>(
-  queryOptionsArray: T[],
-) {
-  for (const queryOptions of queryOptionsArray) {
-    prefetch(queryOptions);
   }
 }

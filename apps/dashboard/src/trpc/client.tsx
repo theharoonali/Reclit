@@ -1,6 +1,6 @@
 "use client";
 
-import type { AppRouter } from "@repo/api/trpc/routers/_app";
+import type { AppRouter } from "@reclit/api/trpc/routers/_app";
 import type { QueryClient } from "@tanstack/react-query";
 import { isServer, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -38,7 +38,7 @@ export function TRPCReactProvider(
     createTRPCClient<AppRouter>({
       links: [
         httpBatchStreamLink({
-          url: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003"}/trpc`,
+          url: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4001"}/trpc`,
           transformer: superjson,
         }),
         loggerLink({

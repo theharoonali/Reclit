@@ -15,7 +15,7 @@ Check, in priority order:
 2. **Repo conventions**
    - Shared dependency versions come from the root `package.json` catalog (`"dep": "catalog:"`);
      new shared deps must be added there, not pinned ad hoc in one workspace.
-   - Workspace references use `"@repo/x": "workspace:*"`.
+   - Workspace references use `"@reclit/x": "workspace:*"`.
    - New tRPC routers are registered in `apps/api/src/trpc/routers/_app.ts`, and `_app.ts`
      still exports `AppRouter`, `RouterInputs`, `RouterOutputs`.
    - Server-only code (db access, secrets) must not be imported into client components.

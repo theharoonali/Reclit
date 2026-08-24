@@ -1,5 +1,5 @@
 {
-  "name": "repo",
+  "name": "reclit",
   "private": true,
   "workspaces": [
     "packages/*",
@@ -11,10 +11,10 @@
     "clean:workspaces": "turbo clean",
     "dev": "turbo dev --parallel",
     "test": "turbo test --parallel",
-    "dev:api": "turbo dev --filter=@repo/api",
-    "dev:dashboard": "turbo dev --filter=@repo/dashboard",
-    "start:dashboard": "turbo start --filter=@repo/dashboard",
-    "build:dashboard": "turbo build --filter=@repo/dashboard",
+    "dev:api": "turbo dev --filter=@reclit/api",
+    "dev:dashboard": "turbo dev --filter=@reclit/dashboard",
+    "start:dashboard": "turbo start --filter=@reclit/dashboard",
+    "build:dashboard": "turbo build --filter=@reclit/dashboard",
     "format": "biome format --write .",
     "lint": "turbo lint",
     "lint:fix": "turbo lint:fix",

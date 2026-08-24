@@ -1,6 +1,6 @@
 # Frontend Rules
 
-`apps/dashboard` — Next.js 16 App Router, Tailwind, shadcn-style `@repo/ui`.
+`apps/dashboard` — Next.js 16 App Router, Tailwind, shadcn-style `@reclit/ui`.
 Shared rules: [COMMON.md](COMMON.md).
 
 ## Where code goes
@@ -32,7 +32,7 @@ beyond page framing.
   `text-destructive`. **No raw hex, no inline `style`, no arbitrary colors.**
 - Tokens are CSS variables in `packages/ui/src/globals.css`, exposed through the
   Tailwind preset. Add a token there rather than a one-off color.
-- `@repo/ui` components are unanimated. Do not add enter/exit animation classes
+- `@reclit/ui` components are unanimated. Do not add enter/exit animation classes
   to Radix primitives — a stuck exit animation keeps the node mounted and
   swallows clicks.
 

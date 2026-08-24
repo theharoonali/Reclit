@@ -14,7 +14,7 @@ then fix the doc. The rules you must follow live in
 A Bun + Turborepo TypeScript monorepo template: Next.js web app + NestJS API,
 connected end-to-end with tRPC. It intentionally contains exactly one example of
 each pattern — one CRUD feature (`Note`), one feature component
-(`notes-panel.tsx`), one shared package (`@repo/ui`, exporting one component) —
+(`notes-panel.tsx`), one shared package (`@reclit/ui`, exporting one component) —
 so you can copy the pattern to build features. `Note` at `/` is the reference
 vertical slice: Postgres → Prisma → service → tRPC → UI. There is no auth yet.
 
@@ -22,34 +22,34 @@ vertical slice: Postgres → Prisma → service → tRPC → UI. There is no aut
 
 | Path | Package | Purpose |
 | --- | --- | --- |
-| `apps/api` | `@repo/api` | NestJS API server (Bun runtime), port **3003**, tRPC mounted at `/trpc`, Prisma + Postgres |
-| `apps/dashboard` | `@repo/dashboard` | Next.js 16 App Router web app, port **3001** |
-| `packages/ui` | `@repo/ui` | The one shared package: `Button` + `cn` + Tailwind preset |
+| `apps/api` | `@reclit/api` | NestJS API server (Bun runtime), port **4001**, tRPC mounted at `/trpc`, Prisma + Postgres |
+| `apps/dashboard` | `@reclit/dashboard` | Next.js 16 App Router web app, port **4000** |
+| `packages/ui` | `@reclit/ui` | The one shared package: `Button` + `cn` + Tailwind preset |
 
 ## Commands
 
 ```bash
 bun install                 # install all workspaces
 bun dev                     # run api + dashboard in parallel
-bun run dev:api             # api only (http://localhost:3003)
-bun run dev:dashboard       # dashboard only (http://localhost:3001)
+bun run dev:api             # api only (http://localhost:4001)
+bun run dev:dashboard       # dashboard only (http://localhost:4000)
 bunx turbo typecheck        # typecheck all workspaces
 bunx turbo lint             # biome lint (bunx turbo lint:fix to autofix)
 bun run format              # biome format --write
 bunx turbo build            # build everything
 bunx turbo test             # run tests (bun test; api smoke + note CRUD)
-bun run --filter=@repo/api db:generate   # regenerate the Prisma client
-bun run --filter=@repo/api db:migrate    # create + apply a migration
+bun run --filter=@reclit/api db:generate   # regenerate the Prisma client
+bun run --filter=@reclit/api db:migrate    # create + apply a migration
 ```
 
-Filter to one workspace: `bunx turbo typecheck --filter=@repo/api`.
+Filter to one workspace: `bunx turbo typecheck --filter=@reclit/api`.
 
 ## Conventions
 
 - **Formatting/linting is Biome** (`biome.json`), not ESLint/Prettier. Run `bun run format` before committing.
 - **Dependency versions**: shared deps are pinned in the root `package.json` `"catalog"`
   field; workspace packages reference them as `"react": "catalog:"`. Workspace-internal
-  deps use `"@repo/x": "workspace:*"`.
+  deps use `"@reclit/x": "workspace:*"`.
 - **Path aliases**: `@api/*` → `apps/api/src/*` (inside the api), `@/*` → `src/*` (inside dashboard).
 - **New package**: use the `new-package` skill. Each workspace carries its own
   self-contained `tsconfig.json` — there is no shared tsconfig package.
@@ -65,7 +65,7 @@ Filter to one workspace: `bunx turbo typecheck --filter=@repo/api`.
 1. `apps/api/package.json` must keep exporting `"./trpc/routers/_app"` — it is the
    only type bridge to the dashboard.
 2. Nothing under `apps/api/src/trpc/` may import `@nestjs/*` or any decorated class.
-   The dashboard transpiles `@repo/api` (Next `transpilePackages`), and decorator code
+   The dashboard transpiles `@reclit/api` (Next `transpilePackages`), and decorator code
    breaks the Next build.
 3. `apps/api/src/trpc/routers/_app.ts` must keep exporting `AppRouter`, `RouterInputs`,
    `RouterOutputs`.

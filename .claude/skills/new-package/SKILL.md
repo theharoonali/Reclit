@@ -13,7 +13,7 @@ workspace link is created.
 
 ```json
 {
-  "name": "@repo/<name>",
+  "name": "@reclit/<name>",
   "version": "0.0.1",
   "private": true,
   "main": "src/index.ts",
@@ -35,7 +35,7 @@ workspace link is created.
 Rules:
 - Shared third-party deps use `"dep": "catalog:"` — if the dep isn't in the root
   `package.json` catalog yet, add it there with a pinned version.
-- Depend on sibling packages with `"@repo/x": "workspace:*"`.
+- Depend on sibling packages with `"@reclit/x": "workspace:*"`.
 - Add granular `exports` entries (`"./thing": "./src/thing.ts"`) rather than barrel-exporting
   everything through index.
 
@@ -76,5 +76,5 @@ Start with the real implementation — no placeholder re-exports.
 
 ```bash
 bun install
-bunx turbo typecheck --filter=@repo/<name>
+bunx turbo typecheck --filter=@reclit/<name>
 ```

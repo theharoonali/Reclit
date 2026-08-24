@@ -13,7 +13,7 @@ export async function createApp(opts?: { logger?: false }) {
 
   app.enableCors({
     origin: process.env.ALLOWED_API_ORIGINS?.split(",") ?? [
-      "http://localhost:3001",
+      "http://localhost:4000",
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allowedHeaders: [

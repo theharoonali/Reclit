@@ -40,7 +40,7 @@ The database password was pasted into a chat transcript and should be rotated.
 | Prisma location | `apps/api/prisma` (not a shared package) |
 | Table | `Note { id, title, content, createdAt, updatedAt }` |
 | Route | `/dashboard` for the CRUD; `/` stays the landing page |
-| UI additions | `input`, `label`, `table`, `dialog` in `@repo/ui` |
+| UI additions | `input`, `label`, `table`, `dialog` in `@reclit/ui` |
 
 ---
 
@@ -128,7 +128,7 @@ Register as `note:` in `apps/api/src/trpc/routers/_app.ts`.
 
 ## Part B — Frontend
 
-### B1. `@repo/ui` additions
+### B1. `@reclit/ui` additions
 
 Add `input.tsx`, `label.tsx`, `table.tsx`, `dialog.tsx` in
 `packages/ui/src/components/` (standard shadcn source, using the existing
@@ -165,7 +165,7 @@ Short and prescriptive. No prose beyond what's needed.
   `docs/exec-plans/completed/`. Never delete a plan.
 - Types: **Zod schemas in `<feature>.schema.ts` are the single source of truth.**
   Backend infers with `z.infer`. Frontend takes types from `RouterInputs` /
-  `RouterOutputs` (`@repo/api/trpc/routers/_app`) — never re-declare a shape the
+  `RouterOutputs` (`@reclit/api/trpc/routers/_app`) — never re-declare a shape the
   API already describes.
 - Prisma model types never cross the tRPC boundary; services return
   schema-shaped objects.
@@ -241,8 +241,8 @@ Each route doc carries:
 
 ```bash
 bun install
-bun run --filter=@repo/api db:generate
-bun run --filter=@repo/api db:migrate    # expected to fail on the IPv6 issue — report verbatim
+bun run --filter=@reclit/api db:generate
+bun run --filter=@reclit/api db:migrate    # expected to fail on the IPv6 issue — report verbatim
 bunx turbo lint typecheck
 bunx turbo build                          # confirms the type-only API import still erases cleanly
 bunx turbo test
@@ -289,10 +289,10 @@ Recorded so the next agent does not rediscover these.
    string. Update schemas are now built from undefaulted fields. Caught by a test.
 4. **Dialog animations broke the page.** `data-[state=closed]:animate-out` left
    the overlay permanently mounted with a never-finishing `exit` animation,
-   swallowing every subsequent click. Animations removed; `@repo/ui` is unanimated.
+   swallowing every subsequent click. Animations removed; `@reclit/ui` is unanimated.
 5. **`/dashboard` had to be `force-dynamic`.** Next tried to prerender it at build
    time, when no API is running, and the build failed.
 6. **`expect(p).rejects.toThrow(/regex/)` hangs** against `TRPCError` rejections in
    bun 1.3.9. Tests assert on `TRPCError.code` in a try/catch instead.
-7. **Added beyond the plan:** `@repo/ui/textarea` (note content needs a multiline
+7. **Added beyond the plan:** `@reclit/ui/textarea` (note content needs a multiline
    field) and `src/common/zod-validation.pipe.ts` (REST body validation).

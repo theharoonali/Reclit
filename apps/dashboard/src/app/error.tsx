@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@repo/ui/button";
+import { Button } from "@reclit/ui/button";
 
 export default function ErrorPage({
   error,

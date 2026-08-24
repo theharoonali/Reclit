@@ -9,7 +9,7 @@ Applies to both apps. See also [BACKEND.md](BACKEND.md) and [FRONTEND.md](FRONTE
 2. Backend types come from `z.infer<typeof schema>`. Never hand-write an
    interface that mirrors a schema.
 3. Frontend types come from `RouterInputs` / `RouterOutputs`
-   (`@repo/api/trpc/routers/_app`). Never re-declare a shape the API already
+   (`@reclit/api/trpc/routers/_app`). Never re-declare a shape the API already
    describes.
    ```ts
    type Note = RouterOutputs["note"]["list"][number];

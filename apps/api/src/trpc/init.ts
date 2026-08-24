@@ -2,7 +2,7 @@ import { initTRPC } from "@trpc/server";
 import superjson from "superjson";
 
 // This file (and everything under src/trpc/) must stay free of @nestjs/*
-// imports — the dashboard transpiles this import graph via @repo/api.
+// imports — the dashboard transpiles this import graph via @reclit/api.
 export type TRPCContext = Record<string, never>;
 
 export const createTRPCContext = (): TRPCContext => ({});

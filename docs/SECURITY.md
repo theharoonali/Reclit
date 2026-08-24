@@ -11,7 +11,7 @@ REST endpoints are open. When auth is added, introduce a `protectedProcedure` in
 ## CORS
 
 Configured in `apps/api/src/bootstrap.ts` via Nest's `enableCors`:
-- Origins: `ALLOWED_API_ORIGINS` (comma-separated), default `http://localhost:3001`.
+- Origins: `ALLOWED_API_ORIGINS` (comma-separated), default `http://localhost:4000`.
 - Allowed headers: `Authorization`, `Content-Type`, `x-trpc-source`, `trpc-accept`.
 
 ## Headers

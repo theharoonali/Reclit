@@ -30,4 +30,4 @@ jobs:
       - name: Build
         run: bunx turbo build
         env:
-          NEXT_PUBLIC_API_URL: http://localhost:3003
+          NEXT_PUBLIC_API_URL: http://localhost:4001

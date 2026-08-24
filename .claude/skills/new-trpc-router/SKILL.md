@@ -82,7 +82,7 @@ Add the new procedures to the "APIs called" table of every affected page in
 ## 5. Verify
 
 ```bash
-bunx turbo typecheck --filter=@repo/api --filter=@repo/dashboard
+bunx turbo typecheck --filter=@reclit/api --filter=@reclit/dashboard
 bunx turbo build          # confirms no server-only code leaked into the dashboard
-curl "http://localhost:3003/trpc/<name>.list"
+curl "http://localhost:4001/trpc/<name>.list"
 ```
