@@ -1,7 +1,7 @@
 # Routes
 
-One doc per route. **Read the route's doc before opening its code** — it lists
-every file and API behind the page, what exists, and what does not.
+One doc per page. **Read the route's doc before opening its code** — it lists
+every file and API behind the page and what it does today.
 
 | Route | Doc | Purpose |
 | --- | --- | --- |
@@ -9,4 +9,10 @@ every file and API behind the page, what exists, and what does not.
 
 New route? Copy [`_template.md`](_template.md), fill it in, add a row here.
 
-Rules: [common](../rules/COMMON.md) · [backend](../rules/BACKEND.md) · [frontend](../rules/FRONTEND.md)
+Backend detail (tables, services, procedures) lives in
+[docs/features/](../features/index.md); payloads and responses live in the
+feature's contract test. Route docs link to those rather than repeating them.
+
+Rules: [common](../rules/COMMON.md) · [frontend](../rules/FRONTEND.md) ·
+[backend](../rules/BACKEND.md) · [testing](../rules/TESTING.md) ·
+[workflow](../rules/WORKFLOW.md)

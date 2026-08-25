@@ -42,6 +42,9 @@ route, use the **Session pooler** connection string instead.
 
 - [AGENTS.md](AGENTS.md) — map for AI coding agents (commands, conventions, invariants)
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces connect
-- [docs/rules/](docs/rules/COMMON.md) — coding rules: common, backend, frontend
-- [docs/routes/](docs/routes/index.md) — one doc per route: files, APIs, what's missing
-- `docs/` — security and reliability notes, generated database schema
+- [docs/rules/](docs/rules/COMMON.md) — coding rules: common, backend, frontend, testing, workflow
+- [docs/features/](docs/features/index.md) — one doc per backend feature: table, service, procedures
+- [docs/routes/](docs/routes/index.md) — one doc per route: files, APIs
+- [docs/plans/](docs/plans/) — what was planned, and what shipped
+- `apps/api/src/__tests__/<feature>.api.test.ts` — the API contract: payloads, responses, error codes
+- `docs/` — security and reliability notes

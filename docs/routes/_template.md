@@ -12,27 +12,26 @@
 
 | Path | Kind | Responsibility |
 | --- | --- | --- |
-| `apps/dashboard/src/app/<route>/page.tsx` | RSC | … |
-| `apps/dashboard/src/components/<name>.tsx` | client | … |
+| `apps/dashboard/src/app/(app)/<route>/page.tsx` | RSC | … |
+| `apps/dashboard/src/components/<feature>/<name>.tsx` | client | … |
 
-## Backend files
-
-| Path | Layer | Responsibility |
-| --- | --- | --- |
-| `apps/api/src/modules/<feature>/<feature>.schema.ts` | schema | … |
-| `apps/api/src/modules/<feature>/<feature>.service.ts` | service | … |
-| `apps/api/src/trpc/routers/<feature>.ts` | router | … |
+Shared pieces used: `@reclit/ui/…`, `components/common/…`, `components/layout/…`.
 
 ## APIs called
 
-| Procedure | Type | Input | Output | Service method | Table |
-| --- | --- | --- | --- | --- | --- |
-| `<feature>.<proc>` | query/mutation | … | … | `<Service>.<method>` | `<Table>` |
+| Procedure | Kind | Called by | Invalidates |
+| --- | --- | --- | --- |
+| `<feature>.<proc>` | query/mutation | `<component>` | `<feature>.list` |
+
+Payloads and responses: the contract header of
+`apps/api/src/__tests__/<feature>.api.test.ts`.
+Backend detail: [docs/features/<feature>.md](../features/index.md).
+List any procedure this page deliberately does not call.
 
 ## Behaviour
 
-- How the page behaves now: states handled, validation, and the limits of what
-  the procedures accept. Describe the code as it is — no done/not-done checklist.
+- How the page behaves now: states handled, validation surfaced, what the user
+  can and cannot do. Describe the code as it is — no checklists, no history.
 
 ## Reusable pieces
 

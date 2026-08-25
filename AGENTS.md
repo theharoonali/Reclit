@@ -3,11 +3,17 @@
 Map for AI coding agents working in this repository. Short on purpose — deeper
 sources of truth are linked at the bottom.
 
-**Before touching a page, read its route doc in [docs/routes/](docs/routes/index.md).**
-It lists every frontend and backend file behind that page, the APIs it calls, and
-what is already implemented. Open the code only when the doc is insufficient —
-then fix the doc. The rules you must follow live in
-[docs/rules/](docs/rules/COMMON.md).
+**Read the doc for what you are touching before you open code** — then fix the
+doc if it was insufficient:
+
+| You are… | Read |
+| --- | --- |
+| changing backend code | the feature doc in [docs/features/](docs/features/index.md) — table, service, router, procedures, all in one place |
+| building UI against an API | **only** the contract header of `apps/api/src/__tests__/<feature>.api.test.ts` — payloads, responses, error codes |
+| touching a page | its route doc in [docs/routes/](docs/routes/index.md) |
+| building a whole feature | [docs/rules/WORKFLOW.md](docs/rules/WORKFLOW.md) — plan, then API + UI in parallel, then integration |
+
+The rules you must follow live in [docs/rules/](docs/rules/COMMON.md).
 
 ## What this is
 
@@ -51,12 +57,17 @@ Filter to one workspace: `bunx turbo typecheck --filter=@reclit/api`.
   field; workspace packages reference them as `"react": "catalog:"`. Workspace-internal
   deps use `"@reclit/x": "workspace:*"`.
 - **Path aliases**: `@api/*` → `apps/api/src/*` (inside the api), `@/*` → `src/*` (inside dashboard).
-- **New package**: use the `new-package` skill. Each workspace carries its own
-  self-contained `tsconfig.json` — there is no shared tsconfig package.
+- **Skills**: `backend-feature`, `frontend-feature`, `api-testing`,
+  `feature-workflow`, `new-package`. Load the matching one before writing code.
 - **Feature layout**: one folder per feature in `apps/api/src/modules/<feature>/`
   (`schema` + `service`) — see [docs/rules/BACKEND.md](docs/rules/BACKEND.md).
-  Frontend feature components live in `apps/dashboard/src/components/` — see
-  [docs/rules/FRONTEND.md](docs/rules/FRONTEND.md).
+  Frontend components live in `apps/dashboard/src/components/{layout,common,<feature>}/`,
+  shared primitives in `packages/ui` — see [docs/rules/FRONTEND.md](docs/rules/FRONTEND.md).
+- **Every API is documented and tested in one file**:
+  `apps/api/src/__tests__/<feature>.api.test.ts` — see [docs/rules/TESTING.md](docs/rules/TESTING.md).
+- **Plans**: anything larger than a one-file edit gets `docs/plans/NNN-<slug>.md`
+  written before the code and an `Outcome` after — see [docs/rules/COMMON.md](docs/rules/COMMON.md).
+- **Each workspace carries its own `tsconfig.json`** — there is no shared tsconfig package.
 - **Database**: Prisma, schema at `apps/api/prisma/schema.prisma`, single client
   at `apps/api/src/db/prisma.ts`. `DATABASE_URL` lives in `apps/api/.env`.
 
@@ -82,8 +93,12 @@ Filter to one workspace: `bunx turbo typecheck --filter=@reclit/api`.
 1. Add a router in `apps/api/src/trpc/routers/<name>.ts` using `createTRPCRouter` +
    `publicProcedure` from `../init`.
 2. Register it in `apps/api/src/trpc/routers/_app.ts`.
-3. Consume in the dashboard: `const trpc = useTRPC()` from `@/trpc/client`, then
+3. Document + test it in `apps/api/src/__tests__/<name>.api.test.ts` (contract
+   header + full coverage). A procedure without one does not exist.
+4. Consume in the dashboard: `const trpc = useTRPC()` from `@/trpc/client`, then
    `useQuery(trpc.<name>.<proc>.queryOptions(input))`.
+
+The `backend-feature` skill walks all of this with the code shapes.
 
 REST endpoints are plain NestJS controllers — see `apps/api/src/app.controller.ts`
 (the `/health` probe is the only one).
@@ -94,24 +109,32 @@ Anything touching the database goes through a service in
 ## Verification checklist for changes
 
 1. `bunx turbo lint typecheck` passes.
-2. `bunx turbo test` passes (api tests in `apps/api/src/__tests__/`).
+2. `bunx turbo test` passes — every new or changed procedure covered in its
+   `<feature>.api.test.ts` contract.
 3. For cross-app changes: `bun dev`, then check `/` can create/edit/delete a note
    (proves the full tRPC + database round trip).
-4. Update the affected [route doc](docs/routes/index.md) in the same change.
+4. Update the affected [feature doc](docs/features/index.md),
+   [route doc](docs/routes/index.md), and the plan's `Outcome` in the same change.
+5. `bun run format`.
 
 ## Deeper docs
 
-**Read first:**
+**Rules — read first:**
 
-- [docs/rules/COMMON.md](docs/rules/COMMON.md) — types, plans, docs, naming
-- [docs/rules/BACKEND.md](docs/rules/BACKEND.md) — where services/routers go
-- [docs/rules/FRONTEND.md](docs/rules/FRONTEND.md) — where components go, reuse, styling
-- [docs/routes/index.md](docs/routes/index.md) — one doc per route: files, APIs, gaps
+- [docs/rules/COMMON.md](docs/rules/COMMON.md) — types, reuse, naming, docs, plans, done
+- [docs/rules/BACKEND.md](docs/rules/BACKEND.md) — file structure, layers, no repetition
+- [docs/rules/FRONTEND.md](docs/rules/FRONTEND.md) — structure, chrome, reuse, shadcn, tokens
+- [docs/rules/TESTING.md](docs/rules/TESTING.md) — contract tests = the API docs
+- [docs/rules/WORKFLOW.md](docs/rules/WORKFLOW.md) — the three-agent feature pipeline
+
+**Maps:**
+
+- [docs/features/index.md](docs/features/index.md) — one doc per backend feature: table, service, procedures
+- [docs/routes/index.md](docs/routes/index.md) — one doc per page: files, APIs
+- [docs/plans/](docs/plans/) — what was planned, and what shipped
 
 **Reference:**
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces connect, request/type flow
-- [docs/FRONTEND.md](docs/FRONTEND.md) — dashboard structure and conventions
-- [docs/generated/db-schema.md](docs/generated/db-schema.md) — database tables
 - [docs/SECURITY.md](docs/SECURITY.md) — CORS and auth posture
 - [docs/RELIABILITY.md](docs/RELIABILITY.md) — health checks and testing

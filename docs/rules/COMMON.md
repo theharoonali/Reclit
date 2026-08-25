@@ -1,8 +1,23 @@
 # Common Rules
 
-Applies to both apps. See also [BACKEND.md](BACKEND.md) and [FRONTEND.md](FRONTEND.md).
+The rules both apps obey. Backend-only rules: [BACKEND.md](BACKEND.md).
+Frontend-only: [FRONTEND.md](FRONTEND.md). Tests: [TESTING.md](TESTING.md).
+How a feature gets built end to end: [WORKFLOW.md](WORKFLOW.md).
 
-## Types
+## 1. Read before you write
+
+Read in this order, and stop as soon as you have what you need:
+
+| You are… | Read |
+| --- | --- |
+| adding/altering backend code | the feature doc in [`docs/features/`](../features/index.md) |
+| building UI that calls an API | **only** the contract header of `apps/api/src/__tests__/<feature>.api.test.ts` |
+| touching a page | its route doc in [`docs/routes/`](../routes/index.md) |
+| starting any feature | [WORKFLOW.md](WORKFLOW.md) |
+
+Open code only when the doc is insufficient — then fix the doc in the same change.
+
+## 2. Types
 
 1. **Zod schemas are the single source of truth.** Every feature declares its
    shapes in `apps/api/src/modules/<feature>/<feature>.schema.ts`.
@@ -18,21 +33,99 @@ Applies to both apps. See also [BACKEND.md](BACKEND.md) and [FRONTEND.md](FRONTE
    fields and declare a schema-inferred return type. If `@prisma/client` types
    reach the dashboard, that rule was broken.
 5. The dashboard imports API code **type-only**. Never import API runtime code.
+6. No `as any` to silence a real type error. No `@ts-expect-error` without a
+   one-line reason on the same line.
 
-## Docs
+## 3. Don't repeat yourself — the reuse ladder
 
-- Every route has a doc in [`docs/routes/`](../routes/index.md), created from
-  [`_template.md`](../routes/_template.md).
-- **Changing a route's files or APIs means updating its route doc in the same
-  change.** The doc is the contract; stale docs are worse than none.
-- Read the route doc before opening code. Open code only when the doc is
-  insufficient — then fix the doc.
-- Docs describe the code as it is now — not what changed, when, or why it was
-  removed. No changelogs, no dated entries, no done/not-done checklists.
+Applies to components, services, schemas, helpers, and test fixtures alike.
+Before writing anything new, search for it. Then climb this ladder:
 
-## Naming
+1. **It exists** → use it.
+2. **It nearly exists** → extend it with a prop, a variant, or an optional
+   argument. Never fork, never copy-paste-and-tweak.
+3. **Two consumers in the same app** → move it to that app's shared folder
+   (`components/common/`, `src/lib/`, `src/common/`).
+4. **Two apps** → move it to `packages/ui` (or a new package via the
+   `new-package` skill).
+
+Third occurrence of any literal, select map, error mapping, or JSX block is a
+bug. Extract at the second.
+
+## 4. Size and shape
+
+| Unit | Cap | Split when |
+| --- | --- | --- |
+| React component file | ~150 lines | it renders two unrelated regions, or mixes fetching with presentation |
+| Service method | ~40 lines | it does two writes, or branches on a mode flag |
+| Any file | ~250 lines | it holds more than one responsibility |
+
+Caps are a smell test, not a lint rule. A 160-line file that does exactly one
+thing is fine; a 90-line file doing three things is not.
+
+## 5. Naming
 
 - Files and folders: `kebab-case`. Types and classes: `PascalCase`.
-  Variables and functions: `camelCase`.
-- A feature uses one name everywhere: `note` → `note.service.ts`, `noteRouter`,
-  `NoteService`, `components/notes-panel.tsx`.
+  Variables and functions: `camelCase`. Constants: `SCREAMING_SNAKE`.
+- A feature uses **one** name everywhere, singular:
+  `note` → `note.schema.ts`, `note.service.ts`, `noteRouter`, `NoteService`,
+  `docs/features/note.md`, `note.api.test.ts`, `components/note/note-list.tsx`.
+- Booleans read as predicates: `isLoading`, `hasAccess`, `canEdit`.
+- Handlers: `handleX` inside a component, `onX` as a prop.
+- No abbreviations that aren't already repo vocabulary (`db`, `api`, `ui` are).
+
+## 6. Documentation
+
+Docs exist so an agent can act without reading the whole codebase. Four kinds,
+and **nothing else**:
+
+| Doc | One per | Holds |
+| --- | --- | --- |
+| [`docs/features/<feature>.md`](../features/index.md) | backend feature | its table, service, router, procedures — everything about that feature in one place |
+| [`docs/routes/<route>.md`](../routes/index.md) | page | the files and APIs behind that page |
+| [`docs/plans/NNN-<slug>.md`](../plans/) | change | the plan before, the outcome after |
+| `docs/rules/*.md`, `ARCHITECTURE.md` | repo | how to work here |
+
+Rules:
+
+- **A doc changes in the same commit as the code it describes.** A stale doc is
+  worse than no doc.
+- Docs describe the code **as it is now** — no changelogs, no dated entries, no
+  "previously", no done/not-done checklists. The exception is `docs/plans/`,
+  which is explicitly a record.
+- Every fact lives in exactly one doc; everywhere else links to it. If you are
+  about to paste a payload shape into a second file, link the contract instead.
+- Write tables and paths, not prose. If a sentence doesn't change what an agent
+  would do, delete it.
+- No new top-level doc without deleting one, or a rule saying why it must exist.
+
+## 7. Plans
+
+Every change larger than a one-file edit gets a plan file, **written before the
+code**:
+
+`docs/plans/NNN-<slug>.md` — copy [`_template.md`](../plans/_template.md).
+`NNN` is the next free 3-digit number.
+
+- Commit the plan **before** implementing. A plan that was never implemented
+  stays in the directory with `Status: planned` — it is a record of a decision,
+  not garbage to clean up.
+- After implementing, fill in the `Outcome` section of that same file and set
+  `Status: implemented`. Never delete or rewrite the plan body to match what
+  actually happened — record the deviation instead.
+- Plans are the only place history lives. Everything else describes the present.
+
+## 8. Definition of done
+
+A change is not done until all of these pass:
+
+```bash
+bunx turbo lint typecheck
+bunx turbo test
+```
+
+1. Lint, typecheck, and tests pass.
+2. Every new or changed procedure is covered in its `*.api.test.ts` contract
+   ([TESTING.md](TESTING.md)).
+3. The feature doc, route doc, and plan `Outcome` are updated in this change.
+4. `bun run format` has been run.
