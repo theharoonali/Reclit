@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-const RESUME_FILE = join(process.cwd(), "src", "assets", "resume.pdf");
+const RESUME_FILE = join(process.cwd(), "src", "assets", "haroon.pdf");
 
 /**
  * Streams the resume to the viewer.
@@ -19,7 +19,7 @@ const RESUME_FILE = join(process.cwd(), "src", "assets", "resume.pdf");
  *
  * The file lives outside `public/` so this route is the only way to reach it.
  *
- * Replacing `src/assets/resume.pdf` takes effect on the next request: the file
+ * Replacing `src/assets/haroon.pdf` takes effect on the next request: the file
  * is read per request, and the ETag is derived from its size and mtime, so a
  * new file invalidates the browser's copy immediately. `no-cache` means
  * "revalidate every time", not "never cache" — an unchanged file still costs

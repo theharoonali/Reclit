@@ -11,7 +11,7 @@ const config: NextConfig = {
   // `output: "standalone"` traces imports, not files read at runtime, so the
   // resume has to be declared explicitly or the route 500s in a built image.
   outputFileTracingIncludes: {
-    "/resume-document": ["./src/assets/resume.pdf"],
+    "/resume-document": ["./src/assets/haroon.pdf"],
   },
   devIndicators: false,
   async headers() {

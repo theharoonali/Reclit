@@ -14,6 +14,7 @@
     "test": "turbo test --parallel",
     "dev:api": "turbo dev --filter=@reclit/api",
     "dev:dashboard": "turbo dev --filter=@reclit/dashboard",
+    "start:api": "turbo start --filter=@reclit/api",
     "start:dashboard": "turbo start --filter=@reclit/dashboard",
     "build:dashboard": "turbo build --filter=@reclit/dashboard",
     "format": "biome format --write .",

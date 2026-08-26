@@ -44,7 +44,9 @@ bun run dev:dashboard       # dashboard only (http://localhost:4000)
 bunx turbo typecheck        # typecheck all workspaces
 bunx turbo lint             # biome lint (bunx turbo lint:fix to autofix)
 bun run format              # biome format --write
-bunx turbo build            # build everything
+bun run build:dashboard     # production build of the dashboard (.next/standalone)
+bun run start:dashboard     # serve the built dashboard
+bun run start:api           # run the api in production mode (bun runs TS directly; no build step)
 bunx turbo test             # run tests (bun test; api smoke + note CRUD)
 bun run --filter=@reclit/api db:generate   # regenerate the Prisma client
 bun run --filter=@reclit/api db:migrate    # create + apply a migration

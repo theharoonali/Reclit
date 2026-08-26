@@ -2,6 +2,7 @@
   "name": "@reclit/api",
   "scripts": {
     "dev": "PORT=4001 bun --watch src/main.ts",
+    "start": "NODE_ENV=production bun src/main.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
