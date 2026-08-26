@@ -1,0 +1,44 @@
+{
+  "nav": {
+    "sections": {
+      "management": "Management"
+    },
+    "items": {
+      "dashboard": "Dashboard",
+      "employee": "Employee",
+      "leave": "Leave",
+      "timesheet": "Timesheet",
+      "resume": "My Resume"
+    }
+  },
+  "sidebar": {
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
+    "workspace": "Workspace"
+  },
+  "header": {
+    "searchPlaceholder": "Search...",
+    "searchLabel": "Search",
+    "notifications": "Notifications"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "An overview of your workspace.",
+    "empty": {
+      "title": "Nothing here yet",
+      "description": "Widgets you add to this dashboard will show up here. Nothing is connected to the API yet.",
+      "action": "Add a widget"
+    }
+  },
+  "metadata": {
+    "title": "Dashboard",
+    "description": "Overview of your workspace."
+  },
+  "resume": {
+    "title": "My Resume",
+    "description": "Curriculum vitae.",
+    "viewerLabel": "My resume, PDF document",
+    "loading": "Loading resume...",
+    "error": "The resume could not be displayed."
+  }
+}

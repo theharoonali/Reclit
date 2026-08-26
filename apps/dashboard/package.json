@@ -19,10 +19,13 @@
     "@tanstack/react-query": "^5.95.2",
     "@trpc/client": "^11.16.0",
     "@trpc/tanstack-react-query": "^11.16.0",
+    "lucide-react": "^1.34.0",
     "next": "16.2.1",
+    "next-intl": "^4.13.7",
     "next-themes": "^0.4.6",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "react-pdf": "^10.5.0",
     "superjson": "^2.2.6"
   },
   "devDependencies": {

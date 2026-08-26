@@ -58,9 +58,17 @@ no Prisma code; `bunx turbo build` is the check.
 
 ## Dashboard (`apps/dashboard`)
 
-- App Router with a single route: `/` (`src/app/page.tsx`) server-prefetches
-  `note.list` and renders the notes CRUD from `src/components/notes-panel.tsx`.
-  It is `force-dynamic` because it reads live database rows.
+- App Router with a single route: `/` (`src/app/(app)/page.tsx`), the dashboard.
+  It is static — it calls no procedure. Chrome (sidebar + header) is mounted
+  once by `src/app/(app)/layout.tsx` via `components/layout/app-shell.tsx` and
+  fed by `src/config/nav.ts`. Light mode only: `providers.tsx` passes
+  `forcedTheme="light"`.
+- **i18n:** `next-intl` with no URL segment and no middleware. `src/i18n/request.ts`
+  reads the `locale` cookie and loads `src/messages/<locale>.json`; every
+  user-facing string is a key. Reading that cookie makes every route render
+  dynamically.
+- The tRPC client wiring is live but currently unused by any page; `note.*` is
+  exercised only by its contract test.
 - `src/trpc/client.tsx` — browser client (`httpBatchStreamLink` →
   `NEXT_PUBLIC_API_URL`). `src/trpc/server.tsx` — RSC-side proxy with
   `prefetch`/`HydrateClient` helpers (uses `API_INTERNAL_URL` when set).

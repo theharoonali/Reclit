@@ -17,7 +17,34 @@ Read in this order, and stop as soon as you have what you need:
 
 Open code only when the doc is insufficient — then fix the doc in the same change.
 
-## 2. Types
+## 2. Don't guess — ask
+
+Inventing a fact is a defect, exactly like a failing test. **Hallucination is
+prohibited in this repository.** If you do not know something, you do not write
+it — you look it up, or you ask.
+
+| Unknown | Do this |
+| --- | --- |
+| a file path, export, or function name | open it or `grep` for it — never infer it from a naming convention |
+| an API payload or response shape | read the contract header of `apps/api/src/__tests__/<feature>.api.test.ts` |
+| a dependency version | read the `package.json`, or let the installer write it — never hand-write a version string |
+| an icon, token, or component name | confirm it exists in the package that exports it before importing it |
+| what the user actually wants | **ask the user** |
+
+- **Ask rather than assume.** A question costs one message; a wrong assumption
+  costs a rewrite. When two readings of a request lead to materially different
+  code, stop and ask before writing any of it.
+- **Never describe code you have not opened.** If a summary covers a file you
+  did not read, say which one and that you did not read it.
+- **Never invent a plausible-looking fact** — a version number, a route, a
+  procedure name, an option flag. A confident wrong path is worse than an
+  admitted gap, because the next agent trusts it.
+- **State assumptions where they can be checked** — in the plan's `Decisions`,
+  or inline in the change.
+- "I don't know" and "I have not read that file" are correct, expected answers.
+  Guessing is not.
+
+## 3. Types
 
 1. **Zod schemas are the single source of truth.** Every feature declares its
    shapes in `apps/api/src/modules/<feature>/<feature>.schema.ts`.
@@ -36,7 +63,7 @@ Open code only when the doc is insufficient — then fix the doc in the same cha
 6. No `as any` to silence a real type error. No `@ts-expect-error` without a
    one-line reason on the same line.
 
-## 3. Don't repeat yourself — the reuse ladder
+## 4. Don't repeat yourself — the reuse ladder
 
 Applies to components, services, schemas, helpers, and test fixtures alike.
 Before writing anything new, search for it. Then climb this ladder:
@@ -52,7 +79,7 @@ Before writing anything new, search for it. Then climb this ladder:
 Third occurrence of any literal, select map, error mapping, or JSX block is a
 bug. Extract at the second.
 
-## 4. Size and shape
+## 5. Size and shape
 
 | Unit | Cap | Split when |
 | --- | --- | --- |
@@ -63,7 +90,7 @@ bug. Extract at the second.
 Caps are a smell test, not a lint rule. A 160-line file that does exactly one
 thing is fine; a 90-line file doing three things is not.
 
-## 5. Naming
+## 6. Naming
 
 - Files and folders: `kebab-case`. Types and classes: `PascalCase`.
   Variables and functions: `camelCase`. Constants: `SCREAMING_SNAKE`.
@@ -74,7 +101,7 @@ thing is fine; a 90-line file doing three things is not.
 - Handlers: `handleX` inside a component, `onX` as a prop.
 - No abbreviations that aren't already repo vocabulary (`db`, `api`, `ui` are).
 
-## 6. Documentation
+## 7. Documentation
 
 Docs exist so an agent can act without reading the whole codebase. Four kinds,
 and **nothing else**:
@@ -99,7 +126,7 @@ Rules:
   would do, delete it.
 - No new top-level doc without deleting one, or a rule saying why it must exist.
 
-## 7. Plans
+## 8. Plans
 
 Every change larger than a one-file edit gets a plan file, **written before the
 code**:
@@ -107,15 +134,45 @@ code**:
 `docs/plans/NNN-<slug>.md` — copy [`_template.md`](../plans/_template.md).
 `NNN` is the next free 3-digit number.
 
-- Commit the plan **before** implementing. A plan that was never implemented
-  stays in the directory with `Status: planned` — it is a record of a decision,
-  not garbage to clean up.
-- After implementing, fill in the `Outcome` section of that same file and set
-  `Status: implemented`. Never delete or rewrite the plan body to match what
-  actually happened — record the deviation instead.
-- Plans are the only place history lives. Everything else describes the present.
+### A plan covers a work stream, not a prompt
 
-## 8. Definition of done
+**A new prompt is not a new plan.** Follow-up instructions that refine, correct
+or extend the work you are already doing belong in the plan you are already in —
+update it. Reaching for a new `NNN` on every message shreds one piece of work
+across a directory of near-empty files and makes the decisions impossible to
+follow.
+
+| Situation | Do |
+| --- | --- |
+| the user adjusts, corrects, or extends the current work | **update the current plan** |
+| the user changes their mind about a decision already recorded | **update that decision in place**, and say what it is now |
+| the work is a genuinely different stream — new feature, new surface, unrelated fix | new `NNN` |
+
+### Keep the plan readable
+
+A plan is a document someone reads to understand the work, not an append-only
+log. While the work is open you may **edit and prune it**:
+
+- Delete detail that no longer means anything — a decision that was reversed
+  before it shipped, a risk that never materialised, a file list that changed.
+  Superseded noise makes the real decisions harder to find.
+- Rewrite a `Decisions` entry when the decision changes; the current answer is
+  what matters, not the sequence of answers.
+- Keep what a reader a year from now still needs: what was built, why this way,
+  what was deliberately left out.
+
+Two things survive pruning:
+
+- **Deviations between the plan and what shipped** — record them in `Outcome`.
+  Never silently rewrite the plan so it matches the code.
+- **A plan that was never implemented** stays with `Status: planned`. It is a
+  record of a decision, not garbage to clean up.
+
+Once a plan is `implemented` and the work is closed, it is history: leave it
+alone and open a new one. Plans are the only place history lives; everything
+else describes the present.
+
+## 9. Definition of done
 
 A change is not done until all of these pass:
 

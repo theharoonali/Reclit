@@ -5,7 +5,8 @@ every file and API behind the page and what it does today.
 
 | Route | Doc | Purpose |
 | --- | --- | --- |
-| `/` | [root.md](root.md) | Notes CRUD over Postgres — the reference vertical slice |
+| `/` | [root.md](root.md) | The dashboard and the app shell — sidebar + header. Calls no API |
+| `/resume` | [resume.md](resume.md) | The resume PDF, embedded in the browser's viewer. Calls no API |
 
 New route? Copy [`_template.md`](_template.md), fill it in, add a row here.
 

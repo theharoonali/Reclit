@@ -11,7 +11,9 @@ must not wait for it and must not read its source.
 **Load the `frontend-feature` skill before writing code** (and `frontend-design`
 too, if it is available, when the visual direction is up to you).
 Rules: `docs/rules/FRONTEND.md`, `docs/rules/COMMON.md`.
-Reference: `apps/dashboard/src/components/notes-panel.tsx`.
+Reference: `apps/dashboard/src/components/layout/` (the app shell) and
+`apps/dashboard/src/config/nav.ts`. There is no data-bound feature component in
+the repo yet — build the first one from the rules, not from an example.
 
 ## Your boundary
 
@@ -30,7 +32,7 @@ those right now. Shapes come from the plan file, not from backend code.
    typed to the plan's shapes.
 4. Handle loading, error, and empty in every list or detail view.
 5. Chrome: add the nav entry to `src/config/nav.ts`. Do not edit the sidebar,
-   header, or footer to add a page.
+   or header to add a page.
 6. Tokens: any new colour goes in `packages/ui/src/globals.css` (both `:root` and
    `.dark`); radius, fonts, animations in `packages/ui/tailwind.config.ts`.
 7. Route doc in `docs/routes/`, "APIs called" filled from the plan.

@@ -7,8 +7,10 @@ description: Build dashboard UI — pages, feature components, shared shadcn pri
 
 Rules: [docs/rules/FRONTEND.md](../../../docs/rules/FRONTEND.md) ·
 [COMMON.md](../../../docs/rules/COMMON.md).
-Reference: `apps/dashboard/src/components/notes-panel.tsx` (one form serving
-create *and* edit).
+Reference: `apps/dashboard/src/components/layout/` (the app shell, fed by
+`src/config/nav.ts`). No data-bound feature component exists yet — the
+create-and-edit-in-one-form pattern is described in `docs/rules/FRONTEND.md`,
+not demonstrated in code.
 
 **Need an API shape?** Read only the contract header of
 `apps/api/src/__tests__/<feature>.api.test.ts`. Never read backend source.
@@ -29,10 +31,10 @@ used by two apps → move to `packages/ui`. **Never fork a component.**
 | Building | Path |
 | --- | --- |
 | shadcn/generic primitive | `packages/ui/src/components/<name>.tsx` + `exports` entry in `packages/ui/package.json` |
-| cross-feature piece (`page-header`, `empty-state`, `data-table`, `confirm-dialog`) | `apps/dashboard/src/components/common/<name>.tsx` |
+| cross-feature piece (`page-header`, `empty-state`, `data-table`, `confirm-dialog`) | `apps/dashboard/src/components/common/<name>.tsx` — `loading-state` and `error-state` already exist |
 | feature UI | `apps/dashboard/src/components/<feature>/<name>.tsx` |
-| chrome | `apps/dashboard/src/components/layout/app-{shell,sidebar,header,footer}.tsx` |
-| nav/menu/footer data | `apps/dashboard/src/config/nav.ts` |
+| chrome | `apps/dashboard/src/components/layout/app-{shell,sidebar,header}.tsx` |
+| nav/menu data | `apps/dashboard/src/config/nav.ts` |
 | page | `apps/dashboard/src/app/(app)/<route>/page.tsx` |
 
 ## 2. Component shape
@@ -82,7 +84,7 @@ export default function Page() {
 ```
 
 Framing and composition only — no transformation, no business logic, no chrome.
-The sidebar/header/footer come from `app/(app)/layout.tsx` via `<AppShell>`.
+The sidebar and header come from `app/(app)/layout.tsx` via `<AppShell>`.
 
 ## 4. Adding a screen to the chrome
 

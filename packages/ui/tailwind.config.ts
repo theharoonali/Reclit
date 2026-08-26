@@ -10,6 +10,33 @@ export default {
         sans: "var(--font-sans)",
         mono: "var(--font-mono)",
       },
+      // The type scale. Components use these semantic sizes — `text-title`,
+      // `text-subtitle` — never a raw step like `text-2xl`, so resizing the
+      // app's headings is one edit here. Each entry carries its own
+      // line-height, tracking and weight.
+      fontSize: {
+        display: [
+          "2rem",
+          { lineHeight: "2.5rem", letterSpacing: "-0.02em", fontWeight: "600" },
+        ],
+        title: [
+          "1.5rem",
+          { lineHeight: "2rem", letterSpacing: "-0.02em", fontWeight: "600" },
+        ],
+        heading: [
+          "1.125rem",
+          {
+            lineHeight: "1.75rem",
+            letterSpacing: "-0.01em",
+            fontWeight: "600",
+          },
+        ],
+        subheading: ["1rem", { lineHeight: "1.5rem", fontWeight: "500" }],
+        subtitle: ["0.875rem", { lineHeight: "1.375rem", fontWeight: "400" }],
+        body: ["0.875rem", { lineHeight: "1.375rem", fontWeight: "400" }],
+        label: ["0.875rem", { lineHeight: "1.25rem", fontWeight: "500" }],
+        caption: ["0.75rem", { lineHeight: "1rem", fontWeight: "400" }],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

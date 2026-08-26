@@ -1,58 +1,83 @@
 # `/`
 
-**Purpose:** Notes CRUD. The reference vertical slice — Next.js → tRPC → NestJS
-service → Prisma → Postgres. Copy this shape for new features.
+**Purpose:** The dashboard home, and the mount point for the application shell.
+It is the reference for chrome — sidebar and header — not for data.
 
-**Rendering:** dynamic (`export const dynamic = "force-dynamic"`). It reads live
-database rows, so it must not be prerendered at build time.
+**Rendering:** dynamic. The page itself calls no procedure and carries no
+`export const dynamic` — but `i18n/request.ts` reads the `locale` cookie on
+every request, which opts the whole app out of static prerendering. The build
+reports `/` as `ƒ (Dynamic)`.
 
 ## Frontend files
 
 | Path | Kind | Responsibility |
 | --- | --- | --- |
-| `apps/dashboard/src/app/page.tsx` | RSC | Page framing; server-prefetches `note.list` and wraps the panel in `HydrateClient` |
-| `apps/dashboard/src/components/notes-panel.tsx` | client | The whole CRUD UI: **one** form serving create *and* edit (`editing` unset = create, set = edit), the notes list, per-row Edit/Delete |
-| `apps/dashboard/src/app/layout.tsx` | RSC | Root layout: Geist fonts, `Providers` |
-| `apps/dashboard/src/app/providers.tsx` | client | `TRPCReactProvider` + `next-themes` |
+| `apps/dashboard/src/app/(app)/layout.tsx` | RSC | The **one** chrome mount point — renders `<AppShell>` around every route in the group |
+| `apps/dashboard/src/app/(app)/page.tsx` | RSC | Page framing only: heading, subtitle, one component |
+| `apps/dashboard/src/components/layout/app-shell.tsx` | RSC | Page geometry: sidebar beside a column of header + `main`. The only file that knows the layout |
+| `apps/dashboard/src/components/layout/app-sidebar.tsx` | client | Collapse state (`useState`, `w-56` ↔ `w-16`), app name + collapse toggle, grouped nav, workspace block. Active row from `usePathname()` |
+| `apps/dashboard/src/components/layout/app-header.tsx` | RSC | Search field, notifications, avatar. Takes `title`/`actions` slots as props. Has no interactive element, so it is not a client component |
+| `apps/dashboard/src/components/dashboard/dashboard-empty.tsx` | RSC | The page's only body content |
+| `apps/dashboard/src/config/nav.ts` | data | `navSections`, `APP_NAME`, `WORKSPACE`, `PLACEHOLDER_USER`. Chrome never hardcodes a link |
+| `apps/dashboard/src/app/layout.tsx` | RSC | Root layout: fonts (`Google_Sans` + `Geist_Mono`), `<html lang>` from `getLocale()`, `NextIntlClientProvider`, `Providers`. No chrome |
+| `apps/dashboard/src/i18n/config.ts` | data | Locale list, default locale, cookie name |
+| `apps/dashboard/src/i18n/request.ts` | server | Resolves the request locale from the cookie and loads its messages |
+| `apps/dashboard/src/messages/en.json` | data | Every user-facing string on this page |
+| `apps/dashboard/src/app/providers.tsx` | client | `TRPCReactProvider` + `next-themes` pinned to light via `forcedTheme="light"` |
 
-Shared pieces used: `@reclit/ui/button`. Everything else is plain markup styled
-with Tailwind theme tokens. There is no app chrome yet — no sidebar, header, or
-footer — and no `(app)` route group.
+Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/cn`.
+Icons are `lucide-react` (a dashboard dependency, not a `@reclit/ui` one).
 
 ## APIs called
 
-| Procedure | Kind | Called by | Invalidates |
-| --- | --- | --- | --- |
-| `note.list` | query | `page.tsx` (prefetch) + `notes-panel.tsx` | — |
-| `note.create` | mutation | `notes-panel.tsx` | `note.list` |
-| `note.update` | mutation | `notes-panel.tsx` | `note.list` |
-| `note.remove` | mutation | `notes-panel.tsx` | `note.list` |
-
-Payloads and responses: the contract header of
-`apps/api/src/__tests__/note.api.test.ts`.
-Backend detail: [docs/features/note.md](../features/note.md).
-
-**`note.byId` exists but this page does not call it** — the panel already has
-each row's data. `GET /health` (`apps/api/src/app.controller.ts`) is the only
-REST endpoint and is not called here.
+**None.** This page calls no procedure and prefetches nothing. The tRPC client
+and server wiring in `src/trpc/` is mounted and working but currently has no
+consumer; `note.list`, `note.byId`, `note.create`, `note.update` and
+`note.remove` are exercised only by
+`apps/api/src/__tests__/note.api.test.ts`. `GET /health`
+(`apps/api/src/app.controller.ts`) is not called here either.
 
 ## Behaviour
 
-- Server-side prefetch + hydration, so there is no loading flash on first paint.
-- The list query is invalidated after every mutation.
-- Loading, error, and empty states are all handled.
-- Title is required and trimmed; a partial update leaves `content` intact.
-- Delete fires immediately, with no confirmation step.
-- Every procedure is public — the page has no auth or per-user filtering.
+- **The sidebar and header are fixed; only the page area scrolls.** The shell
+  fills the viewport and hides its own overflow, so chrome cannot scroll away.
+  The sidebar's nav scrolls independently once the menu outgrows its column.
+- The sidebar collapses to an icon rail and expands back. The toggle sits in
+  the sidebar's header row, to the right of the app name; when collapsed it is
+  the only thing left in that row. There is no logo mark. It is
+  labelled for screen readers and carries `aria-expanded`.
+- Only `Dashboard` is a real destination. Every other nav item is `disabled` in
+  `config/nav.ts` and renders as inert text with `aria-disabled="true"` — it is
+  not a link, because `not-found.tsx` redirects unknown paths to `/` and a dead
+  link would bounce the user home with no explanation.
+- The active row is derived from `usePathname()` and marked `aria-current="page"`.
+- **Light only.** `providers.tsx` passes `forcedTheme="light"`, so the `.dark`
+  tokens in `@reclit/ui` can never apply and there is no theme control in the
+  UI. Removing that one prop restores dark mode.
+- Below the `md` breakpoint the sidebar is hidden entirely. **There is no mobile
+  navigation** — that needs a `Sheet` primitive and `@radix-ui/react-dialog`.
+- The search field is uncontrolled and searches nothing. The avatar and
+  workspace blocks are static.
+- The body is a single unconditional empty state. With no query there is no
+  loading or error state to handle.
+- **Every visible string comes from `src/messages/en.json`** — nav labels and
+  section titles included, resolved from the `labelKey`/`titleKey` in
+  `config/nav.ts`. The page title and description come from the same file via
+  `generateMetadata`. `en` is the only locale and there is no switcher.
+- **There is no footer.** The shell is sidebar + header only; every destination
+  lives in the sidebar.
 
 ## Reusable pieces
 
-- `NotesPanel` — the pattern for **one form serving create and edit**. Extend it
-  with props; do not fork a second form.
-- The panel is the extraction candidate when a second feature lands: it moves to
-  `components/note/` and splits into panel + list + form
-  ([../rules/FRONTEND.md](../rules/FRONTEND.md)).
+- `AppShell` — adding a page means adding an entry to `config/nav.ts` and a
+  `page.tsx` in the `(app)` group. It never means touching chrome.
+- `AppHeader` takes `title` and `actions` slots; pass content in rather than
+  editing the header for one page.
+- Redesigning the layout is `app-shell.tsx` for geometry, or
+  `packages/ui/src/globals.css` for the look. If a redesign needs page edits,
+  the shell is leaking ([../rules/FRONTEND.md](../rules/FRONTEND.md)).
 
 ## Linked routes
 
-None — this is the only route.
+None — this is the only route. Every `disabled` entry in `config/nav.ts` is a
+route that does not exist yet.

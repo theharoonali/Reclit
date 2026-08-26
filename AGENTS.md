@@ -19,10 +19,12 @@ The rules you must follow live in [docs/rules/](docs/rules/COMMON.md).
 
 A Bun + Turborepo TypeScript monorepo template: Next.js web app + NestJS API,
 connected end-to-end with tRPC. It intentionally contains exactly one example of
-each pattern — one CRUD feature (`Note`), one feature component
-(`notes-panel.tsx`), one shared package (`@reclit/ui`, exporting one component) —
-so you can copy the pattern to build features. `Note` at `/` is the reference
-vertical slice: Postgres → Prisma → service → tRPC → UI. There is no auth yet.
+each pattern — one CRUD feature (`Note`), one application shell
+(`components/layout/`), one shared package (`@reclit/ui`) — so you can copy the
+pattern to build features. `Note` is the reference **backend** slice: Postgres →
+Prisma → service → tRPC, fully documented by its contract test. No page consumes
+it yet, so there is currently no example of a data-bound feature component.
+`/` is the dashboard shell. There is no auth yet.
 
 ## Layout
 
@@ -30,7 +32,7 @@ vertical slice: Postgres → Prisma → service → tRPC → UI. There is no aut
 | --- | --- | --- |
 | `apps/api` | `@reclit/api` | NestJS API server (Bun runtime), port **4001**, tRPC mounted at `/trpc`, Prisma + Postgres |
 | `apps/dashboard` | `@reclit/dashboard` | Next.js 16 App Router web app, port **4000** |
-| `packages/ui` | `@reclit/ui` | The one shared package: `Button` + `cn` + Tailwind preset |
+| `packages/ui` | `@reclit/ui` | The one shared package: `Button`, `Input`, `Spinner` + `cn` + Tailwind preset |
 
 ## Commands
 
@@ -57,6 +59,10 @@ Filter to one workspace: `bunx turbo typecheck --filter=@reclit/api`.
   field; workspace packages reference them as `"react": "catalog:"`. Workspace-internal
   deps use `"@reclit/x": "workspace:*"`.
 - **Path aliases**: `@api/*` → `apps/api/src/*` (inside the api), `@/*` → `src/*` (inside dashboard).
+- **Every dashboard string is a message key** in `apps/dashboard/src/messages/en.json`,
+  and every text size is a named step in the `fontSize` scale in
+  `packages/ui/tailwind.config.ts`. Literal copy and raw `text-sm`/`text-2xl` in
+  a component are both bugs — see [docs/rules/FRONTEND.md](docs/rules/FRONTEND.md).
 - **Skills**: `backend-feature`, `frontend-feature`, `api-testing`,
   `feature-workflow`, `new-package`. Load the matching one before writing code.
 - **Feature layout**: one folder per feature in `apps/api/src/modules/<feature>/`

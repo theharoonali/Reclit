@@ -1,16 +1,18 @@
 import "@/styles/globals.css";
 import "@reclit/ui/globals.css";
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Google_Sans } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getTranslations } from "next-intl/server";
 import type { ReactElement } from "react";
 import { Providers } from "./providers";
 
-export const metadata: Metadata = {
-  title: "App",
-  description: "Your new project starts here.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("metadata");
+  return { title: t("title"), description: t("description") };
+}
 
-const sans = Geist({
+const sans = Google_Sans({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-sans",
@@ -31,13 +33,19 @@ export const viewport = {
   ],
 };
 
-export default function Layout({ children }: { children: ReactElement }) {
+export default async function Layout({ children }: { children: ReactElement }) {
+  const locale = await getLocale();
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <body
         className={`${sans.variable} ${mono.variable} font-sans antialiased`}
       >
-        <Providers>{children}</Providers>
+        {/* Rendered from a Server Component, so locale and messages are
+            supplied automatically — no props to thread through. */}
+        <NextIntlClientProvider>
+          <Providers>{children}</Providers>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

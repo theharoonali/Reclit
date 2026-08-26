@@ -17,6 +17,8 @@
   },
   "exports": {
     "./button": "./src/components/button.tsx",
+    "./input": "./src/components/input.tsx",
+    "./spinner": "./src/components/spinner.tsx",
     "./globals.css": "./src/globals.css",
     "./postcss": "./postcss.config.js",
     "./tailwind.config": "./tailwind.config.ts",

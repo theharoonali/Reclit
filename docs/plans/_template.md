@@ -1,7 +1,7 @@
 # NNN — <title>
 
 > Copy to `docs/plans/NNN-<slug>.md` (next free number) and commit it **before**
-> writing code ([../rules/COMMON.md](../rules/COMMON.md) §7). After implementing,
+> writing code ([../rules/COMMON.md](../rules/COMMON.md) §8). After implementing,
 > fill in `Outcome` and flip `Status` — never rewrite the plan body to match what
 > happened.
 
