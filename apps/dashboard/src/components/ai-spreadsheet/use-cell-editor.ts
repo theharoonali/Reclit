@@ -46,6 +46,8 @@ export type CellEditorArgs = {
   scrollCellIntoView: (row: number, col: number) => void;
   onOpenJson: (row: number, columnId: string) => void;
   onOpenDate: (row: number, columnId: string) => void;
+  onOpenAudio: (row: number, columnId: string) => void;
+  onOpenFile: (row: number, columnId: string) => void;
 };
 
 /**
@@ -64,7 +66,7 @@ export function useCellEditor(args: CellEditorArgs) {
 
   const { modelRef, viewportRef, ctxRef, fontsRef, requestPaint } = args;
   const { getCell, setCell, scrollCellIntoView } = args;
-  const { onOpenJson, onOpenDate } = args;
+  const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile } = args;
 
   const stopBlink = useCallback(() => {
     if (blinkRef.current !== 0) window.clearInterval(blinkRef.current);
@@ -114,15 +116,42 @@ export function useCellEditor(args: CellEditorArgs) {
     proxy.setSelectionRange(text.length, text.length);
   }, []);
 
+  /**
+   * Writes an in-progress edit back to its cell and returns the editor to
+   * idle. A buffer identical to the cell's editable text is not a change and
+   * writes nothing — so wandering focus never fires spurious mutations. An
+   * unparseable entry is kept as the raw string and painted as invalid —
+   * never silently thrown away.
+   */
+  const commitPending = useCallback(() => {
+    const editor = editorRef.current;
+    const active = editor.active;
+    if (!active || editor.mode !== "editing") return;
+    const column = columnAt(active.col);
+    if (column) {
+      const before = editableText(getCell(active.row, column.id), column.type);
+      if (editor.buffer !== before) {
+        const parsed = parseCellInput(editor.buffer, column.type);
+        setCell(active.row, column.id, parsed.value);
+      }
+    }
+    stopBlink();
+    editorRef.current = { ...IDLE, active };
+    resetProxy("");
+  }, [columnAt, getCell, resetProxy, setCell, stopBlink]);
+
+  // Commits before moving: clicking another cell mid-edit saves the edit —
+  // pressing Enter first is not required, and Escape still discards.
   const selectCell = useCallback(
     (row: number, col: number) => {
+      commitPending();
       stopBlink();
       editorRef.current = { ...IDLE, active: { row, col } };
       resetProxy("");
       focusProxy();
       requestPaint();
     },
-    [focusProxy, requestPaint, resetProxy, stopBlink],
+    [commitPending, focusProxy, requestPaint, resetProxy, stopBlink],
   );
 
   const beginEdit = useCallback(
@@ -145,16 +174,22 @@ export function useCellEditor(args: CellEditorArgs) {
         return;
       }
 
-      // A file or voice chip already acts on a single click — opening the file,
-      // starting the note — so a double-click must not also open a text
-      // editor: the second click would land on an editor the first click had
-      // no reason to expect. Typing still edits the URL, Delete still clears.
-      // `seed === undefined`, not `!seed`: typing passes an empty-string seed.
-      if (
-        (column.type === "file" || column.type === "voice") &&
-        seed === undefined
-      ) {
+      // An audio cell's asked-for edit opens the upload panel — the chip's
+      // single click already plays, so Enter/F2/double-click manage the file
+      // instead. Typing still edits the URL (a seed skips the panel).
+      if (column.type === "audio" && seed === undefined) {
         selectCell(row, col);
+        onOpenAudio(row, column.id);
+        return;
+      }
+
+      // A file cell works like audio: the chip's single click already opens
+      // the URL, so an asked-for edit opens the upload panel instead of a
+      // text editor. Typing still edits the URL (a seed skips the panel),
+      // Delete still clears.
+      if (column.type === "file" && seed === undefined) {
+        selectCell(row, col);
+        onOpenFile(row, column.id);
         return;
       }
 
@@ -192,7 +227,9 @@ export function useCellEditor(args: CellEditorArgs) {
       columnAt,
       focusProxy,
       getCell,
+      onOpenAudio,
       onOpenDate,
+      onOpenFile,
       onOpenJson,
       refreshCaretMetrics,
       requestPaint,
@@ -218,27 +255,14 @@ export function useCellEditor(args: CellEditorArgs) {
 
   const commit = useCallback(
     (move: MoveDirection) => {
-      const editor = editorRef.current;
-      const active = editor.active;
-      if (!active || editor.mode !== "editing") return;
-
-      const column = columnAt(active.col);
-      if (column) {
-        // An unparseable entry is kept as the raw string and painted as
-        // invalid — never silently thrown away.
-        const parsed = parseCellInput(editor.buffer, column.type);
-        setCell(active.row, column.id, parsed.value);
-      }
-
-      stopBlink();
-      editorRef.current = { ...IDLE, active };
-      resetProxy("");
+      if (editorRef.current.mode !== "editing") return;
+      commitPending();
 
       const [deltaRow, deltaCol] = DELTAS[move];
       if (deltaRow !== 0 || deltaCol !== 0) moveActive(deltaRow, deltaCol);
       else requestPaint();
     },
-    [columnAt, moveActive, requestPaint, resetProxy, setCell, stopBlink],
+    [commitPending, moveActive, requestPaint],
   );
 
   const cancel = useCallback(() => {

@@ -7,6 +7,8 @@ the doc is insufficient, then fix the doc.
 | Feature | Doc | Table(s) | Router | Contract test |
 | --- | --- | --- | --- | --- |
 | note | [note.md](note.md) | `Note` | `note` | `apps/api/src/__tests__/note.api.test.ts` |
+| spreadsheet | [spreadsheet.md](spreadsheet.md) | `Spreadsheet`, `Column`, `Row`, `Cell` | `spreadsheet` | `apps/api/src/__tests__/spreadsheet.api.test.ts` |
+| file | [file.md](file.md) | — | — (REST `POST /files`) | `apps/api/src/__tests__/file.api.test.ts` |
 
 New feature? Copy [`_template.md`](_template.md), fill it in, add a row here.
 

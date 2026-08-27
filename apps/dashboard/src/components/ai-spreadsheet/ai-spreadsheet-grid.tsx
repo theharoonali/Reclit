@@ -15,9 +15,11 @@ import { AiSpreadsheetHeader } from "./ai-spreadsheet-header";
 import { AiSpreadsheetInputProxy } from "./ai-spreadsheet-input-proxy";
 import { AiSpreadsheetJsonEditor } from "./ai-spreadsheet-json-editor";
 import { AiSpreadsheetSidePanel } from "./ai-spreadsheet-side-panel";
+import { AiSpreadsheetUploadEditor } from "./ai-spreadsheet-upload-editor";
 import { useSheetCanvas } from "./use-sheet-canvas";
 import { useSheetLabels } from "./use-sheet-labels";
 import { useSheetModel } from "./use-sheet-model";
+import { useSheetSync } from "./use-sheet-sync";
 
 type AiSpreadsheetGridProps = { payload: SheetPayload };
 
@@ -40,13 +42,31 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   const { labels, formatters } = useSheetLabels();
 
   const model = useSheetModel(payload);
-  const { modelRef, columnsVersion, getCell, setCell } = model;
+  const { modelRef, columnsVersion, getCell } = model;
+
+  // The canvas is created below, but the sync hook needs a paint trigger now;
+  // the indirection breaks the cycle without a re-render.
+  const requestPaintRef = useRef<() => void>(() => {});
+  const requestPaint = useCallback(() => requestPaintRef.current(), []);
+
+  const sync = useSheetSync({
+    modelRef,
+    setCellLocal: model.setCell,
+    requestPaint,
+  });
+  const setCell = sync.setCell;
 
   const openJson = useCallback((row: number, columnId: string) => {
     setPanel({ kind: "json", row, columnId });
   }, []);
   const openDate = useCallback((row: number, columnId: string) => {
     setPanel({ kind: "date", row, columnId });
+  }, []);
+  const openAudio = useCallback((row: number, columnId: string) => {
+    setPanel({ kind: "audio", row, columnId });
+  }, []);
+  const openFile = useCallback((row: number, columnId: string) => {
+    setPanel({ kind: "file", row, columnId });
   }, []);
   const openColumn = useCallback((columnId?: string) => {
     setPanel({ kind: "column", columnId });
@@ -63,16 +83,24 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     setCell,
     onOpenJson: openJson,
     onOpenDate: openDate,
+    onOpenAudio: openAudio,
+    onOpenFile: openFile,
     onOpenColumn: openColumn,
   });
+  requestPaintRef.current = canvas.requestPaint;
 
   const columns = modelRef.current.columns;
 
   const submitColumn = (name: string, type: ColumnType) => {
     const target = shownRef.current;
     if (target.kind !== "column") return;
-    if (target.columnId) model.updateColumn(target.columnId, name, type);
-    else model.addColumn(name, type);
+    if (target.columnId) {
+      model.updateColumn(target.columnId, name, type);
+      sync.syncColumnUpdate(target.columnId, name, type);
+    } else {
+      model.addColumn(name, type);
+      sync.syncColumnCreate(name, type);
+    }
     closePanel();
   };
 
@@ -86,6 +114,13 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   const changeDate = (value: string | null) => {
     const target = shownRef.current;
     if (target.kind !== "date") return;
+    setCell(target.row, target.columnId, value);
+    canvas.requestPaint();
+  };
+
+  const changeUpload = (value: string | null) => {
+    const target = shownRef.current;
+    if (target.kind !== "audio" && target.kind !== "file") return;
     setCell(target.row, target.columnId, value);
     canvas.requestPaint();
   };
@@ -107,9 +142,13 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
       ? t("panel.jsonTitle")
       : shown.kind === "date"
         ? t("panel.dateTitle")
-        : editedColumn
-          ? t("panel.editColumn")
-          : t("panel.addColumn");
+        : shown.kind === "audio"
+          ? t("panel.audioTitle")
+          : shown.kind === "file"
+            ? t("panel.fileTitle")
+            : editedColumn
+              ? t("panel.editColumn")
+              : t("panel.addColumn");
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
@@ -190,6 +229,39 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
                 nextMonth: t("date.nextMonth"),
               }}
               onChange={changeDate}
+              value={getCell(shown.row, shown.columnId)}
+            />
+          )}
+
+          {shown.kind === "audio" && (
+            <AiSpreadsheetUploadEditor
+              accept="audio/*"
+              key={`audio:${shown.row}:${shown.columnId}`}
+              labels={{
+                upload: t("audio.upload"),
+                replace: t("audio.replace"),
+                uploading: t("audio.uploading"),
+                error: t("audio.error"),
+                clear: t("audio.clear"),
+                empty: t("audio.empty"),
+              }}
+              onChange={changeUpload}
+              value={getCell(shown.row, shown.columnId)}
+            />
+          )}
+
+          {shown.kind === "file" && (
+            <AiSpreadsheetUploadEditor
+              key={`file:${shown.row}:${shown.columnId}`}
+              labels={{
+                upload: t("file.upload"),
+                replace: t("file.replace"),
+                uploading: t("file.uploading"),
+                error: t("file.error"),
+                clear: t("file.clear"),
+                empty: t("file.empty"),
+              }}
+              onChange={changeUpload}
               value={getCell(shown.row, shown.columnId)}
             />
           )}

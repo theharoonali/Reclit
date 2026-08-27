@@ -7,7 +7,7 @@ import {
   CELL_PAD_X,
   ROW_HEIGHT,
 } from "@/lib/ai-spreadsheet/geometry";
-import { paintCell, VOICE_LEADING } from "@/lib/ai-spreadsheet/paint-cell";
+import { AUDIO_LEADING, paintCell } from "@/lib/ai-spreadsheet/paint-cell";
 import { clearMetricsCache } from "@/lib/ai-spreadsheet/text-metrics";
 import type { CellValue, ColumnType } from "@/lib/ai-spreadsheet/types";
 import {
@@ -89,19 +89,19 @@ describe("capsule cells", () => {
     const json = findCall(paint({ a: 1 }, "json"), "roundRect");
     const file = findCall(paint("https://e.com/a.pdf", "file"), "roundRect");
     const bool = findCall(paint(true, "boolean"), "roundRect");
-    const voice = findCall(paint("https://e.com/a.mp3", "voice"), "roundRect");
+    const audio = findCall(paint("https://e.com/a.mp3", "audio"), "roundRect");
     expect(json?.args[0]).toBe(CELL_PAD_X);
     expect(file?.args[0]).toBe(CELL_PAD_X);
     expect(bool?.args[0]).toBe(CELL_PAD_X);
-    expect(voice?.args[0]).toBe(CELL_PAD_X);
+    expect(audio?.args[0]).toBe(CELL_PAD_X);
   });
 });
 
-describe("voice cells", () => {
-  const URL = "https://example.com/voice/intro.mp3";
+describe("audio cells", () => {
+  const URL = "https://example.com/audio/intro.mp3";
 
   test("idle draws a play triangle and the file name", () => {
-    const calls = paint(URL, "voice");
+    const calls = paint(URL, "audio");
     expect(findCall(calls, "roundRect")).toBeDefined();
     // A triangle is three points and a close, not a rect.
     expect(findCall(calls, "moveTo")).toBeDefined();
@@ -110,7 +110,7 @@ describe("voice cells", () => {
   });
 
   test("playing draws two pause bars instead, in the accent colour", () => {
-    const calls = paint(URL, "voice", true);
+    const calls = paint(URL, "audio", true);
     expect(findCall(calls, "moveTo")).toBeUndefined();
     const bars = calls.filter((call) => call.op === "rect");
     expect(bars).toHaveLength(2);
@@ -119,28 +119,28 @@ describe("voice cells", () => {
   });
 
   test("the chip is the same size playing or not, so its hit region holds", () => {
-    const idle = findCall(paint(URL, "voice"), "roundRect");
-    const playing = findCall(paint(URL, "voice", true), "roundRect");
+    const idle = findCall(paint(URL, "audio"), "roundRect");
+    const playing = findCall(paint(URL, "audio", true), "roundRect");
     expect(playing?.args).toEqual(idle?.args ?? []);
   });
 
   test("the control leaves room for the label, and the label clears it", () => {
-    const calls = paint(URL, "voice");
+    const calls = paint(URL, "audio");
     const chip = findCall(calls, "roundRect");
     const label = textCalls(calls)[0];
     expect(label?.args[0]).toBe(
-      (chip?.args[0] ?? 0) + CAPSULE_PAD_X + VOICE_LEADING,
+      (chip?.args[0] ?? 0) + CAPSULE_PAD_X + AUDIO_LEADING,
     );
   });
 
-  test("a non-url in a voice column is painted as invalid text", () => {
-    const calls = paint("intro.mp3", "voice");
+  test("a non-url in a audio column is painted as invalid text", () => {
+    const calls = paint("intro.mp3", "audio");
     expect(findCall(calls, "roundRect")).toBeUndefined();
     expect(textCalls(calls)[0]?.style).toBe("invalid");
   });
 
-  test("a blank voice cell paints nothing", () => {
-    expect(paint(null, "voice")).toHaveLength(0);
+  test("a blank audio cell paints nothing", () => {
+    expect(paint(null, "audio")).toHaveLength(0);
   });
 });
 

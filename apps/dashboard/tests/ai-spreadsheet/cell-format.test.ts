@@ -78,9 +78,9 @@ describe("isMistyped", () => {
     expect(isMistyped(12, "file")).toBe(true);
   });
 
-  test("voice wants a url, like file", () => {
-    expect(isMistyped("https://example.com/a.mp3", "voice")).toBe(false);
-    expect(isMistyped("a.mp3", "voice")).toBe(true);
+  test("audio wants a url, like file", () => {
+    expect(isMistyped("https://example.com/a.mp3", "audio")).toBe(false);
+    expect(isMistyped("a.mp3", "audio")).toBe(true);
   });
 
   test("boolean wants a boolean", () => {
@@ -156,12 +156,12 @@ describe("parseCellInput", () => {
     });
   });
 
-  test("a voice cell parses like a url", () => {
-    expect(parseCellInput("https://example.com/a.mp3", "voice")).toEqual({
+  test("a audio cell parses like a url", () => {
+    expect(parseCellInput("https://example.com/a.mp3", "audio")).toEqual({
       ok: true,
       value: "https://example.com/a.mp3",
     });
-    expect(parseCellInput("a.mp3", "voice")).toEqual({
+    expect(parseCellInput("a.mp3", "audio")).toEqual({
       ok: false,
       value: "a.mp3",
     });

@@ -60,7 +60,7 @@
       "date": "Date",
       "json": "JSON",
       "file": "File",
-      "voice": "Voice",
+      "audio": "Audio",
       "email": "Email",
       "url": "URL"
     },
@@ -69,6 +69,8 @@
       "editColumn": "Edit column",
       "jsonTitle": "JSON value",
       "dateTitle": "Date value",
+      "audioTitle": "Audio file",
+      "fileTitle": "File",
       "close": "Close panel"
     },
     "column": {
@@ -91,6 +93,28 @@
       "empty": "No date set.",
       "previousMonth": "Previous month",
       "nextMonth": "Next month"
+    },
+    "audio": {
+      "upload": "Upload audio",
+      "replace": "Replace audio",
+      "uploading": "Uploading...",
+      "error": "The upload failed. Try again.",
+      "clear": "Clear audio",
+      "empty": "No audio file yet."
+    },
+    "file": {
+      "upload": "Upload file",
+      "replace": "Replace file",
+      "uploading": "Uploading...",
+      "error": "The upload failed. Try again.",
+      "clear": "Clear file",
+      "empty": "No file yet."
+    },
+    "loading": "Loading spreadsheet...",
+    "loadError": "The spreadsheet could not be loaded.",
+    "empty": {
+      "title": "No spreadsheet yet",
+      "description": "Create one via the API or run the seed: bun run --filter=@reclit/api db:seed"
     }
   }
 }

@@ -9,6 +9,8 @@
  * over these types so they can be reasoned about without a canvas in hand.
  */
 
+import type { RouterOutputs } from "@reclit/api/trpc/routers/_app";
+
 /**
  * The column vocabulary is the API's own — `"string"`, not `"text"` — so there
  * is no mapping layer between wire and model. `email` and `url` are stored as
@@ -21,7 +23,7 @@ export type ColumnType =
   | "date"
   | "json"
   | "file"
-  | "voice"
+  | "audio"
   | "email"
   | "url";
 
@@ -31,39 +33,18 @@ export type CellValue = string | number | boolean | JsonObject | null;
 
 /* ------------------------------------------------------------------ wire */
 
-export type ApiColumn = {
-  id: string;
-  index: number;
-  name: string;
-  /** Free-form on purpose: unknown types degrade to `string`. */
-  type: string;
-};
-
 /**
- * `index` is the absolute row number in the sheet, not a position in `rows`.
- * `data` is positional: `data[column.index]` is that column's value, and a
- * `null` or missing entry is a blank cell.
+ * The wire shapes are the contract's own — type-only aliases of what
+ * `spreadsheet.rows` returns, so the sheet cannot drift from the backend
+ * (docs/rules/COMMON.md: never re-declare a shape the API describes). A row is
+ * nested: one `{ id, name, value }` entry per stored cell, ordered by column
+ * index; blank cells are absent entries. `row.index` is the absolute row
+ * number in the sheet, not a position in `rows`.
  */
-export type ApiRow = { id: string; index: number; data: unknown[] };
-
-export type SheetPagination = {
-  startRow: number;
-  limit: number;
-  hasMore: boolean;
-  nextCursor: string | null;
-};
-
-export type SheetPayload = {
-  spreadsheet: {
-    id: string;
-    name: string;
-    totalRows: number;
-    totalColumns: number;
-  };
-  columns: ApiColumn[];
-  rows: ApiRow[];
-  pagination: SheetPagination;
-};
+export type SheetPayload = RouterOutputs["spreadsheet"]["rows"];
+export type ApiColumn = SheetPayload["columns"][number];
+export type ApiRow = SheetPayload["rows"][number];
+export type SheetPagination = SheetPayload["pagination"];
 
 /* ----------------------------------------------------------------- model */
 
@@ -84,7 +65,7 @@ export type SheetModel = {
   rowCount: number;
   columns: SheetColumn[];
   cells: Map<string, CellValue>;
-  /** Cells have no ids of their own, so write-back addresses `(rowId, column)`. */
+  /** Wire row ids by index; write-back addresses cells by (rowIndex, columnIndex). */
   rowIds: Map<number, string>;
   nextColumnIndex: number;
 };
@@ -130,7 +111,9 @@ export type PanelState =
   /** No `columnId` means "add a new column". */
   | { kind: "column"; columnId?: string }
   | { kind: "json"; row: number; columnId: string }
-  | { kind: "date"; row: number; columnId: string };
+  | { kind: "date"; row: number; columnId: string }
+  | { kind: "audio"; row: number; columnId: string }
+  | { kind: "file"; row: number; columnId: string };
 
 /* -------------------------------------------------------- paint contract */
 

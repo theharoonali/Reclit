@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
-import { AiSpreadsheetGrid } from "@/components/ai-spreadsheet/ai-spreadsheet-grid";
-import { SAMPLE_PAYLOAD } from "@/components/ai-spreadsheet/sample-payload";
+import { AiSpreadsheetLoader } from "@/components/ai-spreadsheet/ai-spreadsheet-loader";
+import { HydrateClient, prefetch, trpc } from "@/trpc/server";
+
+// The sheet reads live data; never serve a build-time snapshot.
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations("aiSpreadsheet");
@@ -9,12 +12,16 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default function Page() {
+  prefetch(trpc.spreadsheet.list.queryOptions());
+
   // Full bleed, like /resume: the sheet owns the whole content area and its
   // own scrolling. `h-full` resolves because <main> has a definite height
   // inside the shell's fixed-height column.
   return (
-    <div className="h-full">
-      <AiSpreadsheetGrid payload={SAMPLE_PAYLOAD} />
-    </div>
+    <HydrateClient>
+      <div className="h-full">
+        <AiSpreadsheetLoader />
+      </div>
+    </HydrateClient>
   );
 }

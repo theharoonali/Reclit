@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { idInput } from "../../common/schema";
 
 // Single source of truth for the Note shapes. The service infers its return
 // type from `noteSchema`; the dashboard infers its types from RouterOutputs.
@@ -31,7 +32,7 @@ export const updateNoteInput = z
   .partial()
   .extend({ id: z.string().min(1) });
 
-export const noteIdInput = z.object({ id: z.string().min(1) });
+export const noteIdInput = idInput;
 
 export type Note = z.infer<typeof noteSchema>;
 export type CreateNoteInput = z.infer<typeof createNoteInput>;

@@ -13,7 +13,7 @@ const COLUMN_TYPES: ColumnType[] = [
   "date",
   "json",
   "file",
-  "voice",
+  "audio",
   "email",
   "url",
 ];
@@ -37,7 +37,7 @@ export const jsonKeyCount = (value: CellValue) =>
   isJsonObject(value) ? Object.keys(value).length : 0;
 
 /**
- * File and voice cells hold the URL of the thing itself, so both are validated
+ * File and audio cells hold the URL of the thing itself, so both are validated
  * the same way; anything that is not a URL is mistyped.
  */
 export function isResourceUrl(value: CellValue): value is string {
@@ -45,7 +45,7 @@ export function isResourceUrl(value: CellValue): value is string {
 }
 
 /**
- * The name shown on a file or voice capsule: the last path segment,
+ * The name shown on a file or audio capsule: the last path segment,
  * percent-decoded. A URL with no path segment at all falls back to the whole
  * string rather than painting an empty chip.
  */
@@ -92,7 +92,7 @@ export function isMistyped(value: CellValue, type: ColumnType): boolean {
     case "json":
       return !isJsonObject(value);
     case "file":
-    case "voice":
+    case "audio":
       return !isResourceUrl(value);
     case "date":
       return typeof value !== "string" || !Number.isFinite(Date.parse(value));
@@ -106,7 +106,7 @@ export function isMistyped(value: CellValue, type: ColumnType): boolean {
 }
 
 /**
- * The text painted in a cell. JSON, file, voice and boolean cells draw a
+ * The text painted in a cell. JSON, file, audio and boolean cells draw a
  * capsule instead, so they only ever reach this when the value does not match
  * the column — a mismatch is painted as text in the invalid colour.
  */
@@ -118,7 +118,7 @@ export function formatCellText(
 ): string {
   if (value === null) return "";
   if (type === "json" && isJsonObject(value)) return "";
-  if ((type === "file" || type === "voice") && isResourceUrl(value)) return "";
+  if ((type === "file" || type === "audio") && isResourceUrl(value)) return "";
   if (typeof value === "boolean") {
     return value ? labels.boolTrue : labels.boolFalse;
   }
@@ -188,10 +188,10 @@ export function parseCellInput(text: string, type: ColumnType): ParseResult {
     }
     case "email":
       return { ok: EMAIL_RE.test(trimmed), value: trimmed };
-    // A file or voice cell is its URL, so it is edited and validated like one.
+    // A file or audio cell is its URL, so it is edited and validated like one.
     case "url":
     case "file":
-    case "voice":
+    case "audio":
       return { ok: URL_RE.test(trimmed), value: trimmed };
     default:
       return { ok: true, value: text };

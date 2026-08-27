@@ -5,7 +5,9 @@
     "DATABASE_URL",
     "PORT",
     "ALLOWED_API_ORIGINS",
-    "API_INTERNAL_URL"
+    "API_INTERNAL_URL",
+    "SUPABASE_URL",
+    "SUPABASE_KEY"
   ],
   "ui": "stream",
   "tasks": {

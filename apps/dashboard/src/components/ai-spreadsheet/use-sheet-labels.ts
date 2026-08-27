@@ -36,7 +36,7 @@ export function useSheetLabels(): {
         date: t("types.date"),
         json: t("types.json"),
         file: t("types.file"),
-        voice: t("types.voice"),
+        audio: t("types.audio"),
         email: t("types.email"),
         url: t("types.url"),
       },

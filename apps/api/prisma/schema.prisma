@@ -22,3 +22,74 @@ model Note {
 
   @@index([createdAt])
 }
+
+enum ColumnType {
+  STRING
+  NUMBER
+  BOOLEAN
+  DATE
+  JSON
+  FORMULA
+  AUDIO
+  FILE
+  EMAIL
+  URL
+}
+
+model Spreadsheet {
+  id        String   @id @default(uuid())
+  name      String
+  totalRows Int      @default(5000000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  columns   Column[]
+  rows      Row[]
+  cells     Cell[]
+
+  @@index([createdAt])
+}
+
+/// id is the deterministic scoped key "<sheetId>.col.<index>" — the wire id is
+/// the short "col.<index>" (docs/plans/006-spreadsheet-backend.md).
+model Column {
+  id            String      @id
+  spreadsheetId String
+  index         Int
+  name          String
+  type          ColumnType  @default(STRING)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  spreadsheet   Spreadsheet @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
+
+  @@unique([spreadsheetId, index])
+}
+
+/// id is "<sheetId>.row.<index>". Rows are sparse: a record exists only where
+/// something was written; every other index is a blank, editable row.
+model Row {
+  id            String      @id
+  spreadsheetId String
+  index         Int
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  spreadsheet   Spreadsheet @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
+
+  @@unique([spreadsheetId, index])
+}
+
+/// id is "<sheetId>.cell.<rowIndex>.<columnIndex>" — a cell write is one
+/// upsert by pk with no prior lookup. A cleared cell is a deleted record;
+/// `value` is never stored as null.
+model Cell {
+  id            String      @id
+  spreadsheetId String
+  rowIndex      Int
+  columnIndex   Int
+  value         Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  spreadsheet   Spreadsheet @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
+
+  @@unique([spreadsheetId, rowIndex, columnIndex])
+  @@index([spreadsheetId, rowIndex])
+}

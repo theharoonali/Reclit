@@ -29,7 +29,7 @@ export const CAPSULE_HEIGHT = 20;
 export const CAPSULE_PAD_X = 8;
 /** The status dot a boolean capsule carries before its label. */
 export const CAPSULE_DOT = 6;
-/** The play/pause glyph a voice capsule carries before its label. */
+/** The play/pause glyph a audio capsule carries before its label. */
 export const CAPSULE_GLYPH = 8;
 /** Between either mark and the label that follows it. */
 export const CAPSULE_DOT_GAP = 6;

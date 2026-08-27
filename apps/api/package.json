@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
+    "db:seed": "bun prisma/seed.ts",
     "postinstall": "prisma generate"
   },
   "exports": {
@@ -23,7 +24,9 @@
     "@nestjs/platform-express": "^11.1.6",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
+    "@supabase/supabase-js": "^2.112.4",
     "@trpc/server": "^11.16.0",
+    "multer": "^2.2.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "superjson": "^2.2.6",

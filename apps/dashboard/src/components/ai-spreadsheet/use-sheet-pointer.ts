@@ -13,7 +13,7 @@ import {
   hitTest,
   hitTestHeader,
 } from "@/lib/ai-spreadsheet/geometry";
-import { capsuleRect, VOICE_LEADING } from "@/lib/ai-spreadsheet/paint-cell";
+import { AUDIO_LEADING, capsuleRect } from "@/lib/ai-spreadsheet/paint-cell";
 import type {
   CellValue,
   SheetFonts,
@@ -37,7 +37,7 @@ export type SheetPointerArgs = {
   requestPaint: () => void;
   onOpenJson: (row: number, columnId: string) => void;
   onOpenColumn: (columnId?: string) => void;
-  onToggleVoice: (row: number, columnId: string, url: string) => void;
+  onToggleAudio: (row: number, columnId: string, url: string) => void;
 };
 
 /**
@@ -50,7 +50,7 @@ export type SheetPointerArgs = {
 export function createSheetPointerHandlers(args: SheetPointerArgs) {
   const { modelRef, viewportRef, ctxRef, fontsRef, hoverRef } = args;
   const { labels, editor, getCell, requestPaint } = args;
-  const { onOpenJson, onOpenColumn, onToggleVoice } = args;
+  const { onOpenJson, onOpenColumn, onToggleAudio } = args;
 
   /** Canvas-relative CSS pixels. DPR never enters this — see `geometry`. */
   const localPoint = (event: MouseEvent<HTMLElement>) => {
@@ -75,7 +75,7 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
   ):
     | { kind: "json"; columnId: string }
     | { kind: "file"; url: string }
-    | { kind: "voice"; columnId: string; url: string }
+    | { kind: "audio"; columnId: string; url: string }
     | null => {
     const ctx = ctxRef.current;
     const column = modelRef.current?.columns[col];
@@ -104,9 +104,9 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     if (column.type === "file" && isResourceUrl(value)) {
       return hits(fileLabel(value)) ? { kind: "file", url: value } : null;
     }
-    if (column.type === "voice" && isResourceUrl(value)) {
-      return hits(fileLabel(value), VOICE_LEADING)
-        ? { kind: "voice", columnId: column.id, url: value }
+    if (column.type === "audio" && isResourceUrl(value)) {
+      return hits(fileLabel(value), AUDIO_LEADING)
+        ? { kind: "audio", columnId: column.id, url: value }
         : null;
     }
     return null;
@@ -134,11 +134,11 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
 
     // Both remaining chips act on the click itself, so both only act on the
     // first of a burst: without the guard, double-clicking a file chip opens
-    // two tabs and double-clicking a voice chip starts then stops the note.
+    // two tabs and double-clicking a audio chip starts then stops the note.
     if (event.detail > 1) return;
 
-    if (target.kind === "voice") {
-      onToggleVoice(hit.row, target.columnId, target.url);
+    if (target.kind === "audio") {
+      onToggleAudio(hit.row, target.columnId, target.url);
       return;
     }
 

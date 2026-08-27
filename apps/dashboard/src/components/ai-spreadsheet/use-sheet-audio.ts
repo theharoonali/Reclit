@@ -2,21 +2,21 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-/** Which voice cell is sounding. Keyed by column *id*, like `cells`. */
-export type PlayingVoice = { row: number; columnId: string };
+/** Which audio cell is sounding. Keyed by column *id*, like `cells`. */
+export type PlayingAudio = { row: number; columnId: string };
 
 export type SheetAudioApi = {
-  playingRef: React.RefObject<PlayingVoice | null>;
+  playingRef: React.RefObject<PlayingAudio | null>;
   /** Starts this cell, or stops it if it is the one already playing. */
   toggle: (row: number, columnId: string, url: string) => void;
   stop: () => void;
 };
 
 /**
- * Playback for voice cells.
+ * Playback for audio cells.
  *
  * One `Audio` element is reused for the whole sheet rather than one per cell:
- * a sheet has five million rows, and only one voice note plays at a time
+ * a sheet has five million rows, and only one audio note plays at a time
  * anyway, so starting a second cell simply retargets the same element — which
  * also means the first stops without any bookkeeping.
  *
@@ -26,7 +26,7 @@ export type SheetAudioApi = {
  */
 export function useSheetAudio(requestPaint: () => void): SheetAudioApi {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const playingRef = useRef<PlayingVoice | null>(null);
+  const playingRef = useRef<PlayingAudio | null>(null);
 
   const stop = useCallback(() => {
     audioRef.current?.pause();

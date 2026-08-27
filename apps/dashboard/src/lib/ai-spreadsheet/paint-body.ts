@@ -45,7 +45,7 @@ export type BodyPaintArgs = {
   labels: SheetLabels;
   formatters: SheetFormatters;
   fonts: SheetFonts;
-  /** The voice cell currently sounding, if any. */
+  /** The audio cell currently sounding, if any. */
   playing?: { row: number; columnId: string } | null;
 };
 

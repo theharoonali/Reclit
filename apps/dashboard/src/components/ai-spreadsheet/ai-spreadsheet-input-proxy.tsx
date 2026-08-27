@@ -18,10 +18,12 @@ type AiSpreadsheetInputProxyProps = {
  * the IME candidate window renders wherever the field is, and an off-screen
  * field makes the browser scroll the container to it on focus.
  *
- * Deliberately no blur handler. Re-focusing on blur is the usual trick for
- * keeping a canvas grid "hot", but it fights every other focusable thing on
- * the page — the side panel's own inputs first of all. Focus comes back on
- * the next pointerdown on the canvas instead.
+ * Blur commits the in-progress edit (a spreadsheet does not throw away what
+ * you typed because you clicked elsewhere) but deliberately does NOT
+ * re-focus. Re-focusing on blur is the usual trick for keeping a canvas grid
+ * "hot", but it fights every other focusable thing on the page — the side
+ * panel's own inputs first of all. Focus comes back on the next pointerdown
+ * on the canvas instead.
  */
 export function AiSpreadsheetInputProxy(props: AiSpreadsheetInputProxyProps) {
   const { editor, label } = props;
@@ -114,6 +116,10 @@ export function AiSpreadsheetInputProxy(props: AiSpreadsheetInputProxyProps) {
       autoCapitalize="off"
       autoCorrect="off"
       className="absolute left-0 top-0 h-px w-px resize-none overflow-hidden rounded-none border-0 bg-transparent p-0 text-body text-transparent caret-transparent outline-none"
+      onBlur={() => {
+        // Mid-composition the IME owns the buffer; committing would tear it.
+        if (!composingRef.current) editor.commit("none");
+      }}
       onCompositionEnd={() => {
         composingRef.current = false;
         editor.syncFromProxy();

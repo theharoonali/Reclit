@@ -27,9 +27,9 @@ import type {
 
 /**
  * The mark a capsule can carry before its label: a boolean's status dot, or a
- * voice cell's transport control.
+ * audio cell's transport control.
  *
- * A voice chip reserves the same width whether it is showing play or pause, so
+ * A audio chip reserves the same width whether it is showing play or pause, so
  * the chip does not change size — and so its clickable region does not move —
  * when playback starts.
  */
@@ -41,8 +41,8 @@ export const capsuleLeading = (mark?: CapsuleMark) => {
   return width + CAPSULE_DOT_GAP;
 };
 
-/** What a voice chip reserves, whichever way round its control is drawn. */
-export const VOICE_LEADING = capsuleLeading("play");
+/** What a audio chip reserves, whichever way round its control is drawn. */
+export const AUDIO_LEADING = capsuleLeading("play");
 
 /**
  * The bounds of a capsule inside its cell. Exported because the pointer
@@ -70,7 +70,7 @@ export function capsuleRect(
 /**
  * How a capsule is inked. JSON and file cells share the neutral accent chip;
  * booleans get a coloured border and a matching dot instead, which is what
- * makes true and false readable at a glance without reading the word. Voice
+ * makes true and false readable at a glance without reading the word. Audio
  * cells reuse the neutral chip and add a play/pause control.
  */
 type CapsuleStyle = {
@@ -174,9 +174,9 @@ const boolStyle = (
 
 /**
  * The playing chip is drawn in the accent colour rather than the neutral one,
- * so which of a column of voice notes is sounding is obvious at a glance.
+ * so which of a column of audio notes is sounding is obvious at a glance.
  */
-const voiceStyle = (
+const audioStyle = (
   playing: boolean,
   palette: SheetPalette,
   dpr: number,
@@ -200,7 +200,7 @@ export type CellPaintArgs = {
   labels: SheetLabels;
   formatters: SheetFormatters;
   dpr: number;
-  /** Whether this cell is the voice note currently sounding. */
+  /** Whether this cell is the audio note currently sounding. */
   playing?: boolean;
 };
 
@@ -228,8 +228,8 @@ export function paintCell(args: CellPaintArgs) {
     return;
   }
 
-  if (type === "voice" && isResourceUrl(value)) {
-    const style = voiceStyle(args.playing === true, palette, dpr);
+  if (type === "audio" && isResourceUrl(value)) {
+    const style = audioStyle(args.playing === true, palette, dpr);
     paintCapsule(ctx, rect, fileLabel(value), style);
     return;
   }

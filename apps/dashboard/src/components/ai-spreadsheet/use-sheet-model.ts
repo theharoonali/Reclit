@@ -18,10 +18,10 @@ import { cellKey } from "@/lib/ai-spreadsheet/types";
  *
  * - `row.index` is the absolute row number. With pagination it is not the
  *   position in `payload.rows`, so nothing below indexes into that array.
- * - `row.data` is positional by column *index* while the model keys by column
- *   *id*. The mapping happens once, here, by walking the columns rather than
- *   the array, so a short `data` array and a `data` entry with no column are
- *   both simply not read.
+ * - A row is nested — one `{ id, name, value }` entry per stored cell, keyed
+ *   by column *id*, which is exactly how the model keys `cells`. An entry for
+ *   a column the sheet does not know is stored but never painted (columns
+ *   drive painting), and a blank cell is an absent entry.
  *
  * `payload.pagination` is deliberately not acted on. A row with no entry in
  * `cells` renders blank, which is already the right thing for a row that has
@@ -47,12 +47,11 @@ export function normalize(payload: SheetPayload): SheetModel {
 
   for (const row of payload.rows) {
     rowIds.set(row.index, row.id);
-    for (const column of payload.columns) {
-      const value = row.data[column.index];
+    for (const entry of row.columns) {
       // An absent entry and an explicit `null` are the same thing: no key at
       // all, which paints blank and stays editable.
-      if (value === undefined || value === null) continue;
-      cells.set(cellKey(row.index, column.id), value as CellValue);
+      if (entry.value === null || entry.value === undefined) continue;
+      cells.set(cellKey(row.index, entry.id), entry.value as CellValue);
     }
   }
 

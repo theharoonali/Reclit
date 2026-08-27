@@ -34,6 +34,8 @@ export type SheetCanvasArgs = {
   setCell: (row: number, columnId: string, value: CellValue) => void;
   onOpenJson: (row: number, columnId: string) => void;
   onOpenDate: (row: number, columnId: string) => void;
+  onOpenAudio: (row: number, columnId: string) => void;
+  onOpenFile: (row: number, columnId: string) => void;
   onOpenColumn: (columnId?: string) => void;
 };
 
@@ -48,7 +50,8 @@ export type SheetCanvasArgs = {
 export function useSheetCanvas(args: SheetCanvasArgs) {
   const { modelRef, columnsVersion, rowCount, labels, formatters } = args;
   const { getCell, setCell } = args;
-  const { onOpenJson, onOpenDate, onOpenColumn } = args;
+  const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile, onOpenColumn } =
+    args;
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const spacerRef = useRef<HTMLDivElement | null>(null);
@@ -97,6 +100,8 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     scrollCellIntoView,
     onOpenJson,
     onOpenDate,
+    onOpenAudio,
+    onOpenFile,
   });
   const { editorRef, proxyRef } = editor;
 
@@ -194,7 +199,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     requestPaint,
     onOpenJson,
     onOpenColumn,
-    onToggleVoice: audio.toggle,
+    onToggleAudio: audio.toggle,
   });
 
   return {

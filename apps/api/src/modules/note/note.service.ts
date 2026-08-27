@@ -1,3 +1,4 @@
+import { DomainError } from "../../common/errors";
 import { prisma } from "../../db/prisma";
 import type { CreateNoteInput, Note, UpdateNoteInput } from "./note.schema";
 
@@ -5,7 +6,9 @@ import type { CreateNoteInput, Note, UpdateNoteInput } from "./note.schema";
 // `noteService` singleton below, and that graph must stay decorator-free.
 
 /** Thrown when an id does not resolve. Mapped to 404 / NOT_FOUND at the edges. */
-export class NoteNotFoundError extends Error {
+export class NoteNotFoundError extends DomainError {
+  readonly kind = "not_found";
+  readonly code = "NOTE_NOT_FOUND";
   constructor(id: string) {
     super(`Note ${id} not found`);
     this.name = "NoteNotFoundError";
@@ -40,8 +43,8 @@ export class NoteService {
     });
   }
 
-  async byId(id: string): Promise<Note | null> {
-    return prisma.note.findUnique({ where: { id }, select: noteSelect });
+  async byId(id: string): Promise<Note> {
+    return this.getOrThrow(id);
   }
 
   async create(input: CreateNoteInput): Promise<Note> {
@@ -72,6 +75,15 @@ export class NoteService {
       if (isRecordNotFound(error)) throw new NoteNotFoundError(id);
       throw error;
     }
+  }
+
+  private async getOrThrow(id: string): Promise<Note> {
+    const note = await prisma.note.findUnique({
+      where: { id },
+      select: noteSelect,
+    });
+    if (!note) throw new NoteNotFoundError(id);
+    return note;
   }
 }
 
