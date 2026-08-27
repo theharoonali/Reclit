@@ -1,8 +1,8 @@
 # `/ai-spreadsheet`
 
 **Purpose:** a spreadsheet rendered on `<canvas>` — endless vertical scroll,
-typed columns the user can add, cell editing drawn on the canvas, and JSON
-cells edited in a side panel.
+typed columns the user can add, cell editing drawn on the canvas, and JSON and
+date cells edited in a side panel.
 
 **Rendering:** static. The payload is a module constant
 (`sample-payload.ts`); nothing is fetched, so there is no `force-dynamic`.
@@ -19,7 +19,9 @@ cells edited in a side panel.
 | `…/ai-spreadsheet-side-panel.tsx` | client | the docked panel frame |
 | `…/ai-spreadsheet-column-form.tsx` | client | add **and** edit a column (name + type) |
 | `…/ai-spreadsheet-json-editor.tsx` | client | key/value table behind a JSON cell |
+| `…/ai-spreadsheet-date-editor.tsx` | client | UTC calendar behind a date cell |
 | `…/use-sheet-canvas.ts` | hook | wires sizing, painting, pointer routing and the editor |
+| `…/use-sheet-audio.ts` | hook | one shared `Audio` element and which voice cell is playing |
 | `…/use-sheet-model.ts` | hook | payload → `SheetModel`; `getCell`/`setCell`/`addColumn`/`updateColumn` |
 | `…/use-sheet-viewport.ts` | hook | viewport ref, rAF paint scheduler, palette/font refresh |
 | `…/use-sheet-scroll.ts` | hook | virtual↔native scroll mapping, wheel, blank-tail growth |
@@ -28,9 +30,10 @@ cells edited in a side panel.
 | `apps/dashboard/src/lib/ai-spreadsheet/*.ts` | pure | types, geometry, palette, formatting, text metrics, four painters |
 | `apps/dashboard/src/hooks/use-canvas-surface.ts` | hook | generic DPR-correct canvas sized from another element |
 
-Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/cn`,
-`.scrollbar-none` and the `duration-smooth`/`ease-smooth` motion pair (both
-defined in `packages/ui`), `config/nav.ts`, `components/layout/`.
+Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`,
+`@reclit/ui/calendar`, `@reclit/ui/cn`, `.scrollbar-none` and the
+`duration-smooth`/`ease-smooth` motion pair (both defined in `packages/ui`),
+`config/nav.ts`, `components/layout/`.
 
 ## APIs called
 
@@ -41,9 +44,14 @@ The payload type in `lib/ai-spreadsheet/types.ts` mirrors the shape the sheet
 endpoint is expected to return, including `pagination`. Wiring it up means
 replacing `SAMPLE_PAYLOAD` in the page — no component below changes.
 
+A row carries its values as a positional `data` array aligned with each
+column's `index`, and cells have no ids of their own, so a write-back will
+address a cell by `(row.id, column)`. A `null` entry and a `data` array that
+stops short of the last column mean the same thing: a blank, editable cell.
+
 ## Behaviour
 
-- **Rows.** `sheet.rowCount` rows, plus a blank tail that grows by 1,000 as the
+- **Rows.** `spreadsheet.totalRows` rows, plus a blank tail that grows by 1,000 as the
   viewport approaches it, so scrolling never reaches a floor. Rows with no data
   are ordinary editable blank cells.
 - **Scroll.** The container's spacer is capped at 8,000,000px and real offsets
@@ -54,20 +62,54 @@ replacing `SAMPLE_PAYLOAD` in the page — no component below changes.
 - **Columns.** Types come from the payload; unknown types degrade to `string`.
   Clicking a column header opens the panel to edit its name and type; clicking
   the `+` after the last column adds one. Widths are uniform and fixed.
-- **Editing.** Fully canvas-drawn: the text, the selection and the blinking
-  caret are painted, and a 1×1 hidden textarea holds focus and captures keys,
-  IME, and paste. Enter/Tab/Escape/F2/arrows behave as in a spreadsheet. An
-  entry that does not parse for its column type is kept as raw text and painted
-  in the destructive colour rather than discarded.
-- **JSON cells.** Painted as a capsule chip labelled with the key count; never
-  editable inline. Clicking the chip — or a blank cell in a JSON column — opens
-  an editable key/value table that writes straight back to the cell.
+- **Editing.** One click selects a cell, a second opens it — Enter and F2 do
+  the same from the keyboard. Editing is fully canvas-drawn: the text, the
+  selection and the blinking caret are painted, and a 1×1 hidden textarea holds
+  focus and captures keys, IME, and paste. Enter/Tab/Escape/arrows behave as in
+  a spreadsheet. An entry that does not parse for its column type is kept as
+  raw text and painted in the destructive colour rather than discarded.
+- **The selection ring** is stroked inset by half its width. A stroke straddles
+  its path, so ringing the cell bounds would put half the ring outside the
+  cell, where the clip that protects the gutter eats it — the first column and
+  first row would come out visibly thinner than the rest.
+- **Capsule cells.** JSON, file, voice and boolean values are painted as chips
+  rather than text, all starting at the same inset so the column still reads as
+  a column. A value that does not match its column falls back to text in the
+  destructive colour, so a bad value is visible rather than hidden behind a
+  chip that would misrepresent it.
+  - **JSON** — a neutral chip labelled with the key count; never editable
+    inline. Clicking it, or a blank cell in a JSON column, opens an editable
+    key/value table that writes straight back to the cell.
+  - **File** — the cell holds the URL itself; the chip is labelled with the
+    file name from its last path segment. Clicking it opens the file in a new
+    tab, which is why opening the cell does *not* start a text edit: the second
+    click of a double-click would land on an editor the first click gave no
+    reason to expect. Typing replaces the URL, and Delete clears it. Voice
+    cells work the same way for the same reason.
+  - **Voice** — the cell holds the audio URL, and the chip carries a play
+    control before the file name. Clicking it plays the note in place and
+    turns the control into a pause; clicking again, or starting another note,
+    stops it. The chip reserves the same width either way, so its clickable
+    region does not move when playback starts. One `Audio` element is shared by
+    the whole sheet, so only one note can sound at a time. A URL that fails to
+    load clears the chip rather than leaving it stuck on pause.
+  - **Boolean** — a chip bordered and dotted in `--success` for true and
+    `--warning` for false. Opening the cell toggles it instead of editing text
+    (a blank toggles to true); typing still opens the text editor, so a
+    keystroke never silently flips a value.
+- **Date cells** open the panel's calendar rather than an inline editor.
+  Everything is UTC, matching how dates are painted, and picking a day carries
+  over the time of day the cell already held — the grid shows only the date, so
+  zeroing the time would be data loss the user could not see. Typing a date
+  still edits inline.
 - **The panel** slides in over the sheet from the right, inside the row below
   the header, so it never covers the column names and never resizes or reflows
   the grid. It stays mounted and inert while closed so it can animate out.
 - **Theme.** Canvas colours are read from the CSS custom properties and
   re-read when the `<html>` class changes, so the sheet follows the theme with
-  no hard-coded values. Header and gutter use `--card`.
+  no hard-coded values. Header and gutter use `--card`; the boolean chip uses
+  `--success` and `--warning`. A token that fails to resolve paints black, so a
+  black chip means a missing custom property, not a styling choice.
 - **Accessibility.** The scroll container is a `role="grid"` with
   `aria-rowcount`/`aria-colcount`, the hidden textarea is labelled, and the
   painted `+` has a real screen-reader-only button behind it. Per-cell reading
@@ -89,6 +131,14 @@ replacing `SAMPLE_PAYLOAD` in the page — no component below changes.
   Radix Select portals and traps focus, which fights the grid's focus proxy. If
   a second feature needs one, move it to
   `packages/ui/src/components/select.tsx` — still native, still unanimated.
+- `packages/ui/src/components/calendar.tsx` is a shared, token-styled month
+  calendar over `react-day-picker`. It renders inline and is deliberately not
+  wrapped in a popover, for the same focus-proxy reason as the `<select>`.
+- `apps/dashboard/tests/support/canvas.ts` is a canvas context that records draw
+  calls instead of drawing. The painters are pure functions over a context, so
+  it is how they are asserted on without a browser. It lives under `tests/`
+  rather than beside the painters because no test-only file belongs in `src/`
+  — see [docs/rules/TESTING.md](../rules/TESTING.md).
 
 ## Linked routes
 

@@ -73,6 +73,11 @@ Filter to one workspace: `bunx turbo typecheck --filter=@reclit/api`.
   shared primitives in `packages/ui` — see [docs/rules/FRONTEND.md](docs/rules/FRONTEND.md).
 - **Every API is documented and tested in one file**:
   `apps/api/src/__tests__/<feature>.api.test.ts` — see [docs/rules/TESTING.md](docs/rules/TESTING.md).
+- **Test files never live in frontend source.** No `*.test.ts`, stub, fixture or
+  other test-only file goes under `apps/dashboard/src/`. Frontend tests live in
+  one central place, `apps/dashboard/tests/` (`support/` for shared helpers, one
+  directory per feature), and reach the code through the `@/` alias — see
+  [docs/rules/TESTING.md](docs/rules/TESTING.md).
 - **Plans**: anything larger than a one-file edit gets `docs/plans/NNN-<slug>.md`
   written before the code and an `Outcome` after — see [docs/rules/COMMON.md](docs/rules/COMMON.md).
 - **Each workspace carries its own `tsconfig.json`** — there is no shared tsconfig package.

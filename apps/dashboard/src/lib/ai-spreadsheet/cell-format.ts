@@ -12,6 +12,8 @@ const COLUMN_TYPES: ColumnType[] = [
   "boolean",
   "date",
   "json",
+  "file",
+  "voice",
   "email",
   "url",
 ];
@@ -33,6 +35,30 @@ export function isJsonObject(value: CellValue): value is JsonObject {
 
 export const jsonKeyCount = (value: CellValue) =>
   isJsonObject(value) ? Object.keys(value).length : 0;
+
+/**
+ * File and voice cells hold the URL of the thing itself, so both are validated
+ * the same way; anything that is not a URL is mistyped.
+ */
+export function isResourceUrl(value: CellValue): value is string {
+  return typeof value === "string" && URL_RE.test(value);
+}
+
+/**
+ * The name shown on a file or voice capsule: the last path segment,
+ * percent-decoded. A URL with no path segment at all falls back to the whole
+ * string rather than painting an empty chip.
+ */
+export function fileLabel(url: string): string {
+  const withoutQuery = url.split(/[?#]/)[0] ?? url;
+  const segment = withoutQuery.split("/").filter(Boolean).pop();
+  if (!segment || segment.includes(":")) return url;
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
 
 /**
  * Built once per locale, not per cell per frame. Dates are rendered in UTC on
@@ -65,6 +91,9 @@ export function isMistyped(value: CellValue, type: ColumnType): boolean {
       return typeof value !== "boolean";
     case "json":
       return !isJsonObject(value);
+    case "file":
+    case "voice":
+      return !isResourceUrl(value);
     case "date":
       return typeof value !== "string" || !Number.isFinite(Date.parse(value));
     case "email":
@@ -76,7 +105,11 @@ export function isMistyped(value: CellValue, type: ColumnType): boolean {
   }
 }
 
-/** The text painted in a cell. JSON cells draw a capsule instead. */
+/**
+ * The text painted in a cell. JSON, file, voice and boolean cells draw a
+ * capsule instead, so they only ever reach this when the value does not match
+ * the column — a mismatch is painted as text in the invalid colour.
+ */
 export function formatCellText(
   value: CellValue,
   type: ColumnType,
@@ -84,7 +117,8 @@ export function formatCellText(
   formatters: SheetFormatters,
 ): string {
   if (value === null) return "";
-  if (type === "json") return "";
+  if (type === "json" && isJsonObject(value)) return "";
+  if ((type === "file" || type === "voice") && isResourceUrl(value)) return "";
   if (typeof value === "boolean") {
     return value ? labels.boolTrue : labels.boolFalse;
   }
@@ -95,6 +129,9 @@ export function formatCellText(
     const parsed = Date.parse(value);
     return Number.isFinite(parsed) ? formatters.date.format(parsed) : value;
   }
+  // An object in a non-JSON column is mistyped; showing its JSON is more use
+  // than `[object Object]`.
+  if (isJsonObject(value)) return JSON.stringify(value);
   return String(value);
 }
 
@@ -102,6 +139,7 @@ export function formatCellText(
 export function editableText(value: CellValue, type: ColumnType): string {
   if (value === null) return "";
   if (type === "json") return "";
+  if (isJsonObject(value)) return JSON.stringify(value);
   return String(value);
 }
 
@@ -150,7 +188,10 @@ export function parseCellInput(text: string, type: ColumnType): ParseResult {
     }
     case "email":
       return { ok: EMAIL_RE.test(trimmed), value: trimmed };
+    // A file or voice cell is its URL, so it is edited and validated like one.
     case "url":
+    case "file":
+    case "voice":
       return { ok: URL_RE.test(trimmed), value: trimmed };
     default:
       return { ok: true, value: text };

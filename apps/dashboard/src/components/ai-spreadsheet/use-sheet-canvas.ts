@@ -19,6 +19,7 @@ import type {
   SheetModel,
 } from "@/lib/ai-spreadsheet/types";
 import { useCellEditor } from "./use-cell-editor";
+import { useSheetAudio } from "./use-sheet-audio";
 import { createSheetPointerHandlers } from "./use-sheet-pointer";
 import { useSheetScroll } from "./use-sheet-scroll";
 import { useSheetViewport } from "./use-sheet-viewport";
@@ -32,6 +33,7 @@ export type SheetCanvasArgs = {
   getCell: (row: number, columnId: string) => CellValue;
   setCell: (row: number, columnId: string, value: CellValue) => void;
   onOpenJson: (row: number, columnId: string) => void;
+  onOpenDate: (row: number, columnId: string) => void;
   onOpenColumn: (columnId?: string) => void;
 };
 
@@ -45,7 +47,8 @@ export type SheetCanvasArgs = {
  */
 export function useSheetCanvas(args: SheetCanvasArgs) {
   const { modelRef, columnsVersion, rowCount, labels, formatters } = args;
-  const { getCell, setCell, onOpenJson, onOpenColumn } = args;
+  const { getCell, setCell } = args;
+  const { onOpenJson, onOpenDate, onOpenColumn } = args;
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const spacerRef = useRef<HTMLDivElement | null>(null);
@@ -81,6 +84,8 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   const headerCtxRef = header.ctxRef;
   const headerSizeRef = header.sizeRef;
 
+  const audio = useSheetAudio(requestPaint);
+
   const editor = useCellEditor({
     modelRef,
     viewportRef,
@@ -91,6 +96,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     requestPaint,
     scrollCellIntoView,
     onOpenJson,
+    onOpenDate,
   });
   const { editorRef, proxyRef } = editor;
 
@@ -127,6 +133,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         editor: editorRef.current,
         labels,
         formatters,
+        playing: audio.playingRef.current,
       });
       paintEditor({ ...shared, editor: editorRef.current });
       positionProxy();
@@ -147,6 +154,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
       });
     }
   }, [
+    audio.playingRef,
     bodyCtxRef,
     bodySizeRef,
     editorRef,
@@ -186,6 +194,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     requestPaint,
     onOpenJson,
     onOpenColumn,
+    onToggleVoice: audio.toggle,
   });
 
   return {

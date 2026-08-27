@@ -40,9 +40,17 @@ export function paintEditor(args: EditorPaintArgs) {
   const rect = cellRect(active.row, active.col);
   ctx.fillStyle = palette.background;
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  // Inset by half the stroke width for the same reason as the idle ring in
+  // `paint-body.ts`: an un-inset stroke loses its outer half to the clip.
+  const ring = 2 / dpr;
   ctx.strokeStyle = palette.ring;
-  ctx.lineWidth = 2 / dpr;
-  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.lineWidth = ring;
+  ctx.strokeRect(
+    rect.x + ring / 2,
+    rect.y + ring / 2,
+    rect.w - ring,
+    rect.h - ring,
+  );
 
   // Inside the cell the text scrolls horizontally under a clip, so a value
   // longer than the column keeps the caret in view instead of overflowing.

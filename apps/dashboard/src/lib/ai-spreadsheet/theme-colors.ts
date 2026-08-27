@@ -55,6 +55,8 @@ export function readPalette(el: HTMLElement): SheetPalette {
     ring: read("primary"),
     link: read("primary"),
     invalid: read("destructive"),
+    boolTrue: read("success"),
+    boolFalse: read("warning"),
   };
 }
 
@@ -72,4 +74,6 @@ export const FALLBACK_PALETTE: SheetPalette = {
   ring: "hsl(20 90% 55%)",
   link: "hsl(20 90% 55%)",
   invalid: "hsl(0 84% 60%)",
+  boolTrue: "hsl(142 70% 38%)",
+  boolFalse: "hsl(45 90% 42%)",
 };

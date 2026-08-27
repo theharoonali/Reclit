@@ -45,6 +45,8 @@ export type BodyPaintArgs = {
   labels: SheetLabels;
   formatters: SheetFormatters;
   fonts: SheetFonts;
+  /** The voice cell currently sounding, if any. */
+  playing?: { row: number; columnId: string } | null;
 };
 
 /**
@@ -87,6 +89,7 @@ export function paintBody(args: BodyPaintArgs) {
   for (let row = rows.first; row <= rows.last; row++) {
     let col = cols.first;
     for (const column of columns) {
+      const playing = args.playing;
       paintCell({
         ctx,
         rect: cellRect(row, col),
@@ -96,18 +99,29 @@ export function paintBody(args: BodyPaintArgs) {
         labels: args.labels,
         formatters: args.formatters,
         dpr,
+        playing: playing?.row === row && playing.columnId === column.id,
       });
       col++;
     }
   }
 
   // The selection ring sits above the cells but below the editing overlay.
+  // It is inset by half its width: a stroke straddles the path, so stroking
+  // the cell bounds puts half the ring outside the cell, where the clip that
+  // protects the gutter eats it — the first column and first row would come
+  // out visibly thinner than the rest.
   const active = editor.active;
   if (active && editor.mode === "idle") {
     const rect = cellRect(active.row, active.col);
+    const ring = 2 / dpr;
     ctx.strokeStyle = palette.ring;
-    ctx.lineWidth = 2 / dpr;
-    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.lineWidth = ring;
+    ctx.strokeRect(
+      rect.x + ring / 2,
+      rect.y + ring / 2,
+      rect.w - ring,
+      rect.h - ring,
+    );
   }
   ctx.restore();
 

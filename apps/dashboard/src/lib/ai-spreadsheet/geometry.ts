@@ -24,9 +24,15 @@ export const HEADER_FONT_SIZE = 14;
 export const TYPE_FONT_SIZE = 11;
 export const GUTTER_FONT_SIZE = 11;
 
-/** The JSON capsule chip. */
+/** The capsule chip shared by JSON, file and boolean cells. */
 export const CAPSULE_HEIGHT = 20;
 export const CAPSULE_PAD_X = 8;
+/** The status dot a boolean capsule carries before its label. */
+export const CAPSULE_DOT = 6;
+/** The play/pause glyph a voice capsule carries before its label. */
+export const CAPSULE_GLYPH = 8;
+/** Between either mark and the label that follows it. */
+export const CAPSULE_DOT_GAP = 6;
 
 /**
  * The scroll spacer is clamped, and this is the load-bearing number in the

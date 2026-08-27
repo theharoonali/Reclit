@@ -20,6 +20,8 @@ export type ColumnType =
   | "boolean"
   | "date"
   | "json"
+  | "file"
+  | "voice"
   | "email"
   | "url";
 
@@ -37,11 +39,12 @@ export type ApiColumn = {
   type: string;
 };
 
-/** `column` is the column's *index*, not its id. */
-export type ApiCell = { id: string; column: number; value: unknown };
-
-/** `index` is the absolute row number in the sheet, not a position in `rows`. */
-export type ApiRow = { id: string; index: number; cells: ApiCell[] };
+/**
+ * `index` is the absolute row number in the sheet, not a position in `rows`.
+ * `data` is positional: `data[column.index]` is that column's value, and a
+ * `null` or missing entry is a blank cell.
+ */
+export type ApiRow = { id: string; index: number; data: unknown[] };
 
 export type SheetPagination = {
   startRow: number;
@@ -51,7 +54,12 @@ export type SheetPagination = {
 };
 
 export type SheetPayload = {
-  sheet: { id: string; name: string; rowCount: number; columnCount: number };
+  spreadsheet: {
+    id: string;
+    name: string;
+    totalRows: number;
+    totalColumns: number;
+  };
   columns: ApiColumn[];
   rows: ApiRow[];
   pagination: SheetPagination;
@@ -72,12 +80,11 @@ export type SheetColumn = { id: string; name: string; type: ColumnType };
 export type SheetModel = {
   sheetId: string;
   sheetName: string;
-  /** `sheet.rowCount`. The sheet scrolls past this into blank rows. */
+  /** `spreadsheet.totalRows`. The sheet scrolls past this into blank rows. */
   rowCount: number;
   columns: SheetColumn[];
   cells: Map<string, CellValue>;
-  /** Same key as `cells` → the server's cell id, kept for write-back later. */
-  cellIds: Map<string, string>;
+  /** Cells have no ids of their own, so write-back addresses `(rowId, column)`. */
   rowIds: Map<number, string>;
   nextColumnIndex: number;
 };
@@ -122,7 +129,8 @@ export type PanelState =
   | { kind: "closed" }
   /** No `columnId` means "add a new column". */
   | { kind: "column"; columnId?: string }
-  | { kind: "json"; row: number; columnId: string };
+  | { kind: "json"; row: number; columnId: string }
+  | { kind: "date"; row: number; columnId: string };
 
 /* -------------------------------------------------------- paint contract */
 
@@ -140,6 +148,9 @@ export type SheetPalette = {
   ring: string;
   link: string;
   invalid: string;
+  /** The boolean capsule's border and dot. */
+  boolTrue: string;
+  boolFalse: string;
 };
 
 /** Canvas text is user-facing copy, so it comes from next-intl like the rest. */

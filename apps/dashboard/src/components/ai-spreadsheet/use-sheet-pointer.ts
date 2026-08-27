@@ -1,7 +1,11 @@
 "use client";
 
 import type { MouseEvent } from "react";
-import { isJsonObject } from "@/lib/ai-spreadsheet/cell-format";
+import {
+  fileLabel,
+  isJsonObject,
+  isResourceUrl,
+} from "@/lib/ai-spreadsheet/cell-format";
 import {
   cellRect,
   containsPoint,
@@ -9,7 +13,7 @@ import {
   hitTest,
   hitTestHeader,
 } from "@/lib/ai-spreadsheet/geometry";
-import { capsuleRect } from "@/lib/ai-spreadsheet/paint-cell";
+import { capsuleRect, VOICE_LEADING } from "@/lib/ai-spreadsheet/paint-cell";
 import type {
   CellValue,
   SheetFonts,
@@ -33,6 +37,7 @@ export type SheetPointerArgs = {
   requestPaint: () => void;
   onOpenJson: (row: number, columnId: string) => void;
   onOpenColumn: (columnId?: string) => void;
+  onToggleVoice: (row: number, columnId: string, url: string) => void;
 };
 
 /**
@@ -45,7 +50,7 @@ export type SheetPointerArgs = {
 export function createSheetPointerHandlers(args: SheetPointerArgs) {
   const { modelRef, viewportRef, ctxRef, fontsRef, hoverRef } = args;
   const { labels, editor, getCell, requestPaint } = args;
-  const { onOpenJson, onOpenColumn } = args;
+  const { onOpenJson, onOpenColumn, onToggleVoice } = args;
 
   /** Canvas-relative CSS pixels. DPR never enters this — see `geometry`. */
   const localPoint = (event: MouseEvent<HTMLElement>) => {
@@ -54,25 +59,57 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
   };
 
   /**
-   * True when the pointer landed on a JSON cell's capsule chip. It calls the
+   * What the pointer landed on, when it landed on a capsule chip. It calls the
    * same `capsuleRect` the painter used, so the chip you can click is by
    * construction the chip that was drawn.
+   *
+   * Boolean capsules are deliberately absent: they toggle on double-click like
+   * every other cell edits on double-click, so a single click on one only
+   * selects. One click never changes data.
    */
-  const hitCapsule = (row: number, col: number, x: number, y: number) => {
+  const capsuleTargetAt = (
+    row: number,
+    col: number,
+    x: number,
+    y: number,
+  ):
+    | { kind: "json"; columnId: string }
+    | { kind: "file"; url: string }
+    | { kind: "voice"; columnId: string; url: string }
+    | null => {
     const ctx = ctxRef.current;
     const column = modelRef.current?.columns[col];
     const viewport = viewportRef.current;
-    if (!ctx || !column || !viewport || column.type !== "json") return false;
+    if (!ctx || !column || !viewport) return null;
+
+    /**
+     * `leading` must be whatever the painter reserved for that chip's kind, or
+     * the clickable region stops matching the drawn one.
+     */
+    const hits = (label: string, leading = 0) => {
+      ctx.font = fontsRef.current.cell;
+      const chip = capsuleRect(ctx, cellRect(row, col), label, leading);
+      return containsPoint(
+        chip,
+        x - GUTTER_WIDTH + viewport.scrollX,
+        y + viewport.scrollY,
+      );
+    };
+
     const value = getCell(row, column.id);
-    if (!isJsonObject(value)) return false;
-    ctx.font = fontsRef.current.cell;
-    const label = labels.jsonCapsule(Object.keys(value).length);
-    const chip = capsuleRect(ctx, cellRect(row, col), label);
-    return containsPoint(
-      chip,
-      x - GUTTER_WIDTH + viewport.scrollX,
-      y + viewport.scrollY,
-    );
+    if (column.type === "json" && isJsonObject(value)) {
+      const label = labels.jsonCapsule(Object.keys(value).length);
+      return hits(label) ? { kind: "json", columnId: column.id } : null;
+    }
+    if (column.type === "file" && isResourceUrl(value)) {
+      return hits(fileLabel(value)) ? { kind: "file", url: value } : null;
+    }
+    if (column.type === "voice" && isResourceUrl(value)) {
+      return hits(fileLabel(value), VOICE_LEADING)
+        ? { kind: "voice", columnId: column.id, url: value }
+        : null;
+    }
+    return null;
   };
 
   const handleBodyPointerDown = (event: MouseEvent<HTMLDivElement>) => {
@@ -85,13 +122,30 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
       editor.focusProxy();
       return;
     }
-    const column = modelRef.current?.columns[hit.col];
-    if (column && hitCapsule(hit.row, hit.col, x, y)) {
-      editor.selectCell(hit.row, hit.col);
-      onOpenJson(hit.row, column.id);
+
+    editor.selectCell(hit.row, hit.col);
+
+    const target = capsuleTargetAt(hit.row, hit.col, x, y);
+    if (!target) return;
+    if (target.kind === "json") {
+      onOpenJson(hit.row, target.columnId);
       return;
     }
-    editor.selectCell(hit.row, hit.col);
+
+    // Both remaining chips act on the click itself, so both only act on the
+    // first of a burst: without the guard, double-clicking a file chip opens
+    // two tabs and double-clicking a voice chip starts then stops the note.
+    if (event.detail > 1) return;
+
+    if (target.kind === "voice") {
+      onToggleVoice(hit.row, target.columnId, target.url);
+      return;
+    }
+
+    // Opened straight from the pointer handler so it counts as a user gesture
+    // and survives the popup blocker. `preventDefault()` above does not stop
+    // this — it only cancels the text-selection drag and the focus change.
+    window.open(target.url, "_blank", "noopener,noreferrer");
   };
 
   const handleBodyDoubleClick = (event: MouseEvent<HTMLDivElement>) => {

@@ -35,6 +35,8 @@ export function useSheetLabels(): {
         boolean: t("types.boolean"),
         date: t("types.date"),
         json: t("types.json"),
+        file: t("types.file"),
+        voice: t("types.voice"),
         email: t("types.email"),
         url: t("types.url"),
       },

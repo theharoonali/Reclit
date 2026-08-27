@@ -24,6 +24,7 @@
   },
   "packageManager": "bun@1.3.11",
   "catalog": {
+    "lucide-react": "^1.34.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "typescript": "^6.0.2",

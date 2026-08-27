@@ -45,6 +45,7 @@ export type CellEditorArgs = {
   requestPaint: () => void;
   scrollCellIntoView: (row: number, col: number) => void;
   onOpenJson: (row: number, columnId: string) => void;
+  onOpenDate: (row: number, columnId: string) => void;
 };
 
 /**
@@ -62,7 +63,8 @@ export function useCellEditor(args: CellEditorArgs) {
   const blinkRef = useRef(0);
 
   const { modelRef, viewportRef, ctxRef, fontsRef, requestPaint } = args;
-  const { getCell, setCell, scrollCellIntoView, onOpenJson } = args;
+  const { getCell, setCell, scrollCellIntoView } = args;
+  const { onOpenJson, onOpenDate } = args;
 
   const stopBlink = useCallback(() => {
     if (blinkRef.current !== 0) window.clearInterval(blinkRef.current);
@@ -134,6 +136,42 @@ export function useCellEditor(args: CellEditorArgs) {
         return;
       }
 
+      // A date opens the panel's calendar, but only when the edit was asked
+      // for rather than typed into: a seed means the user started typing a
+      // date, and swallowing those keystrokes would be a surprise.
+      if (column.type === "date" && seed === undefined) {
+        selectCell(row, col);
+        onOpenDate(row, column.id);
+        return;
+      }
+
+      // A file or voice chip already acts on a single click — opening the file,
+      // starting the note — so a double-click must not also open a text
+      // editor: the second click would land on an editor the first click had
+      // no reason to expect. Typing still edits the URL, Delete still clears.
+      // `seed === undefined`, not `!seed`: typing passes an empty-string seed.
+      if (
+        (column.type === "file" || column.type === "voice") &&
+        seed === undefined
+      ) {
+        selectCell(row, col);
+        return;
+      }
+
+      // A boolean has two states and no text, so an asked-for edit is a
+      // toggle. Typing is not a toggle: a keystroke that arrives as a seed
+      // opens the text editor instead, because silently flipping a value
+      // because someone started typing would be a nasty surprise. A mistyped
+      // value falls through too, so it can still be corrected by hand.
+      if (column.type === "boolean" && seed === undefined) {
+        const current = getCell(row, column.id);
+        if (typeof current === "boolean" || current === null) {
+          setCell(row, column.id, current !== true);
+          selectCell(row, col);
+          return;
+        }
+      }
+
       const text = seed ?? editableText(getCell(row, column.id), column.type);
       editorRef.current = {
         active: { row, col },
@@ -154,12 +192,14 @@ export function useCellEditor(args: CellEditorArgs) {
       columnAt,
       focusProxy,
       getCell,
+      onOpenDate,
       onOpenJson,
       refreshCaretMetrics,
       requestPaint,
       resetProxy,
       restartBlink,
       selectCell,
+      setCell,
     ],
   );
 

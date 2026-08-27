@@ -18,16 +18,17 @@ import { cellKey } from "@/lib/ai-spreadsheet/types";
  *
  * - `row.index` is the absolute row number. With pagination it is not the
  *   position in `payload.rows`, so nothing below indexes into that array.
- * - `cell.column` is a column *index* while the model keys by column *id*.
- *   The mapping happens once, here, and is guarded: a cell pointing at a
- *   column that was not sent is skipped, not fatal.
+ * - `row.data` is positional by column *index* while the model keys by column
+ *   *id*. The mapping happens once, here, by walking the columns rather than
+ *   the array, so a short `data` array and a `data` entry with no column are
+ *   both simply not read.
  *
  * `payload.pagination` is deliberately not acted on. A row with no entry in
  * `cells` renders blank, which is already the right thing for a row that has
  * not been fetched; adding real paging means merging pages into `cells` and
  * tracking loaded ranges, and nothing else in the feature has to change.
  */
-function normalize(payload: SheetPayload): SheetModel {
+export function normalize(payload: SheetPayload): SheetModel {
   const columns: SheetColumn[] = [...payload.columns]
     .sort((a, b) => a.index - b.index)
     .map((column) => ({
@@ -36,35 +37,31 @@ function normalize(payload: SheetPayload): SheetModel {
       type: toColumnType(column.type),
     }));
 
-  const idByIndex = new Map<number, string>();
   let maxIndex = -1;
   for (const column of payload.columns) {
-    idByIndex.set(column.index, column.id);
     maxIndex = Math.max(maxIndex, column.index);
   }
 
   const cells = new Map<string, CellValue>();
-  const cellIds = new Map<string, string>();
   const rowIds = new Map<number, string>();
 
   for (const row of payload.rows) {
     rowIds.set(row.index, row.id);
-    for (const cell of row.cells) {
-      const columnId = idByIndex.get(cell.column);
-      if (!columnId) continue;
-      const key = cellKey(row.index, columnId);
-      cells.set(key, cell.value as CellValue);
-      cellIds.set(key, cell.id);
+    for (const column of payload.columns) {
+      const value = row.data[column.index];
+      // An absent entry and an explicit `null` are the same thing: no key at
+      // all, which paints blank and stays editable.
+      if (value === undefined || value === null) continue;
+      cells.set(cellKey(row.index, column.id), value as CellValue);
     }
   }
 
   return {
-    sheetId: payload.sheet.id,
-    sheetName: payload.sheet.name,
-    rowCount: payload.sheet.rowCount,
+    sheetId: payload.spreadsheet.id,
+    sheetName: payload.spreadsheet.name,
+    rowCount: payload.spreadsheet.totalRows,
     columns,
     cells,
-    cellIds,
     rowIds,
     nextColumnIndex: Math.max(maxIndex + 1, columns.length),
   };
@@ -118,7 +115,7 @@ export function useSheetModel(payload: SheetPayload): SheetModelApi {
     if (!current) return;
     // Matches the server's own id shape, and is deterministic — no
     // `crypto.randomUUID()`, which would differ between server and client.
-    const id = `col_${current.nextColumnIndex}`;
+    const id = `col.${current.nextColumnIndex}`;
     current.nextColumnIndex += 1;
     current.columns = [...current.columns, { id, name, type }];
     setColumnsVersion((version) => version + 1);

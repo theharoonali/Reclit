@@ -5,87 +5,90 @@ import type { SheetPayload } from "@/lib/ai-spreadsheet/types";
  * copy — like `WORKSPACE` in `config/nav.ts` — so these literals stay out of
  * `messages/en.json`.
  *
- * Two rows here are load-bearing for testing rather than decoration:
- * `row_0` has no `Metadata` cell at all (a missing cell is `null`, not an
- * error), and `row_2` sends an explicit `null`. Both must render blank.
+ * `data` is positional by column index. Several holes here are load-bearing
+ * for testing rather than decoration: `row.1` sends explicit `null`s, `row.4`
+ * stops short of the last columns entirely, and both must render blank.
  */
 export const SAMPLE_PAYLOAD: SheetPayload = {
-  sheet: {
+  spreadsheet: {
     id: "sheet_123",
     name: "Customers",
-    rowCount: 5_000_000,
-    columnCount: 5,
+    totalRows: 5_000_000,
+    totalColumns: 8,
   },
 
   columns: [
-    { id: "col_0", index: 0, name: "Name", type: "string" },
-    { id: "col_1", index: 1, name: "Email", type: "string" },
-    { id: "col_2", index: 2, name: "Age", type: "number" },
-    { id: "col_3", index: 3, name: "Joined", type: "date" },
-    { id: "col_4", index: 4, name: "Metadata", type: "json" },
+    { id: "col.0", index: 0, name: "Name", type: "string" },
+    { id: "col.1", index: 1, name: "Email", type: "string" },
+    { id: "col.2", index: 2, name: "Age", type: "number" },
+    { id: "col.3", index: 3, name: "Joined", type: "date" },
+    { id: "col.4", index: 4, name: "Metadata", type: "json" },
+    { id: "col.5", index: 5, name: "Active", type: "boolean" },
+    { id: "col.6", index: 6, name: "Resume", type: "file" },
+    { id: "col.7", index: 7, name: "Intro", type: "voice" },
   ],
 
   rows: [
     {
-      id: "row_0",
+      id: "row.0",
       index: 0,
-      cells: [
-        { id: "cell_0_0", column: 0, value: "Muhammad" },
-        { id: "cell_0_1", column: 1, value: "muhammad@gmail.com" },
-        { id: "cell_0_2", column: 2, value: 26 },
-        { id: "cell_0_3", column: 3, value: "2026-08-27T10:00:00Z" },
+      data: [
+        "Muhammad",
+        "muhammad@example.com",
+        26,
+        "2026-08-27T10:00:00.000Z",
+        { country: "Germany", skills: ["React", "Node.js"] },
+        true,
+        "https://example.com/files/muhammad-resume.pdf",
+        "https://example.com/voice/muhammad-intro.mp3",
       ],
     },
     {
-      id: "row_1",
+      id: "row.1",
       index: 1,
-      cells: [
-        { id: "cell_1_0", column: 0, value: "Ali" },
-        { id: "cell_1_1", column: 1, value: "ali@example.com" },
-        { id: "cell_1_2", column: 2, value: 29 },
-        { id: "cell_1_3", column: 3, value: "2025-01-14T08:30:00Z" },
-        {
-          id: "cell_1_4",
-          column: 4,
-          value: { country: "Pakistan", plan: "pro", seats: 12 },
-        },
+      data: [
+        "Ali",
+        null,
+        29,
+        null,
+        { country: "Pakistan" },
+        false,
+        "https://example.com/files/ali-cv.pdf",
+        "https://example.com/voice/ali-intro.mp3",
       ],
     },
     {
-      id: "row_2",
+      id: "row.2",
       index: 2,
-      cells: [
-        { id: "cell_2_0", column: 0, value: "John" },
-        { id: "cell_2_1", column: 1, value: null },
-        { id: "cell_2_2", column: 2, value: 31 },
-        { id: "cell_2_3", column: 3, value: "2024-11-02T16:45:00Z" },
-        { id: "cell_2_4", column: 4, value: { country: "Germany" } },
+      data: [
+        "John",
+        "john@example.com",
+        31,
+        "2026-08-20T12:00:00.000Z",
+        null,
+        true,
+        null,
+        "https://example.com/voice/john-intro.mp3",
       ],
     },
     {
-      id: "row_3",
+      id: "row.3",
       index: 3,
-      cells: [
-        { id: "cell_3_0", column: 0, value: "Priya" },
-        { id: "cell_3_1", column: 1, value: "priya@example.com" },
-        { id: "cell_3_2", column: 2, value: 34 },
-        { id: "cell_3_3", column: 3, value: "2023-06-21T09:15:00Z" },
-        {
-          id: "cell_3_4",
-          column: 4,
-          value: { country: "India", plan: "free" },
-        },
+      data: [
+        "Priya",
+        "priya@example.com",
+        34,
+        "2023-06-21T09:15:00.000Z",
+        { country: "India", plan: "free" },
+        null,
+        "https://example.com/files/priya-portfolio.pdf",
+        null,
       ],
     },
     {
-      id: "row_4",
+      id: "row.4",
       index: 4,
-      cells: [
-        { id: "cell_4_0", column: 0, value: "Sofia" },
-        { id: "cell_4_1", column: 1, value: "sofia@example.com" },
-        { id: "cell_4_2", column: 2, value: 27 },
-        { id: "cell_4_3", column: 3, value: "2026-02-09T12:00:00Z" },
-      ],
+      data: ["Sofia", "sofia@example.com", 27, "2026-02-09T12:00:00.000Z"],
     },
   ],
 
@@ -93,6 +96,6 @@ export const SAMPLE_PAYLOAD: SheetPayload = {
     startRow: 0,
     limit: 100,
     hasMore: true,
-    nextCursor: "abc123",
+    nextCursor: "row.100",
   },
 };

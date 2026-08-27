@@ -18,7 +18,7 @@ bun test src/__tests__/note.api.test.ts   # one file (from apps/api)
 | --- | --- | --- |
 | **Contract** | `apps/api/src/__tests__/<feature>.api.test.ts` | every procedure of one feature: payload, response, errors. **This is the API doc.** |
 | **Smoke** | `apps/api/src/__tests__/smoke.test.ts` | the app boots, `/health` answers, tRPC is mounted. One file, repo-wide. |
-| **Unit** | next to the code, `<name>.test.ts` | a pure helper with real branching logic. Only when the contract test cannot reach it. |
+| **Frontend** | `apps/dashboard/tests/<feature>/<name>.test.ts` | a pure frontend helper with real branching logic. |
 
 No mocking of the database. Contract tests run against a real Postgres through a
 tRPC caller — a mocked test proves nothing about the payload the frontend will
@@ -128,10 +128,32 @@ supplies it.
 
 ## Frontend tests
 
-The dashboard has no test suite yet; its `test` script no-ops until a
-`*.test.ts` exists. When one is added, the rules are:
+**No test file ever lives in `apps/dashboard/src/`.** Frontend tests live in one
+central place, `apps/dashboard/tests/`, mirroring the shape of the code they
+cover:
+
+```
+apps/dashboard/tests/
+  support/            shared helpers — stubs, fixtures, factories
+  <feature>/          one directory per feature
+    <name>.test.ts
+```
+
+This holds for **every** file a test needs, not just the `*.test.ts` itself: a
+stub, a fixture, a factory, or a fake all go under `tests/support/`. Test-only
+code next to the components is still test-only code shipped in the app's source
+tree, where it gets read as part of the feature, imported by accident, and
+bundled. `src/` is what the app is; `tests/` is what proves it.
+
+Tests import the code under test through the `@/` alias — `@/lib/…`,
+`@/components/…` — never a relative path climbing out of `tests/`.
+
+The dashboard's `test` script no-ops while `tests/` holds no `*.test.ts`.
+
+Beyond placement:
 
 - Test behaviour through the rendered component, not implementation details.
+  Pure functions — formatters, geometry, painters — are tested directly.
 - Never re-assert an API contract in the frontend — that is the contract test's
   job. Mock at the tRPC boundary using shapes copied from the contract header.
 - Chrome, tokens, and pure layout are not unit-tested. Verify them in the browser.
