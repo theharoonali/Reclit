@@ -8,7 +8,8 @@
       "employee": "Employee",
       "leave": "Leave",
       "timesheet": "Timesheet",
-      "resume": "My Resume"
+      "resume": "My Resume",
+      "aiSpreadsheet": "AI Spreadsheet"
     }
   },
   "sidebar": {
@@ -40,5 +41,47 @@
     "viewerLabel": "My resume, PDF document",
     "loading": "Loading resume...",
     "error": "The resume could not be displayed."
+  },
+  "aiSpreadsheet": {
+    "title": "AI Spreadsheet",
+    "description": "A canvas spreadsheet with typed, expandable columns.",
+    "gridLabel": "{name} spreadsheet",
+    "cellInput": "Cell editor",
+    "addColumn": "Add a column",
+    "capsule": "{count, plural, one {# key} other {# keys}}",
+    "boolean": {
+      "true": "Yes",
+      "false": "No"
+    },
+    "types": {
+      "string": "Text",
+      "number": "Number",
+      "boolean": "Boolean",
+      "date": "Date",
+      "json": "JSON",
+      "email": "Email",
+      "url": "URL"
+    },
+    "panel": {
+      "addColumn": "New column",
+      "editColumn": "Edit column",
+      "jsonTitle": "JSON value",
+      "close": "Close panel"
+    },
+    "column": {
+      "name": "Name",
+      "namePlaceholder": "Column name",
+      "type": "Type",
+      "add": "Add column",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
+    "json": {
+      "key": "Key",
+      "value": "Value",
+      "add": "Add pair",
+      "remove": "Remove pair",
+      "empty": "No key/value pairs yet."
+    }
   }
 }

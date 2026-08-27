@@ -94,3 +94,19 @@
     background: transparent;
   }
 }
+
+/**
+ * Opt a scroll container out of visible scrollbars. For surfaces that carry
+ * their own scroll affordances and where a scrollbar would be meaningless —
+ * the canvas sheet's container is 8,000,000px tall, so its thumb is a sliver
+ * that says nothing useful. It still scrolls by wheel, trackpad and keyboard.
+ */
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

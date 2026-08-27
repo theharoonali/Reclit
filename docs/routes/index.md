@@ -6,6 +6,7 @@ every file and API behind the page and what it does today.
 | Route | Doc | Purpose |
 | --- | --- | --- |
 | `/` | [root.md](root.md) | The dashboard and the app shell — sidebar + header. Calls no API |
+| `/ai-spreadsheet` | [ai-spreadsheet.md](ai-spreadsheet.md) | A canvas spreadsheet: endless rows, typed columns, canvas-drawn editing. Calls no API |
 | `/resume` | [resume.md](resume.md) | The resume PDF, embedded in the browser's viewer. Calls no API |
 
 New route? Copy [`_template.md`](_template.md), fill it in, add a row here.

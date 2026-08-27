@@ -72,6 +72,14 @@ export default {
           foreground: "hsl(var(--card-foreground))",
         },
       },
+      // The app's one motion setting. Panels, drawers and the sidebar all
+      // share it so nothing slides at its own private speed.
+      transitionDuration: {
+        smooth: "220ms",
+      },
+      transitionTimingFunction: {
+        smooth: "cubic-bezier(0.32, 0.72, 0, 1)",
+      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",

@@ -4,6 +4,7 @@ import {
   FileUser,
   LayoutDashboard,
   type LucideIcon,
+  Table2,
   Users,
 } from "lucide-react";
 
@@ -38,6 +39,7 @@ export const navSections: NavSection[] = [
     titleKey: "management",
     items: [
       { labelKey: "dashboard", href: "/", icon: LayoutDashboard },
+      { labelKey: "aiSpreadsheet", href: "/ai-spreadsheet", icon: Table2 },
       { labelKey: "employee", href: "/employee", icon: Users, disabled: true },
       { labelKey: "leave", href: "/leave", icon: CalendarDays, disabled: true },
       {
