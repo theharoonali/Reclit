@@ -18,13 +18,12 @@ The rules you must follow live in [docs/rules/](docs/rules/COMMON.md).
 ## What this is
 
 A Bun + Turborepo TypeScript monorepo template: Next.js web app + NestJS API,
-connected end-to-end with tRPC. It intentionally contains exactly one example of
-each pattern — one CRUD feature (`Note`), one application shell
-(`components/layout/`), one shared package (`@reclit/ui`) — so you can copy the
-pattern to build features. `Note` is the reference **backend** slice: Postgres →
-Prisma → service → tRPC, fully documented by its contract test. No page consumes
-it yet, so there is currently no example of a data-bound feature component.
-`/` is the dashboard shell. There is no auth yet.
+connected end-to-end with tRPC. It keeps one example of each pattern — one
+application shell (`components/layout/`), one shared package (`@reclit/ui`) — so
+you can copy the pattern to build features. The `spreadsheet` feature is the
+worked backend slice, Postgres → Prisma → service → tRPC (plus a REST
+controller), fully documented by its contract test, and `/ai-spreadsheet`
+consumes it. `/` is the dashboard shell. There is no auth yet.
 
 ## Layout
 
@@ -47,7 +46,7 @@ bun run format              # biome format --write
 bun run build:dashboard     # production build of the dashboard (.next/standalone)
 bun run start:dashboard     # serve the built dashboard
 bun run start:api           # run the api in production mode (bun runs TS directly; no build step)
-bunx turbo test             # run tests (bun test; api smoke + note CRUD)
+bunx turbo test             # run tests (bun test; api smoke + feature contracts)
 bun run --filter=@reclit/api db:generate   # regenerate the Prisma client
 bun run --filter=@reclit/api db:migrate    # create + apply a migration
 ```
@@ -124,8 +123,8 @@ Anything touching the database goes through a service in
 1. `bunx turbo lint typecheck` passes.
 2. `bunx turbo test` passes — every new or changed procedure covered in its
    `<feature>.api.test.ts` contract.
-3. For cross-app changes: `bun dev`, then check `/` can create/edit/delete a note
-   (proves the full tRPC + database round trip).
+3. For cross-app changes: `bun dev`, then check `/ai-spreadsheet` loads a sheet
+   and a cell edit survives a reload (proves the full tRPC + database round trip).
 4. Update the affected [feature doc](docs/features/index.md),
    [route doc](docs/routes/index.md), and the plan's `Outcome` in the same change.
 5. `bun run format`.

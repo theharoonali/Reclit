@@ -9,7 +9,7 @@ reads. There is no separate "API docs" page to drift out of sync.
 ```bash
 bunx turbo test                      # everything
 bun run --filter=@reclit/api test    # api only
-bun test src/__tests__/note.api.test.ts   # one file (from apps/api)
+bun test src/__tests__/spreadsheet.api.test.ts   # one file (from apps/api)
 ```
 
 ## The three test kinds
@@ -36,37 +36,38 @@ backend source to build the UI**.
 
 ```ts
 /**
- * CONTRACT — note
- * Feature doc: docs/features/note.md · Rules: docs/rules/TESTING.md
+ * CONTRACT — <feature>
+ * Feature doc: docs/features/<feature>.md · Rules: docs/rules/TESTING.md
  *
- * TABLE `Note`
+ * TABLE `<Model>`
  *   id         String    pk, uuid
- *   title      String    required, trimmed, 1..200
- *   content    String    default ""
+ *   <column>   <type>    required / default / constraints
  *   createdAt  DateTime  now(), indexed
  *   updatedAt  DateTime  @updatedAt
  *
- * MODEL  Note = {
- *   id: string; title: string; content: string;
+ * MODEL  <Model> = {
+ *   id: string; <field>: <type>;
  *   createdAt: Date; updatedAt: Date;
  * }
  * Dates cross the wire as real Date objects (superjson).
  *
  * PROCEDURES
- * | Procedure     | Kind     | Payload                       | Response          | Errors               |
- * | ------------- | -------- | ----------------------------- | ----------------- | -------------------- |
- * | note.list     | query    | —                             | Note[], newest 1st| —                    |
- * | note.byId     | query    | { id: string }                | Note              | NOT_FOUND            |
- * | note.create   | mutation | { title: string; content?: s }| Note              | BAD_REQUEST          |
- * | note.update   | mutation | { id; title?; content? }      | Note              | BAD_REQUEST NOT_FOUND|
- * | note.remove   | mutation | { id: string }                | { id: string }    | NOT_FOUND            |
+ * | Procedure          | Kind     | Payload              | Response          | Errors                 |
+ * | ------------------ | -------- | -------------------- | ----------------- | ---------------------- |
+ * | <feature>.list     | query    | —                    | <Model>[], newest | —                      |
+ * | <feature>.byId     | query    | { id: string }       | <Model>           | NOT_FOUND              |
+ * | <feature>.create   | mutation | { …required fields } | <Model>           | BAD_REQUEST            |
+ * | <feature>.update   | mutation | { id; …partial }     | <Model>           | BAD_REQUEST, NOT_FOUND |
+ * | <feature>.remove   | mutation | { id: string }       | { id: string }    | NOT_FOUND              |
  *
  * NOTES
- * - Partial update leaves omitted fields untouched.
- * - `note.list` returns every row: no pagination, search, or sort input.
+ * - Ordering, defaults, side effects, and anything else a shape cannot express.
+ * - The limits of what each procedure accepts.
  * - Every procedure is public; there is no auth yet.
  */
 ```
+
+A real one to read: `apps/api/src/__tests__/spreadsheet.api.test.ts`.
 
 Required, per procedure: name, kind, the **exact payload shape**, the **exact
 response shape**, and every error code it can return. `NOTES` records the

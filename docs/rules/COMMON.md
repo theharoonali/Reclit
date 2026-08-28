@@ -54,7 +54,7 @@ it — you look it up, or you ask.
    (`@reclit/api/trpc/routers/_app`). Never re-declare a shape the API already
    describes.
    ```ts
-   type Note = RouterOutputs["note"]["list"][number];
+   type Thing = RouterOutputs["thing"]["list"][number];
    ```
 4. **Prisma model types never cross the tRPC boundary.** Services select explicit
    fields and declare a schema-inferred return type. If `@prisma/client` types
@@ -95,8 +95,8 @@ thing is fine; a 90-line file doing three things is not.
 - Files and folders: `kebab-case`. Types and classes: `PascalCase`.
   Variables and functions: `camelCase`. Constants: `SCREAMING_SNAKE`.
 - A feature uses **one** name everywhere, singular:
-  `note` → `note.schema.ts`, `note.service.ts`, `noteRouter`, `NoteService`,
-  `docs/features/note.md`, `note.api.test.ts`, `components/note/note-list.tsx`.
+  `thing` → `thing.schema.ts`, `thing.service.ts`, `thingRouter`, `ThingService`,
+  `docs/features/thing.md`, `thing.api.test.ts`, `components/thing/thing-list.tsx`.
 - Booleans read as predicates: `isLoading`, `hasAccess`, `canEdit`.
 - Handlers: `handleX` inside a component, `onX` as a prop.
 - No abbreviations that aren't already repo vocabulary (`db`, `api`, `ui` are).

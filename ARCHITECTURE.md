@@ -12,7 +12,7 @@ apps/dashboard (Next.js 16, port 4000)
   ▼
 apps/api (NestJS on Bun, port 4001)
   ├── /trpc/*   tRPC 11 express adapter, mounted in src/bootstrap.ts
-  │             └── appRouter → note.{list,byId,create,update,remove}
+  │             └── appRouter → spreadsheet.{list,byId,rows,setCell,…}
   └── /health   AppController (reports database reachability)
         │
         ▼  services in src/modules/<feature>/ — the only DB callers
@@ -34,7 +34,7 @@ packages/ui  → Button + cn + Tailwind preset, consumed by dashboard
 - `src/app.controller.ts` is the only REST controller (`GET /health`).
 - `src/modules/<feature>/` holds one folder per feature: `schema` (Zod) +
   `service` (all DB access, decorator-free, exports a plain class and a
-  singleton). `src/modules/note/` is the reference implementation.
+  singleton), and a `controller` only when a non-tRPC consumer needs one.
 - `src/db/prisma.ts` is the only Prisma client. It stays decorator-free because
   `src/trpc/` reaches it through the services; `src/db/prisma.module.ts` holds the
   Nest shutdown hook separately.
@@ -48,9 +48,9 @@ packages/ui  → Button + cn + Tailwind preset, consumed by dashboard
 `apps/api/package.json` exports `"./trpc/routers/_app"` pointing at the raw
 TypeScript source. The dashboard imports `AppRouter` **as a type only** and Next
 transpiles the import graph (`transpilePackages: ["@reclit/api"]`). That graph is
-`_app.ts → note.ts → init.ts → {@trpc/server, superjson, zod}` plus the note
-service and Prisma client — no NestJS — which is why the trpc directory must
-stay free of decorator code.
+`_app.ts → <feature>.ts → init.ts → {@trpc/server, superjson, zod}` plus the
+feature services and Prisma client — no NestJS — which is why the trpc directory
+must stay free of decorator code.
 
 Services declare **schema-inferred** return types and select explicit columns, so
 `@prisma/client` types never reach `RouterOutputs`. The dashboard bundle contains
@@ -67,8 +67,8 @@ no Prisma code; `bunx turbo build` is the check.
   reads the `locale` cookie and loads `src/messages/<locale>.json`; every
   user-facing string is a key. Reading that cookie makes every route render
   dynamically.
-- The tRPC client wiring is live but currently unused by any page; `note.*` is
-  exercised only by its contract test.
+- `/ai-spreadsheet` is the one data-bound page: it prefetches in the RSC and
+  reads and writes `spreadsheet.*` from the client.
 - `src/trpc/client.tsx` — browser client (`httpBatchStreamLink` →
   `NEXT_PUBLIC_API_URL`). `src/trpc/server.tsx` — RSC-side proxy with
   `prefetch`/`HydrateClient` helpers (uses `API_INTERNAL_URL` when set).

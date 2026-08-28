@@ -6,7 +6,7 @@ description: Write or update the contract test for an API — the file that docu
 # API contract tests
 
 Rules: [docs/rules/TESTING.md](../../../docs/rules/TESTING.md).
-Reference: `apps/api/src/__tests__/note.api.test.ts` — copy it.
+Follow the shape of the existing contract tests in `apps/api/src/__tests__/`.
 
 **An API exists when its contract test exists.** This file is both the test suite
 and the API documentation the frontend reads; there is no separate API doc.

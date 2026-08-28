@@ -31,7 +31,7 @@ bun dev
 ```
 
 - API: http://localhost:4001 (`/health`, `/trpc/*`)
-- Dashboard: http://localhost:4000 — `/` notes CRUD
+- Dashboard: http://localhost:4000 — `/` shell, `/ai-spreadsheet`, `/resume`
 
 `DATABASE_URL` is the only variable you must set; everything else has a working
 local-dev default (`.env.example` files document them). On Supabase, the direct

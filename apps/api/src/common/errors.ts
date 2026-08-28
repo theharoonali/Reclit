@@ -12,6 +12,6 @@ export type DomainErrorKind =
 
 export abstract class DomainError extends Error {
   abstract readonly kind: DomainErrorKind;
-  /** Stable machine-readable code, e.g. "NOTE_NOT_FOUND". */
+  /** Stable machine-readable code, e.g. "SPREADSHEET_NOT_FOUND". */
   abstract readonly code: string;
 }

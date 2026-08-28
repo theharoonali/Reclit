@@ -8,7 +8,7 @@ description: Build a backend feature in apps/api — Prisma model, zod schema, s
 Rules: [docs/rules/BACKEND.md](../../../docs/rules/BACKEND.md) ·
 [TESTING.md](../../../docs/rules/TESTING.md) ·
 [COMMON.md](../../../docs/rules/COMMON.md).
-Reference implementation: `apps/api/src/modules/note/` — copy it.
+Follow the shape of the existing features in `apps/api/src/modules/`.
 
 **First:** read the feature's doc in
 [docs/features/](../../../docs/features/index.md) if it exists. If it does not,
@@ -102,7 +102,8 @@ export class ThingService {
       orderBy: { createdAt: "desc" },
     });
   }
-  // create / byId / update / remove — see note.service.ts for the P2025 mapping
+  // create / byId / update / remove — map Prisma P2025 to a domain error via
+  // `isRecordNotFound` from src/common/prisma-errors.ts
 }
 
 export const thingService = new ThingService();
@@ -127,15 +128,16 @@ export const thingRouter = createTRPCRouter({
 ```
 
 Validate and delegate — nothing else. A router body over ~5 lines means logic
-belongs in the service. Map domain errors to `TRPCError` the way
-`routers/note.ts` does.
+belongs in the service. Map domain errors to `TRPCError` with the shared
+`mapDomainError` from `src/trpc/init.ts` — `.catch(mapDomainError)` on the
+service call, never a per-procedure `try/catch`.
 
 Register it:
 
 ```ts
 // apps/api/src/trpc/routers/_app.ts
 export const appRouter = createTRPCRouter({
-  note: noteRouter,
+  spreadsheet: spreadsheetRouter,
   thing: thingRouter,
 });
 ```
@@ -151,9 +153,9 @@ controller under `src/trpc/`.
 
 ## 5. Contract test — `apps/api/src/__tests__/<feature>.api.test.ts`
 
-Mandatory, and it is the API documentation. Use the `api-testing` skill; copy
-`note.api.test.ts`. The feature is not finished until every procedure appears in
-its contract header with passing tests.
+Mandatory, and it is the API documentation. Use the `api-testing` skill. The
+feature is not finished until every procedure appears in its contract header
+with passing tests.
 
 ## 6. Docs
 

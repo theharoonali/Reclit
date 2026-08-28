@@ -19,11 +19,10 @@ How to write them: [rules/TESTING.md](rules/TESTING.md).
 - `apps/api/src/__tests__/smoke.test.ts` (run with `bun test` / `bunx turbo test`)
   boots the real app composition via `createApp()` on an ephemeral port and checks
   `/health` (asserting `ok` or `degraded` to match actual DB reachability) and,
-  when the database is up, `note.list` over the mounted tRPC adapter.
+  when the database is up, `spreadsheet.list` over the mounted tRPC adapter.
 - `apps/api/src/__tests__/<feature>.api.test.ts` is the feature's API contract:
   its header documents every payload, response, and error code, and the suite
   proves them against a real database through a tRPC caller.
-  `note.api.test.ts` is the reference.
 - Contract suites **skip themselves** when `pingDatabase()` fails, so a checkout
   without a reachable `DATABASE_URL` still passes. They clean up the rows they create.
 - Shared helpers live in `apps/api/src/__tests__/support/`.

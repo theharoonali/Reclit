@@ -9,8 +9,8 @@ own its API contract.
 
 **Load the `backend-feature` and `api-testing` skills before writing code.**
 Rules: `docs/rules/BACKEND.md`, `docs/rules/TESTING.md`, `docs/rules/COMMON.md`.
-Reference implementation: `apps/api/src/modules/note/` +
-`apps/api/src/__tests__/note.api.test.ts`.
+Follow the shape of the existing features in `apps/api/src/modules/` and their
+contract tests in `apps/api/src/__tests__/`.
 
 ## Your boundary
 

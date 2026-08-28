@@ -12,17 +12,6 @@ datasource db {
   provider = "postgresql"
 }
 
-/// The one example table. Copy this shape for new models.
-model Note {
-  id        String   @id @default(uuid())
-  title     String
-  content   String   @default("")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([createdAt])
-}
-
 enum ColumnType {
   STRING
   NUMBER

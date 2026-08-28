@@ -33,9 +33,9 @@ describe("api smoke", () => {
   });
 
   it.skipIf(!dbUp)(
-    "serves note.list over the mounted tRPC adapter",
+    "serves spreadsheet.list over the mounted tRPC adapter",
     async () => {
-      const res = await fetch(`${baseUrl}/trpc/note.list`);
+      const res = await fetch(`${baseUrl}/trpc/spreadsheet.list`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         result: { data: { json: unknown[] } };

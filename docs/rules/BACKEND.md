@@ -5,7 +5,8 @@ Shared rules: [COMMON.md](COMMON.md). Tests: [TESTING.md](TESTING.md).
 
 **Before writing backend code, read the feature's doc in
 [`docs/features/`](../features/index.md)** — table, service, and procedures are
-all described there. Copy `src/modules/note/` for anything new.
+all described there. Copy the shape of an existing feature in `src/modules/` for
+anything new.
 
 ## Where code goes
 
@@ -76,8 +77,8 @@ the second CRUD feature is where shared shapes get extracted, not duplicated.
 
 ## Errors
 
-- Services throw plain named errors (`NoteNotFoundError`) — never framework types
-  and never a bare `Error("not found")`.
+- Services throw plain named errors (`<Feature>NotFoundError`) — never framework
+  types and never a bare `Error("not found")`.
 - Name them `<Feature><Reason>Error` and give each a stable `code` the router can
   map without string matching.
 - Routers map domain errors to `TRPCError` through the shared mapper; controllers

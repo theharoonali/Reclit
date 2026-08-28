@@ -164,7 +164,11 @@ export const updateRowInput = rowRefInput.extend({
     .min(1),
 });
 
-/** Built from undefaulted fields on purpose (same reasoning as note's update). */
+/**
+ * Built from undefaulted fields on purpose: `createColumnInput.partial()` would
+ * keep `type`'s `.default("string")` and silently retype the column on a
+ * name-only update.
+ */
 export const updateColumnInput = z
   .object({ name, type: columnTypeWire })
   .partial()

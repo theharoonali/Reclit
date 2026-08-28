@@ -30,11 +30,10 @@ Icons are `lucide-react` (a dashboard dependency, not a `@reclit/ui` one).
 
 ## APIs called
 
-**None.** This page calls no procedure and prefetches nothing. The tRPC client
-and server wiring in `src/trpc/` is mounted and working but currently has no
-consumer; `note.list`, `note.byId`, `note.create`, `note.update` and
-`note.remove` are exercised only by
-`apps/api/src/__tests__/note.api.test.ts`. `GET /health`
+**None.** This page calls no procedure and prefetches nothing — it is the shell,
+not a data-bound page. The tRPC client and server wiring in `src/trpc/` that it
+mounts is exercised by `/ai-spreadsheet`
+([route doc](ai-spreadsheet.md)). `GET /health`
 (`apps/api/src/app.controller.ts`) is not called here either.
 
 ## Behaviour
