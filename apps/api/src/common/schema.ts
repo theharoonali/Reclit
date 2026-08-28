@@ -10,6 +10,3 @@ export const paginationInput = z.object({
   startRow: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
-
-export type IdInput = z.infer<typeof idInput>;
-export type PaginationInput = z.infer<typeof paginationInput>;

@@ -3,6 +3,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { isMistyped } from "@/lib/ai-spreadsheet/cell-format";
+import { parseShortColumnId } from "@/lib/ai-spreadsheet/short-ids";
 import type {
   CellValue,
   ColumnType,
@@ -13,12 +14,6 @@ import { useTRPC } from "@/trpc/client";
 import type { SheetModelApi } from "./use-sheet-model";
 
 const COALESCE_MS = 400;
-
-/** "col.3" -> 3; null when the id is not the API's short column form. */
-function parseColumnIndex(columnId: string): number | null {
-  const match = /^col\.(\d+)$/.exec(columnId);
-  return match?.[1] !== undefined ? Number.parseInt(match[1], 10) : null;
-}
 
 type DirtyCell = {
   timer: ReturnType<typeof setTimeout>;
@@ -31,6 +26,17 @@ export type SheetSyncApi = {
   setCell: (row: number, columnId: string, value: CellValue) => void;
   syncColumnCreate: (name: string, type: ColumnType) => void;
   syncColumnUpdate: (columnId: string, name: string, type: ColumnType) => void;
+  /**
+   * Drops every pending cell write *without* sending it, and disowns any
+   * response still in flight. The deliberate opposite of the unmount effect,
+   * which flushes.
+   *
+   * An import wipes and rebuilds the grid. A debounced flush landing after it
+   * would read a key the new model does not have, send `value: null` into the
+   * freshly imported sheet, and — if that write failed — restore a *pre*-import
+   * snapshot into a *post*-import model.
+   */
+  discardPending: () => void;
 };
 
 /**
@@ -47,6 +53,15 @@ export type SheetSyncApi = {
  * there is no toast system to announce it yet. Values the column type rejects
  * (`isMistyped`) stay local: the grid paints them as invalid and the server
  * never sees a value it would refuse.
+ *
+ * The one exception to the no-invalidation rule is **import**
+ * (`use-sheet-import.ts`), which *replaces* the sheet rather than editing it:
+ * there the server is the truth and the model must be rebuilt, so it
+ * invalidates `spreadsheet.rows` on purpose. That is safe because
+ * `invalidateQueries` leaves the query `success` — the loader never falls back
+ * to `LoadingState`, so the grid re-renders instead of remounting.
+ * `resetQueries`, `removeQueries` or a changed query key would remount it, and
+ * a remounted canvas is a blank one.
  */
 export function useSheetSync(args: {
   modelRef: React.RefObject<SheetModel>;
@@ -67,6 +82,8 @@ export function useSheetSync(args: {
   );
 
   const dirtyRef = useRef(new Map<string, DirtyCell>());
+  // Bumped by `discardPending` so responses sent before it are ignored.
+  const generationRef = useRef(0);
 
   // The debounce closes over these refs, not the mutation objects, so the
   // callbacks stay referentially stable for the canvas wiring.
@@ -82,14 +99,20 @@ export function useSheetSync(args: {
       const model = modelRef.current;
       const key = cellKey(row, columnId);
       const dirty = dirtyRef.current.get(key);
-      const columnIndex = parseColumnIndex(columnId);
+      const columnIndex = parseShortColumnId(columnId);
       if (!model || !dirty || columnIndex === null) return;
       dirtyRef.current.delete(key);
       const value = model.cells.get(key) ?? null;
+      // Captured at send time: `discardPending` cannot cancel a request that is
+      // already out, so the generation is how a superseded response is ignored.
+      const generation = generationRef.current;
       mutateCellRef.current(
         { id: model.sheetId, rowIndex: row, columnIndex, value },
         {
           onError: () => {
+            // An import replaced the model out from under this write; its
+            // snapshot belongs to a sheet that no longer exists.
+            if (generationRef.current !== generation) return;
             // Snap the cell back to what the server last accepted.
             setCellLocal(row, columnId, dirty.snapshot);
             requestPaint();
@@ -141,7 +164,7 @@ export function useSheetSync(args: {
   const syncColumnUpdate = useCallback(
     (columnId: string, name: string, type: ColumnType) => {
       const model = modelRef.current;
-      const columnIndex = parseColumnIndex(columnId);
+      const columnIndex = parseShortColumnId(columnId);
       if (!model || columnIndex === null) return;
       mutateUpdateRef.current({ id: model.sheetId, columnIndex, name, type });
     },
@@ -161,5 +184,11 @@ export function useSheetSync(args: {
     };
   }, [flushCell]);
 
-  return { setCell, syncColumnCreate, syncColumnUpdate };
+  const discardPending = useCallback(() => {
+    for (const dirty of dirtyRef.current.values()) clearTimeout(dirty.timer);
+    dirtyRef.current.clear();
+    generationRef.current += 1;
+  }, []);
+
+  return { setCell, syncColumnCreate, syncColumnUpdate, discardPending };
 }

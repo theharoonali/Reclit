@@ -17,7 +17,7 @@ apps/api/src/
 ├── modules/<feature>/
 │   ├── <feature>.schema.ts      # zod schemas + inferred types      (no NestJS)
 │   ├── <feature>.service.ts     # all DB access + business logic    (no NestJS)
-│   ├── <feature>.errors.ts      # named domain errors (only if >1)  (no NestJS)
+│   ├── <feature>.errors.ts      # named domain errors (as soon as >1) (no NestJS)
 │   ├── <feature>.controller.ts  # REST — only if a non-tRPC consumer needs it
 │   └── <feature>.module.ts      # only alongside a controller
 ├── trpc/
@@ -65,6 +65,9 @@ the same way, every time:
 | the field list a feature returns | one `const <feature>Select = {...}` in `<feature>.service.ts`, used by every method |
 | id / pagination / sort inputs | `src/common/schema.ts` — `idInput`, `paginationInput`; features `.extend()` them |
 | domain error → tRPC code mapping | one `mapDomainError` in `src/trpc/init.ts`; routers do not write per-procedure `try/catch` |
+| Prisma error codes (`P2002`, `P2025`, …) | `src/common/prisma-errors.ts` — `isUniqueViolation`, `isRecordNotFound`. A raw `"P####"` string anywhere else is a bug |
+| a feature's domain errors | `<feature>.errors.ts` as soon as there are two — never declared inline in the service |
+| multipart upload plumbing | `src/common/upload.ts` — `@UploadFile()` + `requireFile()`; the framework-free half (`MulterFile`, `MAX_UPLOAD_BYTES`) is `src/common/multipart.ts` |
 | "find it or throw" | one private `getOrThrow(id)` per service, called by `byId`/`update`/`remove` |
 | test setup (caller, error assertions, cleanup) | `src/__tests__/support/` — never re-declare a helper in a test file |
 
@@ -83,6 +86,13 @@ the second CRUD feature is where shared shapes get extracted, not duplicated.
   map without string matching.
 - Routers map domain errors to `TRPCError` through the shared mapper; controllers
   map them to Nest `HttpException`.
+- **The two kind-maps are deliberate twins, not duplication.** `KIND_TO_TRPC`
+  (`src/trpc/init.ts`) and `KIND_TO_STATUS` (`src/common/domain-error.filter.ts`)
+  cannot be merged: the filter imports `@nestjs/common`, and hard rule 1 forbids
+  that anywhere in the `src/trpc/**` import graph. Both are exhaustive
+  `Record<DomainErrorKind, …>`, so adding a kind fails typecheck in both places —
+  which is what keeps them in step. Do not "fix" this by extracting a shared
+  table into `src/trpc/`.
 - Every mapped error code must be listed in the contract header and covered by a
   test ([TESTING.md](TESTING.md)).
 - Input validation is Zod, automatic in tRPC via `.input()`. Never validate the

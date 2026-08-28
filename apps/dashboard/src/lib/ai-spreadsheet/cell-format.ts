@@ -6,26 +6,37 @@ import type {
   SheetLabels,
 } from "./types";
 
-const COLUMN_TYPES: ColumnType[] = [
+/** Every type the API can return, in its order. Used to recognise, not to offer. */
+const ALL_COLUMN_TYPES: ColumnType[] = [
   "string",
   "number",
   "boolean",
   "date",
   "json",
-  "file",
+  "formula",
   "audio",
+  "file",
   "email",
   "url",
 ];
 
-export const columnTypes = COLUMN_TYPES;
+/**
+ * The types a user may pick in the column form. `formula` is deliberately
+ * absent: the API can return one and the sheet renders it as text, but there is
+ * no editor for it yet, so offering it would create a column nobody can fill.
+ */
+export const columnTypes: ColumnType[] = ALL_COLUMN_TYPES.filter(
+  (type) => type !== "formula",
+);
 
-const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+// Character-for-character the API's rule (`spreadsheet.schema.ts`); the two
+// cannot be shared, since `apps/api` exports only `./trpc/routers/_app`.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URL_RE = /^https?:\/\/\S+$/i;
 
 /** Unknown server types degrade to editable text rather than throwing. */
 export function toColumnType(raw: string): ColumnType {
-  const match = COLUMN_TYPES.find((type) => type === raw);
+  const match = ALL_COLUMN_TYPES.find((type) => type === raw);
   return match ?? "string";
 }
 

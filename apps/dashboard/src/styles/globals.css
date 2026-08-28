@@ -1,8 +1,13 @@
+/**
+ * App-level CSS only — document sizing and resets. Design tokens live in
+ * `@reclit/ui/globals.css` and nowhere else (docs/rules/FRONTEND.md).
+ *
+ * There is deliberately no `*:focus { outline: none }` here: the shared
+ * primitives own their focus indicator through `@reclit/ui/focus-ring`, and a
+ * blanket rule would erase the browser's fallback for anything they do not
+ * cover.
+ */
 html,
 body {
   height: 100%;
-}
-
-*:focus {
-  outline: none;
 }

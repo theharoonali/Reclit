@@ -53,6 +53,7 @@ route-group layout — never by rendering chrome itself.
 | `components/layout/app-shell.tsx` | the grid **and the scroll model**: sidebar + header + `{children}` | the only file that knows the overall page geometry |
 | `components/layout/app-sidebar.tsx` | side menu, collapsed/expanded state | renders `navSections` + `bottomNavItems` from `config/nav.ts` — no hardcoded links |
 | `components/layout/app-header.tsx` | top bar: title slot, actions slot, search | takes slots as props; knows nothing about any feature |
+| `components/layout/header-actions.tsx` | the portal that puts a page's controls in the header | the page owns the state; only the DOM moves |
 
 Consequences you must preserve:
 
@@ -67,6 +68,11 @@ Consequences you must preserve:
   data in `config/nav.ts` — never markup pasted into `app-shell.tsx`.
 - Nav state (active item) derives from `usePathname()` inside the sidebar. Pages
   do not pass it down.
+- **A page-level control belongs in the header, not in a bar of its own.** Wrap
+  it in `<HeaderActions>` and it is portalled into the header's action area, so
+  the component that owns its state keeps owning it and the page keeps its whole
+  content area. Growing a second horizontal bar under the header is what this
+  replaces. The header still never imports a feature component.
 - **The chrome does not scroll.** The shell is a fixed-viewport frame (`h-dvh` +
   `overflow-hidden`); `<main>` is the only scroll container, and the sidebar's
   `<nav>` scrolls on its own when the menu is tall. A page must never set
@@ -128,7 +134,10 @@ Rules that follow from this:
   `exports` map of `packages/ui/package.json`
   (`"./dialog": "./src/components/dialog.tsx"`). Import as `@reclit/ui/dialog`.
   Never copy a shadcn component into `apps/dashboard`.
-- Radix dependencies are added to `packages/ui/package.json`, not the dashboard.
+- Radix dependencies are added to `packages/ui/package.json`, not the dashboard,
+  and only when a primitive genuinely needs one. `Select` does (listbox
+  semantics, positioning, type-ahead); `Label` does not, and ships as a plain
+  `<label>`.
 - Keep the shadcn source as generated except for two required edits:
   1. import `cn` from `@reclit/ui/cn`;
   2. **strip enter/exit animation classes** (`data-[state=closed]:animate-out`,
@@ -136,6 +145,22 @@ Rules that follow from this:
      mounted and swallows clicks. `@reclit/ui` components are unanimated by design.
 - Variants are `cva` in the component file. A consumer that needs a new look gets
   a new variant there — not a `className` override full of raw utilities.
+- **Never hand-roll a form control.** A bare `<button>`, `<input>`, `<select>`
+  or `<label>` with utility classes in a feature or chrome component is a bug:
+  it drifts from the token set the moment either side changes, and it is how two
+  "nearly the same" buttons appear. Use `@reclit/ui/button`,
+  `@reclit/ui/input`, `@reclit/ui/select`, `@reclit/ui/label`. The only
+  exception is a control the user never sees — a `sr-only` file input behind a
+  `Button`, or the grid's hidden input proxy. If the shared primitive is missing
+  a case, add a variant or a prop to it.
+- **Every `Button` carries an explicit `variant`.** Relying on the default hides
+  the decision at the call site and makes a screen with four primary-looking
+  buttons easy to write. `default` is the one primary action on a surface;
+  `secondary` supports it; `outline` is a neutral edged action; `ghost` is for
+  dense or repeated actions (icon buttons, cancel); `destructive` is delete and
+  nothing else; `link` reads as text.
+- **An icon inside a `Button` gets no classes.** The base sizes any `svg` child
+  and spaces it — write `<Plus />`, never `<Plus className="mr-2 h-4 w-4" />`.
 
 ## Styling
 
@@ -149,7 +174,9 @@ Rules that follow from this:
   | Global | File | How |
   | --- | --- | --- |
   | colors | `packages/ui/src/globals.css` | HSL triples on `:root` and `.dark`, one per token |
-  | border radius | `packages/ui/src/globals.css` | `--radius`; `rounded-sm/md/lg` derive from it |
+  | border radius | `packages/ui/src/globals.css` | `--radius`; the `rounded-*` steps derive from it in `tailwind.config.ts` |
+  | focus | `packages/ui/src/styles/focus-ring.ts` | the one `focusRing` string every focusable control composes |
+  | type scale ↔ `cn()` | `packages/ui/src/utils/cn.ts` | `FONT_SIZES`, so tailwind-merge treats the scale as sizes, not colours |
   | fonts | `packages/ui/tailwind.config.ts` | `font-sans`/`font-mono` → `--font-sans`/`--font-mono`, set in `app/layout.tsx` (`Google_Sans` + `Geist_Mono`) |
   | type scale | `packages/ui/tailwind.config.ts` | `theme.extend.fontSize` — see [Typography](#typography) |
   | scrollbars | `packages/ui/src/globals.css` | 8px, pill thumb on `--border`, transparent track — applied globally, never per-component |
@@ -158,12 +185,53 @@ Rules that follow from this:
 
   Need a colour that is not a token? **Add the token** — to both `:root` and
   `.dark` — and use it. Never inline the value.
-- **Watch the token format before using an alpha modifier.** Some tokens are
-  stored comma-separated (`--border: 45, 5%, 85%`) and others space-separated
-  (`--primary: 20 90% 55%`). `hsl(var(--token) / 0.5)` is valid only for the
-  space-separated form; with commas it produces invalid CSS that fails silently.
-  Tailwind's `bg-primary/10` is safe on space-separated tokens; hand-written CSS
-  in `globals.css` must check first.
+- **Tokens are space-separated HSL triples** (`--primary: 20 90% 55%`), so
+  `hsl(var(--token) / 0.5)` and Tailwind's `bg-primary/10` are valid on all of
+  them. Never write the comma form: it produces invalid CSS under an alpha
+  modifier and fails *silently*, painting transparent.
+- **The app's black is `#1B1D20`** — `216 8.5% 11.6%`, the light-mode text
+  colour and the dark-mode page surface. It is reached through `text-foreground`
+  / `bg-background` and the `*-foreground` tokens; the hex appears in
+  `globals.css` and nowhere else. Orange is the accent (`--primary`, `--ring`)
+  and is a separate decision from the black.
+
+### Radius
+
+`--radius` in `packages/ui/src/globals.css` is the only radius in the app, and
+`theme.extend.borderRadius` derives every step from it:
+
+| Class | Value | Use for |
+| --- | --- | --- |
+| `rounded-sm` | `--radius - 4px` | inline chips, list items inside a menu |
+| `rounded-md` | `--radius - 2px` | buttons, inputs, the select trigger — the default control radius |
+| `rounded-lg` | `--radius` | cards, panels, popovers |
+| `rounded-xl` / `rounded-2xl` | `+4px` / `+8px` | large surfaces and icon tiles |
+
+- **`rounded-full` and `rounded-none` are the only literal radii allowed.**
+  Every other `rounded-*` must be one of the steps above; `rounded-r`,
+  `rounded-[10px]` and friends bypass the token and will not move when it does.
+- A control that needs a different corner than its neighbours is almost always a
+  sign the step is wrong. Change `--radius`, not the component.
+
+### Focus
+
+There is **one** focus recipe, `focusRing` in
+`packages/ui/src/styles/focus-ring.ts`, and it is composed — never retyped:
+
+```ts
+import { focusRing } from "@reclit/ui/focus-ring";
+className={cn("...", focusRing)}
+```
+
+- **Never write `focus-visible:ring-*`, `focus:outline-*` or `outline-none` in a
+  component.** `focusRing` already carries `outline-none`, because the control
+  draws its own indicator and the browser's would sit on top of it.
+- The shape is shadcn's: the border moves to `--ring` and a soft 3px halo sits
+  outside it, so focus reads as the control brightening. `aria-invalid` swaps
+  both to `--destructive`.
+- **Never suppress focus globally.** A `*:focus { outline: none }` in
+  `apps/dashboard/src/styles/globals.css` makes every control the primitives do
+  not cover invisible to keyboard users.
 - `apps/dashboard/tailwind.config.ts` only sets `content` and the preset. Theme
   changes go in the preset so the app and the package stay in sync.
 - `apps/dashboard/src/styles/globals.css` is for app-level CSS only (document
@@ -188,11 +256,18 @@ not a sweep through every component.
 | `text-subtitle` | the muted line under a title, body copy | 0.875rem / 400 |
 | `text-body` | default body and control text | 0.875rem / 400 |
 | `text-label` | form labels, buttons, dense UI | 0.875rem / 500 |
-| `text-caption` | timestamps, badges, section eyebrows | 0.75rem / 400 |
+| `text-caption` | timestamps, badges | 0.75rem / 400 |
+| `text-eyebrow` | uppercase section headings in the nav | 0.75rem / 500, tracked |
 
 - **Raw Tailwind size steps are prohibited in components** — `text-sm`,
   `text-2xl`, `text-base` and friends are bugs. If a component needs a size the
   scale does not have, add a named entry to the scale; never reach for a step.
+- **A new scale entry goes in two places**: `theme.extend.fontSize` in
+  `packages/ui/tailwind.config.ts` *and* `FONT_SIZES` in
+  `packages/ui/src/utils/cn.ts`. tailwind-merge cannot tell `text-label` from a
+  colour on its own, so a step missing from that list is silently dropped by
+  `cn()` whenever a text colour is applied alongside it — the class survives in
+  the source and vanishes from the DOM.
 - Each entry already carries its weight, so **do not pair it with
   `font-medium`/`font-semibold`** unless you are deliberately overriding it.
 - Same for line-height and tracking: `leading-*` and `tracking-*` alongside a

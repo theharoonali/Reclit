@@ -12,11 +12,13 @@ import { AiSpreadsheetBody } from "./ai-spreadsheet-body";
 import { AiSpreadsheetColumnForm } from "./ai-spreadsheet-column-form";
 import { AiSpreadsheetDateEditor } from "./ai-spreadsheet-date-editor";
 import { AiSpreadsheetHeader } from "./ai-spreadsheet-header";
+import { AiSpreadsheetImportButton } from "./ai-spreadsheet-import-button";
 import { AiSpreadsheetInputProxy } from "./ai-spreadsheet-input-proxy";
 import { AiSpreadsheetJsonEditor } from "./ai-spreadsheet-json-editor";
 import { AiSpreadsheetSidePanel } from "./ai-spreadsheet-side-panel";
 import { AiSpreadsheetUploadEditor } from "./ai-spreadsheet-upload-editor";
 import { useSheetCanvas } from "./use-sheet-canvas";
+import { useSheetImport } from "./use-sheet-import";
 import { useSheetLabels } from "./use-sheet-labels";
 import { useSheetModel } from "./use-sheet-model";
 import { useSheetSync } from "./use-sheet-sync";
@@ -89,6 +91,27 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   });
   requestPaintRef.current = canvas.requestPaint;
 
+  const importer = useSheetImport({
+    sheetId: payload.spreadsheet.id,
+    discardPending: sync.discardPending,
+    onBeforeRefresh: () => {
+      // The active cell may be in a column the imported sheet does not have.
+      canvas.editor.cancel();
+      canvas.editor.selectCell(0, 0);
+    },
+  });
+
+  const importError =
+    importer.errorCode === null
+      ? null
+      : importer.errorCode === "SPREADSHEET_IMPORT_UNSUPPORTED_TYPE"
+        ? t("import.errorType")
+        : importer.errorCode === "SPREADSHEET_IMPORT_EMPTY"
+          ? t("import.errorEmpty")
+          : importer.errorCode === "SPREADSHEET_IMPORT_TOO_LARGE"
+            ? t("import.errorTooLarge")
+            : t("import.error");
+
   const columns = modelRef.current.columns;
 
   const submitColumn = (name: string, type: ColumnType) => {
@@ -152,6 +175,13 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
+      <AiSpreadsheetImportButton
+        errorMessage={importError}
+        labels={{ import: t("import.label"), importing: t("import.importing") }}
+        onPick={importer.run}
+        status={importer.status}
+      />
+
       <AiSpreadsheetHeader
         addColumnLabel={t("addColumn")}
         canvasRef={canvas.headerCanvasRef}

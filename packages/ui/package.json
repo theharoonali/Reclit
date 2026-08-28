@@ -19,13 +19,17 @@
     "./button": "./src/components/button.tsx",
     "./calendar": "./src/components/calendar.tsx",
     "./input": "./src/components/input.tsx",
+    "./label": "./src/components/label.tsx",
+    "./select": "./src/components/select.tsx",
     "./spinner": "./src/components/spinner.tsx",
+    "./focus-ring": "./src/styles/focus-ring.ts",
     "./globals.css": "./src/globals.css",
     "./postcss": "./postcss.config.js",
     "./tailwind.config": "./tailwind.config.ts",
     "./cn": "./src/utils/cn.ts"
   },
   "dependencies": {
+    "@radix-ui/react-select": "^2.3.7",
     "@radix-ui/react-slot": "^1.2.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -52,3 +52,52 @@ export class SpreadsheetColumnNotLastError extends DomainError {
     this.name = "SpreadsheetColumnNotLastError";
   }
 }
+
+// Import failures. All `bad_request`: `conflict` in this repo means the sheet's
+// state forbids the operation, and an import is state-indifferent by design —
+// it overwrites whatever is there. Every import failure is a bad payload.
+
+export class SpreadsheetImportUnsupportedTypeError extends DomainError {
+  readonly kind = "bad_request";
+  readonly code = "SPREADSHEET_IMPORT_UNSUPPORTED_TYPE";
+  constructor(filename: string) {
+    super(`Cannot import "${filename}": only .csv and .xlsx are supported`);
+    this.name = "SpreadsheetImportUnsupportedTypeError";
+  }
+}
+
+export class SpreadsheetImportEmptyError extends DomainError {
+  readonly kind = "bad_request";
+  readonly code = "SPREADSHEET_IMPORT_EMPTY";
+  constructor() {
+    super("The uploaded file has no rows");
+    this.name = "SpreadsheetImportEmptyError";
+  }
+}
+
+export class SpreadsheetImportNoHeaderError extends DomainError {
+  readonly kind = "bad_request";
+  readonly code = "SPREADSHEET_IMPORT_NO_HEADER";
+  constructor() {
+    super("The first row of the file is blank; it must name the columns");
+    this.name = "SpreadsheetImportNoHeaderError";
+  }
+}
+
+export class SpreadsheetImportUnreadableError extends DomainError {
+  readonly kind = "bad_request";
+  readonly code = "SPREADSHEET_IMPORT_UNREADABLE";
+  constructor(reason: string) {
+    super(`The uploaded file could not be read: ${reason}`);
+    this.name = "SpreadsheetImportUnreadableError";
+  }
+}
+
+export class SpreadsheetImportTooLargeError extends DomainError {
+  readonly kind = "bad_request";
+  readonly code = "SPREADSHEET_IMPORT_TOO_LARGE";
+  constructor(what: "rows" | "columns", got: number, max: number) {
+    super(`The file has ${got} ${what}; the limit is ${max}`);
+    this.name = "SpreadsheetImportTooLargeError";
+  }
+}

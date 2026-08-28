@@ -62,9 +62,3 @@ export const bottomNavItems: NavItem[] = [
 
 /** Workspace name is data, not copy. Its label lives in `sidebar.workspace`. */
 export const WORKSPACE = { name: "Phenomenon" };
-
-/**
- * Placeholder identity for the header avatar. There is no auth in this repo
- * yet; replace this with the session user when it lands.
- */
-export const PLACEHOLDER_USER = { name: "Alex Morgan", initials: "AM" };

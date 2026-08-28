@@ -25,6 +25,8 @@ describe("toColumnType", () => {
   test("keeps a known type", () => {
     expect(toColumnType("file")).toBe("file");
     expect(toColumnType("boolean")).toBe("boolean");
+    // Known even though the column picker does not offer it.
+    expect(toColumnType("formula")).toBe("formula");
   });
 
   test("degrades an unknown type to string rather than throwing", () => {

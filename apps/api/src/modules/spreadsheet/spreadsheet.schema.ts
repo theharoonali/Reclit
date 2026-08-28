@@ -40,7 +40,10 @@ export type CellValue = z.infer<typeof cellValueSchema>;
 const URL_RE = /^https?:\/\/\S+$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+/** Shared with the import inference, which must accept exactly what this does. */
+export function isPlainObject(
+  value: unknown,
+): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -193,3 +196,26 @@ export type UpdateRowInput = z.infer<typeof updateRowInput>;
 export type UpdateColumnInput = z.infer<typeof updateColumnInput>;
 export type CreateRowInput = z.infer<typeof createRowInput>;
 export type CreateColumnInput = z.infer<typeof createColumnInput>;
+
+/* ----------------------------------------------------------------- import */
+
+export const MAX_IMPORT_COLUMNS = 256;
+export const MAX_IMPORT_ROWS = 20_000;
+
+/**
+ * What POST /spreadsheets/:id/import returns.
+ *
+ * `totalRows` is the sheet's virtual grid height and is NOT changed by an
+ * import; `rowCount` is how many data rows the file held (header excluded).
+ */
+export const sheetImportResultSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  totalRows: z.number().int(),
+  totalColumns: z.number().int(),
+  rowCount: z.number().int(),
+  cellCount: z.number().int(),
+  columns: z.array(sheetColumnSchema),
+});
+
+export type SheetImportResult = z.infer<typeof sheetImportResultSchema>;

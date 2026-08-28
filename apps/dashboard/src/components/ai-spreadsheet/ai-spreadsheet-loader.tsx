@@ -4,27 +4,37 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { ErrorState } from "@/components/common/error-state";
 import { LoadingState } from "@/components/common/loading-state";
-import { useTRPC } from "@/trpc/client";
+import { fetchAllRows } from "@/lib/ai-spreadsheet/fetch-all-rows";
+import { useTRPC, useTRPCClient } from "@/trpc/client";
 import { AiSpreadsheetGrid } from "./ai-spreadsheet-grid";
 
 /**
- * Fetches the newest spreadsheet's first page and hands it to the grid.
+ * Fetches the newest spreadsheet and hands it to the grid.
  *
- * Only the first page: `normalize()` paints unfetched rows blank, which is
- * already right, and real paging means merging pages into the model — out of
- * scope (docs/plans/006-spreadsheet-backend.md). react-query's structural
- * sharing keeps the payload referentially stable across re-renders, so the
- * grid's model is not re-normalised unless the data actually changed.
+ * `spreadsheet.rows` is paged, so this walks every page and merges them before
+ * the grid sees anything — a sheet imported from a real file has far more rows
+ * than one page, and painting only the first page would silently drop the rest.
+ * Rows are sparse, so this reads what was actually written, not the sheet's
+ * 5,000,000-row virtual height.
+ *
+ * The query is registered under tRPC's own key for `spreadsheet.rows`, so
+ * `use-sheet-import.ts` invalidating that key still refreshes this. react-query's
+ * structural sharing keeps the payload referentially stable across re-renders,
+ * so the grid's model is not re-normalised unless the data actually changed.
  */
 export function AiSpreadsheetLoader() {
   const t = useTranslations("aiSpreadsheet");
   const trpc = useTRPC();
+  const client = useTRPCClient();
 
   const sheets = useQuery(trpc.spreadsheet.list.queryOptions());
   const newest = sheets.data?.[0];
+  const sheetId = newest?.id ?? "";
 
   const rows = useQuery({
-    ...trpc.spreadsheet.rows.queryOptions({ id: newest?.id ?? "" }),
+    queryKey: trpc.spreadsheet.rows.queryKey({ id: sheetId }),
+    queryFn: () =>
+      fetchAllRows((input) => client.spreadsheet.rows.query(input), sheetId),
     enabled: newest !== undefined,
   });
 

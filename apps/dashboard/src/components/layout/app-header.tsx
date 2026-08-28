@@ -1,9 +1,8 @@
-import { cn } from "@reclit/ui/cn";
 import { Input } from "@reclit/ui/input";
-import { Bell, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { getTranslations } from "next-intl/server";
 import type { ReactNode } from "react";
-import { PLACEHOLDER_USER } from "@/config/nav";
+import { HeaderActionsOutlet } from "./header-actions";
 
 /**
  * The top bar. Takes its content as slots so it stays feature-agnostic —
@@ -34,41 +33,13 @@ export async function AppHeader({
         />
       </div>
 
-      <div className="ml-auto flex items-center gap-1">
+      {/* `actions` is the static slot; the outlet is where a page portals its
+          own controls in (see header-actions.tsx). Both are right-aligned; an
+          empty flex item has no size. */}
+      <div className="ml-auto flex items-center gap-2">
         {actions}
-
-        <IconButton label={t("notifications")}>
-          <Bell className="h-4 w-4" />
-          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-primary" />
-        </IconButton>
-
-        <span className="ml-2 flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-caption font-semibold text-primary">
-          {PLACEHOLDER_USER.initials}
-        </span>
+        <HeaderActionsOutlet />
       </div>
     </header>
-  );
-}
-
-function IconButton({
-  label,
-  children,
-  className,
-}: {
-  label: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      className={cn(
-        "relative flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
-        className,
-      )}
-    >
-      {children}
-    </button>
   );
 }

@@ -1,6 +1,8 @@
 "use client";
 
+import { Button } from "@reclit/ui/button";
 import { cn } from "@reclit/ui/cn";
+import { focusRing } from "@reclit/ui/focus-ring";
 import { ChevronsUpDown, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -43,22 +45,20 @@ export function AppSidebar() {
           <span className="truncate text-heading">{APP_NAME}</span>
         )}
 
-        <button
-          type="button"
-          onClick={() => setCollapsed((value) => !value)}
-          aria-label={collapsed ? t("expand") : t("collapse")}
+        <Button
           aria-expanded={!collapsed}
+          aria-label={collapsed ? t("expand") : t("collapse")}
           className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+            "shrink-0 text-muted-foreground",
             !collapsed && "ml-auto",
           )}
+          onClick={() => setCollapsed((value) => !value)}
+          size="icon"
+          type="button"
+          variant="ghost"
         >
-          {collapsed ? (
-            <PanelLeftOpen className="h-5 w-5" />
-          ) : (
-            <PanelLeftClose className="h-5 w-5" />
-          )}
-        </button>
+          {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+        </Button>
       </div>
 
       <nav className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-3 py-4">
@@ -67,7 +67,7 @@ export function AppSidebar() {
             {collapsed ? (
               <div className="mx-auto mb-2 h-px w-6 bg-border" />
             ) : (
-              <p className="px-3 pb-1 text-caption font-medium uppercase tracking-wider text-muted-foreground">
+              <p className="px-3 pb-1 text-eyebrow uppercase text-muted-foreground">
                 {tNav(`sections.${section.titleKey}`)}
               </p>
             )}
@@ -147,7 +147,7 @@ function NavRow({
   const inner = (
     <>
       {active && (
-        <span className="absolute left-0 h-5 w-0.5 rounded-r bg-primary" />
+        <span className="absolute left-0 h-5 w-0.5 rounded-r-full bg-primary" />
       )}
       <Icon className="h-4 w-4 shrink-0" />
       {!collapsed && <span className="truncate">{label}</span>}
@@ -179,7 +179,7 @@ function NavRow({
       className={cn(
         shared,
         !active && "text-foreground/80 hover:bg-accent hover:text-foreground",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        focusRing,
       )}
     >
       {inner}

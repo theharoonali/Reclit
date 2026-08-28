@@ -16,9 +16,9 @@ reports `/` as `ƒ (Dynamic)`.
 | `apps/dashboard/src/app/(app)/page.tsx` | RSC | Page framing only: heading, subtitle, one component |
 | `apps/dashboard/src/components/layout/app-shell.tsx` | RSC | Page geometry: sidebar beside a column of header + `main`. The only file that knows the layout |
 | `apps/dashboard/src/components/layout/app-sidebar.tsx` | client | Collapse state (`useState`, `w-56` ↔ `w-16`), app name + collapse toggle, grouped nav, workspace block. Active row from `usePathname()` |
-| `apps/dashboard/src/components/layout/app-header.tsx` | RSC | Search field, notifications, avatar. Takes `title`/`actions` slots as props. Has no interactive element, so it is not a client component |
+| `apps/dashboard/src/components/layout/app-header.tsx` | RSC | Search field. Takes `title`/`actions` slots as props. Has no interactive element, so it is not a client component |
 | `apps/dashboard/src/components/dashboard/dashboard-empty.tsx` | RSC | The page's only body content |
-| `apps/dashboard/src/config/nav.ts` | data | `navSections`, `APP_NAME`, `WORKSPACE`, `PLACEHOLDER_USER`. Chrome never hardcodes a link |
+| `apps/dashboard/src/config/nav.ts` | data | `navSections`, `APP_NAME`, `WORKSPACE`. Chrome never hardcodes a link |
 | `apps/dashboard/src/app/layout.tsx` | RSC | Root layout: fonts (`Google_Sans` + `Geist_Mono`), `<html lang>` from `getLocale()`, `NextIntlClientProvider`, `Providers`. No chrome |
 | `apps/dashboard/src/i18n/config.ts` | data | Locale list, default locale, cookie name |
 | `apps/dashboard/src/i18n/request.ts` | server | Resolves the request locale from the cookie and loads its messages |
@@ -55,8 +55,10 @@ mounts is exercised by `/ai-spreadsheet`
   UI. Removing that one prop restores dark mode.
 - Below the `md` breakpoint the sidebar is hidden entirely. **There is no mobile
   navigation** — that needs a `Sheet` primitive and `@radix-ui/react-dialog`.
-- The search field is uncontrolled and searches nothing. The avatar and
-  workspace blocks are static.
+- The search field is uncontrolled and searches nothing. The workspace block is
+  static. There is no notification bell and no avatar: there is no auth, so
+  there is no identity to show, and the header is a search field plus the
+  `title` and `actions` slots.
 - The body is a single unconditional empty state. With no query there is no
   loading or error state to handle.
 - **Every visible string comes from `src/messages/en.json`** — nav labels and

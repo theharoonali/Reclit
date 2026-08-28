@@ -13,8 +13,13 @@ import type { RouterOutputs } from "@reclit/api/trpc/routers/_app";
 
 /**
  * The column vocabulary is the API's own — `"string"`, not `"text"` — so there
- * is no mapping layer between wire and model. `email` and `url` are stored as
- * strings and differ only in how they are painted and validated.
+ * is no mapping layer between wire and model. It must stay in lockstep with
+ * `COLUMN_TYPES_WIRE` in the API's `spreadsheet.schema.ts`: a type the API can
+ * return but this union does not name is a column the sheet cannot render.
+ *
+ * `email` and `url` are stored as strings and differ only in how they are
+ * painted and validated. `formula` is returned by the API but not offered in
+ * the column picker — see `columnTypes` in `cell-format.ts`.
  */
 export type ColumnType =
   | "string"
@@ -22,8 +27,9 @@ export type ColumnType =
   | "boolean"
   | "date"
   | "json"
-  | "file"
+  | "formula"
   | "audio"
+  | "file"
   | "email"
   | "url";
 

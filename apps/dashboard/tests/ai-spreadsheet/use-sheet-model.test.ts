@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { normalize } from "@/components/ai-spreadsheet/use-sheet-model";
+import { columnTypes } from "@/lib/ai-spreadsheet/cell-format";
 import type { ApiRow, SheetPayload } from "@/lib/ai-spreadsheet/types";
 import { cellKey } from "@/lib/ai-spreadsheet/types";
 
@@ -122,12 +123,15 @@ describe("normalize", () => {
     ]);
   });
 
-  test("a wire-only column type degrades to string", () => {
+  // `formula` is in the API's COLUMN_TYPES_WIRE but not in the column picker:
+  // the sheet must still render one the API returns, as plain text.
+  test("keeps a formula column rather than degrading it", () => {
     const model = normalize(
       payload({
         columns: [{ id: "col.0", index: 0, name: "Total", type: "formula" }],
       }),
     );
-    expect(model.columns[0]?.type).toBe("string");
+    expect(model.columns[0]?.type).toBe("formula");
+    expect(columnTypes).not.toContain("formula");
   });
 });

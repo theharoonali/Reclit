@@ -17,7 +17,8 @@ file exists. There is no delete.
 | --- | --- | --- |
 | `apps/api/src/modules/file/file.schema.ts` | schema | `uploadedFileSchema` |
 | `apps/api/src/modules/file/file.service.ts` | service | lazy Supabase client, `upload()` |
-| `apps/api/src/modules/file/file.controller.ts` | controller | `POST /files` (multer, memory, 25 MB) |
+| `apps/api/src/modules/file/file.errors.ts` | errors | `FileStorageNotConfiguredError`, `FileUploadFailedError` |
+| `apps/api/src/modules/file/file.controller.ts` | controller | `POST /files` — the multipart plumbing is shared (`common/upload.ts`: `@UploadFile()` + `requireFile()`, 25 MB) |
 
 ## Procedures
 

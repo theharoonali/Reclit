@@ -6,23 +6,21 @@ import type { SheetPalette } from "./types";
  * on the canvas therefore still traces back to a token in
  * `packages/ui/src/globals.css` — editing a token restyles the grid.
  *
- * The wrinkle: tokens are stored in two shapes there. Some are comma-separated
- * (`--border: 45, 5%, 85%`) and some space-separated (`--primary: 20 90% 55%`).
- * `hsl(var(--x) / a)` is invalid CSS for the comma form and fails *silently*,
- * painting transparent. `normalizeHsl` collapses both into one shape so
- * `withAlpha` is always safe.
+ * Tokens are bare HSL triples (`20 90% 55%`), so this only has to wrap them in
+ * `hsl()`. It still splits on commas as well as spaces: a token written in the
+ * legacy comma form would otherwise produce `hsl(20, 90%, 55%)`, which parses
+ * but breaks `withAlpha`.
  */
-function normalizeHsl(raw: string): string {
-  const parts = raw
+function toHsl(raw: string): string {
+  const [h, s, l] = raw
     .trim()
     .split(/[\s,]+/)
     .filter(Boolean);
-  const [h, s, l] = parts;
   if (!h || !s || !l) return "hsl(0 0% 0%)";
   return `hsl(${h} ${s} ${l})`;
 }
 
-/** Only ever called with the output of `normalizeHsl`. */
+/** Only ever called with the output of `toHsl`. */
 export const withAlpha = (color: string, alpha: number) =>
   color.replace(")", ` / ${alpha})`);
 
@@ -37,8 +35,7 @@ export function readCanvasFont(el: HTMLElement, size: number): string {
 
 export function readPalette(el: HTMLElement): SheetPalette {
   const styles = getComputedStyle(el);
-  const read = (token: string) =>
-    normalizeHsl(styles.getPropertyValue(`--${token}`));
+  const read = (token: string) => toHsl(styles.getPropertyValue(`--${token}`));
 
   return {
     background: read("background"),
@@ -64,16 +61,16 @@ export function readPalette(el: HTMLElement): SheetPalette {
 export const FALLBACK_PALETTE: SheetPalette = {
   background: "hsl(0 0% 100%)",
   header: "hsl(45 18% 96%)",
-  headerText: "hsl(240 10% 4%)",
+  headerText: "hsl(216 8.5% 11.6%)",
   gutter: "hsl(45 18% 96%)",
   gridline: "hsl(45 5% 85%)",
-  text: "hsl(0 0% 7%)",
+  text: "hsl(216 8.5% 11.6%)",
   mutedText: "hsl(0 0% 38%)",
   accent: "hsl(40 10% 94%)",
-  accentForeground: "hsl(240 6% 10%)",
+  accentForeground: "hsl(216 8.5% 11.6%)",
   ring: "hsl(20 90% 55%)",
   link: "hsl(20 90% 55%)",
-  invalid: "hsl(0 84% 60%)",
+  invalid: "hsl(0 84.2% 60.2%)",
   boolTrue: "hsl(142 70% 38%)",
   boolFalse: "hsl(45 90% 42%)",
 };

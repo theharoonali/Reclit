@@ -1,29 +1,14 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { DomainError } from "../../common/errors";
+import {
+  FileStorageNotConfiguredError,
+  FileUploadFailedError,
+} from "./file.errors";
 import type { UploadedFile } from "./file.schema";
 
 // Framework-free pass-through to Supabase Storage. The client is created
 // lazily so a checkout without SUPABASE_* env vars still boots and tests.
 
 const BUCKET = "reclit";
-
-export class FileStorageNotConfiguredError extends DomainError {
-  readonly kind = "unavailable";
-  readonly code = "FILE_STORAGE_NOT_CONFIGURED";
-  constructor() {
-    super("SUPABASE_URL / SUPABASE_KEY are not set in apps/api/.env");
-    this.name = "FileStorageNotConfiguredError";
-  }
-}
-
-export class FileUploadFailedError extends DomainError {
-  readonly kind = "upstream";
-  readonly code = "FILE_UPLOAD_FAILED";
-  constructor(reason: string) {
-    super(`Upload to bucket "${BUCKET}" failed: ${reason}`);
-    this.name = "FileUploadFailedError";
-  }
-}
 
 /** Keeps the original filename readable as the URL's last path segment. */
 function sanitizeName(name: string): string {
@@ -53,7 +38,7 @@ export class FileService {
     const { error } = await storage.upload(path, buffer, {
       contentType: mimeType,
     });
-    if (error) throw new FileUploadFailedError(error.message);
+    if (error) throw new FileUploadFailedError(BUCKET, error.message);
     const { data } = storage.getPublicUrl(path);
     return {
       url: data.publicUrl,

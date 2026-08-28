@@ -66,7 +66,16 @@
  * | DELETE /spreadsheets/:id/columns/:c                | 200 | removeColumn |
  * | GET    /spreadsheets/:id/cells/:r/:c               | 200 | cell         |
  * | PATCH  /spreadsheets/:id/cells/:r/:c  body {value} | 200 | setCell      |
+ * | POST   /spreadsheets/:id/import  multipart "file" | 200 | import       |
  * Statuses: not_found 404 · bad_request/validation 400 · conflict 409.
+ *
+ * IMPORT  POST /spreadsheets/:id/import — multipart, field "file", .csv or
+ * .xlsx, <= 25 MB. REST only, no tRPC procedure: multipart does not belong on
+ * the tRPC link, and a procedure would pull the parsers into src/trpc/**, the
+ * graph the dashboard transpiles. Returns 200, not 201 — it creates no new
+ * resource.
+ *   SheetImportResult = { id; name; totalRows; totalColumns; rowCount;
+ *                         cellCount; columns: SheetColumn[] }
  *
  * NOTES
  * - Rows are sparse; row indexes are absolute grid positions. removeRow clears
@@ -84,9 +93,39 @@
  * - `rows` pagination counts *stored* rows: take limit+1, hasMore when the
  *   extra record exists, nextCursor is its short row id.
  * - Every procedure is public; there is no auth yet.
+ *
+ * IMPORT NOTES
+ * - Import is a **full replace**: every Column, Row and Cell of the sheet is
+ *   deleted and rebuilt from the file in one transaction, so a failure leaves
+ *   the sheet exactly as it was and a re-import of the same file is a no-op.
+ *   It is the only operation that can drop a non-last column.
+ * - `totalRows` is the sheet's virtual grid height and is NOT changed by an
+ *   import. `rowCount` is the data rows the file held (header excluded);
+ *   `cellCount` the non-empty cells written.
+ * - Row 0 of the file names the columns; a blank name becomes "Column <n>".
+ * - A column's type is inferred only if EVERY non-empty value fits it, tried
+ *   boolean → number → date → json → email → url → string. A `url` column whose
+ *   values all end in an audio extension becomes `audio`; known file extensions
+ *   make it `file`. `formula` is never inferred. Values are coerced to the
+ *   inferred type before storage, so an imported value always satisfies the
+ *   same check `setCell` would apply.
+ * - Only `true`/`false`/`yes`/`no` infer boolean — never `1`/`0`, which would
+ *   turn numeric flag columns into booleans irrecoverably.
+ * - A value with a leading zero ("007") is not a number, and a bare number is
+ *   not a date: a date must look like one (digits split by - or /, or a month
+ *   name) before `Date.parse` is trusted.
+ * - A blank cell writes NO Cell record; a blank row still writes a Row record.
+ *   Interior blank rows are kept, trailing blank rows trimmed.
+ * - XLSX reads the FIRST worksheet only; formula cells contribute their cached
+ *   result. `.xls` (legacy BIFF) is rejected.
+ * - Errors, all 400 except the last: SPREADSHEET_IMPORT_UNSUPPORTED_TYPE ·
+ *   _EMPTY · _NO_HEADER · _UNREADABLE · _TOO_LARGE · a 400 with no `code` when
+ *   the "file" field is missing · SPREADSHEET_NOT_FOUND (404). No import error
+ *   is a 409 — import overwrites state, so nothing about it can conflict.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import ExcelJS from "exceljs";
 import { createApp } from "../bootstrap";
 import { pingDatabase } from "../db/prisma";
 import { spreadsheetService } from "../modules/spreadsheet/spreadsheet.service";
@@ -825,6 +864,245 @@ describe.skipIf(!dbUp)("REST surface", () => {
     expect(notLast.status).toBe(409);
     expect(await notLast.json()).toMatchObject({
       code: "SPREADSHEET_COLUMN_NOT_LAST",
+    });
+  });
+
+  /* ------------------------------------------------------------- import */
+
+  // Fixtures are built in memory — no fixture file is added to the repo. The
+  // XLSX one is written with the same library the service reads with, so it is
+  // a real workbook rather than a hand-rolled zip.
+  const csvBody = (csv: string, name = "import.csv") => {
+    const form = new FormData();
+    form.append("file", new Blob([csv], { type: "text/csv" }), name);
+    return form;
+  };
+
+  async function xlsxBody(rows: unknown[][], name = "import.xlsx") {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Sheet1");
+    for (const row of rows) sheet.addRow(row);
+    const bytes = new Uint8Array(
+      (await workbook.xlsx.writeBuffer()) as ArrayBuffer,
+    );
+    const form = new FormData();
+    const type =
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    form.append("file", new Blob([bytes], { type }), name);
+    return form;
+  }
+
+  const importInto = (id: string, body: FormData) =>
+    fetch(`${baseUrl}/spreadsheets/${id}/import`, { method: "POST", body });
+
+  async function importCsv(csv: string, name?: string) {
+    const sheet = await makeSheet("import target");
+    const res = await importInto(sheet.id, csvBody(csv, name));
+    return { sheet, res };
+  }
+
+  const EVERY_TYPE_CSV = [
+    "Name,Email,Age,Joined,Active,Meta,Doc,Clip,Site,Zip",
+    'Muhammad,m@example.com,26,2026-08-27T10:00:00.000Z,true,"{""a"":1}",https://e.com/a.pdf,https://e.com/a.mp3,https://e.com,007',
+    'Ali,a@example.com,29,2026-08-20T12:00:00.000Z,false,"{""a"":2}",https://e.com/b.pdf,https://e.com/b.mp3,https://e.org,042',
+  ].join("\n");
+
+  it("infers a type per column and coerces the values", async () => {
+    const { sheet, res } = await importCsv(EVERY_TYPE_CSV);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      totalRows: number;
+      totalColumns: number;
+      rowCount: number;
+      cellCount: number;
+      columns: { id: string; index: number; name: string; type: string }[];
+    };
+    expect(body.columns.map((column) => column.type)).toEqual([
+      "string",
+      "email",
+      "number",
+      "date",
+      "boolean",
+      "json",
+      "file", // .pdf
+      "audio", // .mp3
+      "url", // no extension
+      "string", // "007" keeps its leading zero
+    ]);
+    expect(body.columns[0]).toEqual({
+      id: "col.0",
+      index: 0,
+      name: "Name",
+      type: "string",
+    });
+    expect(body).toMatchObject({ rowCount: 2, cellCount: 20 });
+    // The virtual grid height is not a row count and import does not touch it.
+    expect(body.totalRows).toBe(5_000_000);
+
+    const row = await caller.spreadsheet.row({ id: sheet.id, rowIndex: 0 });
+    const value = (columnId: string) =>
+      row.columns.find((entry) => entry.id === columnId)?.value;
+    expect(value("col.2")).toBe(26);
+    expect(value("col.4")).toBe(true);
+    expect(value("col.5")).toEqual({ a: 1 });
+    expect(value("col.3")).toBe("2026-08-27T10:00:00.000Z");
+    expect(value("col.9")).toBe("007");
+  });
+
+  it("replaces the whole grid, dropping columns the file does not have", async () => {
+    const sheet = await makeSheet("import replaces");
+    for (const name of ["one", "two", "three"]) {
+      await caller.spreadsheet.createColumn({ id: sheet.id, name });
+    }
+    for (const rowIndex of [0, 1, 2]) {
+      await caller.spreadsheet.setCell({
+        id: sheet.id,
+        rowIndex,
+        columnIndex: 2,
+        value: "old",
+      });
+    }
+
+    const res = await importInto(sheet.id, csvBody("A,B\nx,y\n"));
+    expect(res.status).toBe(200);
+
+    // col.2 is gone even though it was not the last column when the import
+    // started — the only operation allowed to do that.
+    const meta = await caller.spreadsheet.byId({ id: sheet.id });
+    expect(meta.totalColumns).toBe(2);
+    await expectTRPCError(
+      caller.spreadsheet.column({ id: sheet.id, columnIndex: 2 }),
+      "NOT_FOUND",
+    );
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(payload.rows).toHaveLength(1);
+    expect(payload.rows[0]?.columns).toEqual([
+      { id: "col.0", name: "A", value: "x" },
+      { id: "col.1", name: "B", value: "y" },
+    ]);
+  });
+
+  it("is idempotent — the same file twice gives the same result", async () => {
+    const sheet = await makeSheet("import twice");
+    const first = await importInto(sheet.id, csvBody(EVERY_TYPE_CSV));
+    const second = await importInto(sheet.id, csvBody(EVERY_TYPE_CSV));
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual(await first.json());
+  });
+
+  it("writes no cell record for a blank cell", async () => {
+    const { sheet, res } = await importCsv("A,B,C\nx,,z\n");
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { cellCount: number }).toMatchObject({
+      cellCount: 2,
+    });
+    const row = await caller.spreadsheet.row({ id: sheet.id, rowIndex: 0 });
+    // The blank is an absent entry, not `value: null`.
+    expect(row.columns.map((entry) => entry.id)).toEqual(["col.0", "col.2"]);
+  });
+
+  it("demotes a column to string when one value does not fit", async () => {
+    const { sheet, res } = await importCsv("N\n1\n2\nabc\n");
+    expect(res.status).toBe(200);
+    const column = await caller.spreadsheet.column({
+      id: sheet.id,
+      columnIndex: 0,
+    });
+    expect(column.type).toBe("string");
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(payload.rows.map((row) => row.columns[0]?.value)).toEqual([
+      "1",
+      "2",
+      "abc",
+    ]);
+  });
+
+  it("types an all-blank column as string and keeps interior blank rows", async () => {
+    const { sheet, res } = await importCsv("A,Empty\nx,\n,\ny,\n");
+    expect(res.status).toBe(200);
+    const column = await caller.spreadsheet.column({
+      id: sheet.id,
+      columnIndex: 1,
+    });
+    expect(column.type).toBe("string");
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    // Three rows: the blank middle one still exists.
+    expect(payload.rows.map((row) => row.index)).toEqual([0, 1, 2]);
+    expect(payload.rows[1]?.columns).toEqual([]);
+  });
+
+  it("never infers boolean from 1/0", async () => {
+    const { sheet, res } = await importCsv("Flag\n1\n0\n");
+    expect(res.status).toBe(200);
+    const column = await caller.spreadsheet.column({
+      id: sheet.id,
+      columnIndex: 0,
+    });
+    expect(column.type).toBe("number");
+  });
+
+  it("accepts a header-only file", async () => {
+    const { res } = await importCsv("A,B\n");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      totalColumns: 2,
+      rowCount: 0,
+      cellCount: 0,
+    });
+  });
+
+  it("reads an xlsx workbook, including real date and number cells", async () => {
+    const sheet = await makeSheet("import xlsx");
+    const res = await importInto(
+      sheet.id,
+      await xlsxBody([
+        ["Name", "Age", "Joined", "Ok"],
+        ["Muhammad", 26, new Date("2026-08-27T10:00:00.000Z"), true],
+      ]),
+    );
+    expect(res.status).toBe(200);
+    expect(
+      ((await res.json()) as { columns: { type: string }[] }).columns.map(
+        (column) => column.type,
+      ),
+    ).toEqual(["string", "number", "date", "boolean"]);
+    const row = await caller.spreadsheet.row({ id: sheet.id, rowIndex: 0 });
+    expect(row.columns.map((entry) => entry.value)).toEqual([
+      "Muhammad",
+      26,
+      "2026-08-27T10:00:00.000Z",
+      true,
+    ]);
+  });
+
+  it("maps every import failure to its status and code", async () => {
+    const sheet = await makeSheet("import failures");
+
+    const cases: [FormData, string][] = [
+      [csvBody("x", "notes.txt"), "SPREADSHEET_IMPORT_UNSUPPORTED_TYPE"],
+      [csvBody("legacy", "book.xls"), "SPREADSHEET_IMPORT_UNSUPPORTED_TYPE"],
+      [csvBody(""), "SPREADSHEET_IMPORT_EMPTY"],
+      [csvBody(",,\na,b,c\n"), "SPREADSHEET_IMPORT_NO_HEADER"],
+      [
+        csvBody(Array.from({ length: 300 }, (_, i) => `c${i}`).join(",")),
+        "SPREADSHEET_IMPORT_TOO_LARGE",
+      ],
+    ];
+    for (const [body, code] of cases) {
+      const res = await importInto(sheet.id, body);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ statusCode: 400, code });
+    }
+
+    // A missing "file" field is Nest's own BadRequestException — 400, no code.
+    const noField = await importInto(sheet.id, new FormData());
+    expect(noField.status).toBe(400);
+
+    const missing = await importInto("does-not-exist", csvBody("A\nx\n"));
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toMatchObject({
+      code: "SPREADSHEET_NOT_FOUND",
     });
   });
 });

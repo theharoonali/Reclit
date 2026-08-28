@@ -116,7 +116,7 @@ export function AiSpreadsheetJsonEditor(props: AiSpreadsheetJsonEditorProps) {
                 type="button"
                 variant="ghost"
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 />
               </Button>
             </Fragment>
           ))}
@@ -124,7 +124,7 @@ export function AiSpreadsheetJsonEditor(props: AiSpreadsheetJsonEditorProps) {
       )}
 
       <Button onClick={addEntry} type="button" variant="outline">
-        <Plus className="mr-2 h-4 w-4" />
+        <Plus />
         {labels.add}
       </Button>
     </div>

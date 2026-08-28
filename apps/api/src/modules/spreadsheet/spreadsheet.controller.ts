@@ -3,11 +3,15 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
   Query,
+  UploadedFile,
 } from "@nestjs/common";
+import type { MulterFile } from "../../common/multipart";
+import { requireFile, UploadFile } from "../../common/upload";
 import {
   cellRefInput,
   columnRefInput,
@@ -22,6 +26,7 @@ import {
 } from "./spreadsheet.schema";
 import { spreadsheetService } from "./spreadsheet.service";
 import { spreadsheetCellsService } from "./spreadsheet-cells.service";
+import { spreadsheetImportService } from "./spreadsheet-import.service";
 
 // The REST face of the spreadsheet feature — same services, same zod inputs
 // as trpc/routers/spreadsheet.ts. Path/query params arrive as strings; the
@@ -48,6 +53,23 @@ export class SpreadsheetController {
   @Delete(":id")
   remove(@Param("id") id: string) {
     return spreadsheetService.remove(id);
+  }
+
+  /**
+   * 200, not the @Post default of 201: an import replaces a sheet's grid and
+   * creates no new resource at a new URL.
+   */
+  @Post(":id/import")
+  @HttpCode(200)
+  @UploadFile()
+  importFile(@Param("id") id: string, @UploadedFile() file?: MulterFile) {
+    const upload = requireFile(file);
+    return spreadsheetImportService.import(
+      id,
+      upload.buffer,
+      upload.originalname,
+      upload.mimetype,
+    );
   }
 
   @Get(":id/rows")

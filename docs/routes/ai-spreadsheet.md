@@ -23,6 +23,8 @@ page of rows, and hands the payload to the grid.
 | `…/ai-spreadsheet-json-editor.tsx` | client | key/value table behind a JSON cell |
 | `…/ai-spreadsheet-date-editor.tsx` | client | UTC calendar behind a date cell |
 | `…/ai-spreadsheet-upload-editor.tsx` | client | upload panel behind file and audio cells (`POST /files`) |
+| `…/ai-spreadsheet-import-button.tsx` | client | the Import control, portalled into the app header |
+| `…/use-sheet-import.ts` | hook | uploads a CSV/XLSX, then refreshes the grid without remounting it |
 | `…/use-sheet-canvas.ts` | hook | wires sizing, painting, pointer routing and the editor |
 | `…/use-sheet-audio.ts` | hook | one shared `Audio` element and which audio cell is playing |
 | `…/use-sheet-sync.ts` | hook | persists cell/column edits through tRPC without re-rendering the grid |
@@ -35,7 +37,8 @@ page of rows, and hands the payload to the grid.
 | `apps/dashboard/src/hooks/use-canvas-surface.ts` | hook | generic DPR-correct canvas sized from another element |
 
 Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`,
-`@reclit/ui/calendar`, `@reclit/ui/cn`, `.scrollbar-none` and the
+`@reclit/ui/label`, `@reclit/ui/select`, `@reclit/ui/calendar`, `@reclit/ui/cn`,
+`components/layout/header-actions.tsx`, `.scrollbar-none` and the
 `duration-smooth`/`ease-smooth` motion pair (both defined in `packages/ui`),
 `config/nav.ts`, `components/layout/`.
 
@@ -45,11 +48,18 @@ Feature: [spreadsheet](../features/spreadsheet.md) ·
 [file](../features/file.md).
 
 - On load: `spreadsheet.list` (prefetched in the RSC), then
-  `spreadsheet.rows` for the newest sheet's first page.
+  `spreadsheet.rows` for the newest sheet — every page of it. `rows` is paged
+  at the API's `limit` cap, so `lib/ai-spreadsheet/fetch-all-rows.ts` walks
+  `hasMore`/`nextCursor` and merges the pages into one payload before the grid
+  sees anything; a sheet imported from a real file has far more rows than one
+  page.
 - On edit: `spreadsheet.setCell` (per-cell, debounced 400 ms, latest wins),
   `spreadsheet.createColumn` / `spreadsheet.updateColumn` from the column form.
 - Audio uploads: REST `POST /files`, then the returned public URL is stored in
   the cell via `setCell`.
+- Import: REST `POST /spreadsheets/:id/import` (multipart), sent for the sheet
+  currently open. It replaces the sheet's whole grid — see
+  [the feature doc](../features/spreadsheet.md).
 
 The wire types in `lib/ai-spreadsheet/types.ts` are type-only aliases of
 `RouterOutputs["spreadsheet"]["rows"]`, so they cannot drift from the backend.
@@ -59,13 +69,24 @@ column index — and a blank cell is an absent entry. A cell is addressed by
 deterministic, which is why the optimistic `addColumn` id needs no
 reconciliation.
 
-Mutations deliberately do **not** invalidate `spreadsheet.rows`: a refetch
-would hand the grid a new payload, re-normalise the model and remount — blank —
-the canvas. After an edit the mutated model ref is already the truth. A failed
+Cell and column mutations deliberately do **not** invalidate
+`spreadsheet.rows`: a refetch would hand the grid a new payload and re-normalise
+the model for no reason. After an edit the mutated model ref is already the truth. A failed
 cell write snaps the cell back to its pre-edit value and repaints; there is no
 toast to announce it yet. Text that does not parse for its column type stays
 local-only (painted destructive), so the server never sees a value it would
 reject.
+
+**Import is the one exception** — it *replaces* the sheet rather than editing
+it, so the server is the truth and the model must be rebuilt. It invalidates
+`spreadsheet.rows` on purpose. That is safe only because `invalidateQueries`
+leaves the query `success`: the loader never falls back to `LoadingState`, so
+the grid re-renders (new `payload` → `columnsVersion` → `syncGeometry` +
+repaint) instead of remounting. `resetQueries`, `removeQueries` or a changed
+query key would remount it, and a remounted canvas is a blank one. Before the
+refetch the import discards every debounced cell write (`discardPending`) and
+disowns any still in flight — otherwise one would land on the new grid, find its
+key gone, and blank a freshly imported cell.
 
 ## Behaviour
 
@@ -125,6 +146,11 @@ reject.
   over the time of day the cell already held — the grid shows only the date, so
   zeroing the time would be data loss the user could not see. Typing a date
   still edits inline.
+- **Import** is a button in the app header, not a bar of the sheet's own: it is
+  portalled there with `<HeaderActions>`, so the grid keeps the whole content
+  area and still owns the import state. Picking a `.csv`/`.xlsx` replaces the
+  sheet's entire grid; the button reads "Importing…" while it runs and a failure
+  shows inline beside it (`role="alert"`) with the sheet untouched.
 - **The panel** slides in over the sheet from the right, inside the row below
   the header, so it never covers the column names and never resizes or reflows
   the grid. It stays mounted and inert while closed so it can animate out.
@@ -137,9 +163,11 @@ reject.
   `aria-rowcount`/`aria-colcount`, the hidden textarea is labelled, and the
   painted `+` has a real screen-reader-only button behind it. Per-cell reading
   by assistive tech is **not** supported — the cells are pixels.
-- **Not implemented:** pagination (`hasMore`/`nextCursor` are parsed and
-  ignored — the loader fetches the first page and unfetched rows render
-  blank), multi-cell selection, TSV paste, column reorder or delete in the UI
+- **Not implemented:** *windowed* paging tied to scroll position. The loader
+  reads every **stored** row up front and merges the pages, which is bounded by
+  what was actually written (rows are sparse, and import caps at 20,000) rather
+  than by the 5,000,000-row virtual height — but a very large sheet is still one
+  big payload on load. Rows past what is stored render blank, which is correct. multi-cell selection, TSV paste, column reorder or delete in the UI
   (the API allows deleting the last column), row insert or delete in the UI,
   undo/redo, formulas (the `formula` column type is storage-only and edits as
   text), sorting, and filtering. Persistence **is** implemented — see "APIs
@@ -153,13 +181,18 @@ reject.
 - The `.scrollbar-none` utility and the `duration-smooth`/`ease-smooth` motion
   pair live in `packages/ui` and are meant to be shared; the sidebar already
   uses the motion pair.
-- The type selector is a native `<select>` styled with tokens, on purpose:
-  Radix Select portals and traps focus, which fights the grid's focus proxy. If
-  a second feature needs one, move it to
-  `packages/ui/src/components/select.tsx` — still native, still unanimated.
+- The type selector is `@reclit/ui/select` — shadcn's Radix `Select`, with its
+  enter/exit animations stripped. It portals, but that does not fight the grid:
+  the input proxy re-focuses only on a pointerdown **on the canvas**
+  (`ai-spreadsheet-grid.tsx` passes `onPointerDown` to the header and body only),
+  and it deliberately does not re-focus on blur.
+- The picker offers every `ColumnType` except `formula`. The API can return a
+  formula column and the sheet paints it as text, but there is no editor for one
+  yet — see `columnTypes` in `lib/ai-spreadsheet/cell-format.ts`.
 - `packages/ui/src/components/calendar.tsx` is a shared, token-styled month
   calendar over `react-day-picker`. It renders inline and is deliberately not
-  wrapped in a popover, for the same focus-proxy reason as the `<select>`.
+  wrapped in a popover: the date editor lives in the side panel, where an
+  inline month is more useful than a second layer of portal.
 - `apps/dashboard/tests/support/canvas.ts` is a canvas context that records draw
   calls instead of drawing. The painters are pure functions over a context, so
   it is how they are asserted on without a browser. It lives under `tests/`

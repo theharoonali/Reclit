@@ -54,7 +54,7 @@ export function AiSpreadsheetSidePanel(props: AiSpreadsheetSidePanelProps) {
           type="button"
           variant="ghost"
         >
-          <X className="h-4 w-4" />
+          <X />
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">

@@ -19,8 +19,7 @@
   },
   "header": {
     "searchPlaceholder": "Search...",
-    "searchLabel": "Search",
-    "notifications": "Notifications"
+    "searchLabel": "Search"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -59,6 +58,7 @@
       "boolean": "Boolean",
       "date": "Date",
       "json": "JSON",
+      "formula": "Formula",
       "file": "File",
       "audio": "Audio",
       "email": "Email",
@@ -109,6 +109,14 @@
       "error": "The upload failed. Try again.",
       "clear": "Clear file",
       "empty": "No file yet."
+    },
+    "import": {
+      "label": "Import",
+      "importing": "Importing...",
+      "error": "The import failed. Try again.",
+      "errorType": "Only .csv and .xlsx files can be imported.",
+      "errorEmpty": "That file has no rows.",
+      "errorTooLarge": "That file has too many rows or columns to import."
     },
     "loading": "Loading spreadsheet...",
     "loadError": "The spreadsheet could not be loaded.",

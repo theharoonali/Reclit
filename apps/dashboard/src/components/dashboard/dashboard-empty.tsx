@@ -19,7 +19,7 @@ export async function DashboardEmpty() {
       <p className="mt-2 max-w-sm text-subtitle text-muted-foreground">
         {t("description")}
       </p>
-      <Button size="sm" className="mt-6">
+      <Button className="mt-6" size="sm" variant="default">
         {t("action")}
       </Button>
     </div>

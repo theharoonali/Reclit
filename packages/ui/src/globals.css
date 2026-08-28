@@ -2,53 +2,66 @@
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * The token set. Every colour in both apps resolves to one of these, and
+ * nothing outside this file may name a colour — see docs/rules/FRONTEND.md.
+ *
+ * Two conventions hold here and are load-bearing:
+ *
+ * 1. **The app's black is `#1B1D20` = `216 8.5% 11.6%`.** It is the text colour
+ *    in light mode and the page surface in dark mode. Orange (`--primary`,
+ *    `--ring`) is the accent and is deliberately untouched by it.
+ * 2. **Every triple is space-separated**, so `hsl(var(--token) / 0.5)` and
+ *    Tailwind's `/alpha` modifiers are valid on all of them. Never reintroduce
+ *    the comma form — it fails silently under an alpha modifier.
+ */
 @layer base {
   :root {
-    --background: 0, 0%, 100%;
-    --foreground: 0, 0%, 7%;
+    --background: 0 0% 100%;
+    --foreground: 216 8.5% 11.6%;
     --card: 45 18% 96%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 216 8.5% 11.6%;
     --popover: 45 18% 96%;
-    --popover-foreground: 240 10% 3.9%;
+    --popover-foreground: 216 8.5% 11.6%;
     --primary: 20 90% 55%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 40, 11%, 89%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 40, 11%, 89%;
-    --accent: 40, 10%, 94%;
-    --accent-foreground: 240 5.9% 10%;
+    --secondary: 40 11% 89%;
+    --secondary-foreground: 216 8.5% 11.6%;
+    --muted: 40 11% 89%;
+    --muted-foreground: 0 0% 38%;
+    --accent: 40 10% 94%;
+    --accent-foreground: 216 8.5% 11.6%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
     --success: 142 70% 38%;
     --warning: 45 90% 42%;
-    --muted-foreground: 0, 0%, 38%;
-    --border: 45, 5%, 85%;
-    --input: 240 5.9% 90%;
+    --border: 45 5% 85%;
+    --input: 45 5% 85%;
     --ring: 20 90% 55%;
-    --radius: 0.5rem;
+    --radius: 0.625rem;
   }
 
   .dark {
-    --background: 0, 0%, 5%;
+    --background: 216 8.5% 11.6%;
     --foreground: 0 0% 98%;
-    --card: 0, 0%, 7%;
+    --card: 216 8.5% 15%;
     --card-foreground: 0 0% 98%;
-    --popover: 0, 0%, 7%;
+    --popover: 216 8.5% 15%;
     --popover-foreground: 0 0% 98%;
     --primary: 20 90% 58%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 0, 0%, 7%;
+    --secondary: 216 8% 18%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 0, 0%, 11%;
-    --accent: 0, 0%, 11%;
+    --muted: 216 8% 18%;
+    --muted-foreground: 216 6% 64%;
+    --accent: 216 8% 18%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 359, 100%, 61%;
-    --destructive-foreground: 0, 0%, 100%;
+    --destructive: 359 100% 61%;
+    --destructive-foreground: 0 0% 100%;
     --success: 142 60% 45%;
     --warning: 45 85% 52%;
-    --muted-foreground: 0, 0%, 38%;
-    --border: 0, 0%, 11%;
-    --input: 0, 0%, 11%;
+    --border: 216 7% 22%;
+    --input: 216 7% 26%;
     --ring: 20 90% 58%;
   }
 }
@@ -66,9 +79,6 @@
 /**
  * Scrollbars, app-wide. Thin, and coloured from the existing tokens so they
  * recede instead of framing every scrollable region.
- *
- * No alpha modifiers here: several tokens are stored comma-separated
- * (`0, 0%, 38%`), and `hsl(var(--token) / 0.5)` is invalid CSS for those.
  */
 @layer base {
   * {

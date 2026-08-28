@@ -2,6 +2,14 @@
 
 import { Button } from "@reclit/ui/button";
 import { Input } from "@reclit/ui/input";
+import { Label } from "@reclit/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@reclit/ui/select";
 import { type FormEvent, useId, useState } from "react";
 import { columnTypes } from "@/lib/ai-spreadsheet/cell-format";
 import type { ColumnType, SheetColumn } from "@/lib/ai-spreadsheet/types";
@@ -22,14 +30,8 @@ type AiSpreadsheetColumnFormProps = {
 };
 
 /**
- * The type picker is a native `<select>`, not a Radix one, and that is a
- * deliberate call rather than a shortcut. Radix Select portals its listbox and
- * traps focus; this grid keeps a hidden textarea focused and re-focuses it on
- * every pointerdown, and the two fight. Native has no portal, no focus trap,
- * and brings keyboard, type-ahead and screen-reader semantics for free.
- *
- * If a second feature ever needs a select, it moves to
- * `packages/ui/src/components/select.tsx` — still native, still unanimated.
+ * Name and type, for both adding and editing a column. Every control is a
+ * shared `@reclit/ui` primitive — see `docs/rules/FRONTEND.md`.
  */
 export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
   const { column, labels } = props;
@@ -48,9 +50,7 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
   return (
     <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
       <div className="flex flex-col gap-2">
-        <label className="text-label text-card-foreground" htmlFor={nameId}>
-          {labels.name}
-        </label>
+        <Label htmlFor={nameId}>{labels.name}</Label>
         <Input
           autoFocus
           id={nameId}
@@ -61,25 +61,26 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <label className="text-label text-card-foreground" htmlFor={typeId}>
-          {labels.type}
-        </label>
-        <select
-          className="h-9 w-full rounded-md border border-border bg-background px-3 text-body text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          id={typeId}
-          onChange={(event) => setType(event.target.value as ColumnType)}
+        <Label htmlFor={typeId}>{labels.type}</Label>
+        <Select
+          onValueChange={(value) => setType(value as ColumnType)}
           value={type}
         >
-          {columnTypes.map((option) => (
-            <option key={option} value={option}>
-              {labels.typeNames[option]}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id={typeId}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {columnTypes.map((option) => (
+              <SelectItem key={option} value={option}>
+                {labels.typeNames[option]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex gap-2">
-        <Button disabled={name.trim() === ""} type="submit">
+        <Button disabled={name.trim() === ""} type="submit" variant="default">
           {labels.submit}
         </Button>
         <Button onClick={props.onCancel} type="button" variant="ghost">

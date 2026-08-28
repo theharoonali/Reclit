@@ -23,7 +23,7 @@ export default function GlobalError({
               </p>
             )}
 
-            <Button onClick={() => reset()} variant="outline" className="mt-6">
+            <Button className="mt-6" onClick={() => reset()} variant="outline">
               Try again
             </Button>
           </div>

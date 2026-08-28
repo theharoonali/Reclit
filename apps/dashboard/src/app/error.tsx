@@ -10,7 +10,7 @@ export default function ErrorPage({
   reset: () => void;
 }) {
   return (
-    <div className="min-h-screen w-full flex items-center justify-center">
+    <div className="flex h-full w-full items-center justify-center">
       <div className="max-w-md w-full text-center px-4">
         <h2 className="text-heading mb-4">Something went wrong</h2>
 
@@ -20,7 +20,7 @@ export default function ErrorPage({
           </p>
         )}
 
-        <Button onClick={() => reset()} variant="outline" className="mt-6">
+        <Button className="mt-6" onClick={() => reset()} variant="outline">
           Try again
         </Button>
       </div>

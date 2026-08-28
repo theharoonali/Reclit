@@ -36,6 +36,10 @@ export default {
         body: ["0.875rem", { lineHeight: "1.375rem", fontWeight: "400" }],
         label: ["0.875rem", { lineHeight: "1.25rem", fontWeight: "500" }],
         caption: ["0.75rem", { lineHeight: "1rem", fontWeight: "400" }],
+        eyebrow: [
+          "0.75rem",
+          { lineHeight: "1rem", letterSpacing: "0.08em", fontWeight: "500" },
+        ],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -82,10 +86,16 @@ export default {
       transitionTimingFunction: {
         smooth: "cubic-bezier(0.32, 0.72, 0, 1)",
       },
+      // Every radius in the app derives from `--radius`, so one edit in
+      // `globals.css` reshapes every button, input, select and card. A
+      // component that wants a corner reaches for one of these steps —
+      // `rounded-full` and `rounded-none` are the only literal radii allowed.
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        md: "calc(var(--radius) - 2px)",
+        lg: "var(--radius)",
+        xl: "calc(var(--radius) + 4px)",
+        "2xl": "calc(var(--radius) + 8px)",
       },
     },
   },

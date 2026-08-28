@@ -31,7 +31,7 @@ consumes it. `/` is the dashboard shell. There is no auth yet.
 | --- | --- | --- |
 | `apps/api` | `@reclit/api` | NestJS API server (Bun runtime), port **4001**, tRPC mounted at `/trpc`, Prisma + Postgres |
 | `apps/dashboard` | `@reclit/dashboard` | Next.js 16 App Router web app, port **4000** |
-| `packages/ui` | `@reclit/ui` | The one shared package: `Button`, `Input`, `Spinner` + `cn` + Tailwind preset |
+| `packages/ui` | `@reclit/ui` | The one shared package: `Button`, `Input`, `Label`, `Select`, `Calendar`, `Spinner` + `focusRing` + `cn` + Tailwind preset |
 
 ## Commands
 
@@ -112,8 +112,11 @@ Filter to one workspace: `bunx turbo typecheck --filter=@reclit/api`.
 
 The `backend-feature` skill walks all of this with the code shapes.
 
-REST endpoints are plain NestJS controllers — see `apps/api/src/app.controller.ts`
-(the `/health` probe is the only one).
+REST endpoints are plain NestJS controllers. `apps/api/src/app.controller.ts`
+holds the only app-level route (`GET /health`); a feature adds its own
+`<feature>.controller.ts` when a non-tRPC consumer needs it — the spreadsheet
+mirrors its whole router over REST and adds multipart `import`, and the file
+feature is REST-only because base64 over tRPC would inflate payloads ~33%.
 
 Anything touching the database goes through a service in
 `apps/api/src/modules/<feature>/` — see [docs/rules/BACKEND.md](docs/rules/BACKEND.md).
