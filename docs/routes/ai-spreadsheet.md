@@ -24,6 +24,8 @@ page of rows, and hands the payload to the grid.
 | `…/ai-spreadsheet-date-editor.tsx` | client | UTC calendar behind a date cell |
 | `…/ai-spreadsheet-upload-editor.tsx` | client | upload panel behind file and audio cells (`POST /files`) |
 | `…/ai-spreadsheet-import-button.tsx` | client | the Import control, portalled into the app header |
+| `…/ai-spreadsheet-selection-bar.tsx` | client | the "N rows selected" + Delete control, portalled into the app header |
+| `…/use-sheet-selection.ts` | hook | the gutter's tick set, select-all, and the batch delete mutation |
 | `…/use-sheet-import.ts` | hook | uploads a CSV/XLSX, then refreshes the grid without remounting it |
 | `…/use-sheet-canvas.ts` | hook | wires sizing, painting, pointer routing and the editor |
 | `…/use-sheet-audio.ts` | hook | one shared `Audio` element and which audio cell is playing |
@@ -55,6 +57,9 @@ Feature: [spreadsheet](../features/spreadsheet.md) ·
   page.
 - On edit: `spreadsheet.setCell` (per-cell, debounced 400 ms, latest wins),
   `spreadsheet.createColumn` / `spreadsheet.updateColumn` from the column form.
+- On row delete: `spreadsheet.removeRows` with every ticked row index; on
+  success the rows are removed from the local model and repainted (the same
+  no-invalidation deviation as cell edits).
 - Audio uploads: REST `POST /files`, then the returned public URL is stored in
   the cell via `setCell`.
 - Import: REST `POST /spreadsheets/:id/import` (multipart), sent for the sheet
@@ -146,6 +151,19 @@ key gone, and blank a freshly imported cell.
   over the time of day the cell already held — the grid shows only the date, so
   zeroing the time would be data loss the user could not see. Typing a date
   still edits inline.
+- **Row selection & delete.** Every row's number gutter carries a painted
+  checkbox — a square that fills with a mini primary-coloured box when ticked —
+  and the header's corner block carries a select-all twin (partially-selected
+  paints the mini box at reduced alpha). Clicking a row's checkbox toggles that
+  row; the corner checkbox selects every stored row, or clears the selection
+  when everything stored is already ticked. While anything is ticked, an
+  "N rows selected" label and a destructive **Delete rows** button appear in
+  the app header (portalled like Import). Deleting calls
+  `spreadsheet.removeRows`: the Row and Cell records are removed from the
+  database, indexes never shift (rows go blank in place), pending debounced
+  cell writes are discarded first so none can re-create a deleted cell, and on
+  success the rows are dropped from the local model and repainted. A failure
+  shows inline beside the button with the selection kept.
 - **Import** is a button in the app header, not a bar of the sheet's own: it is
   portalled there with `<HeaderActions>`, so the grid keeps the whole content
   area and still owns the import state. Picking a `.csv`/`.xlsx` replaces the
@@ -168,10 +186,10 @@ key gone, and blank a freshly imported cell.
   what was actually written (rows are sparse, and import caps at 20,000) rather
   than by the 5,000,000-row virtual height — but a very large sheet is still one
   big payload on load. Rows past what is stored render blank, which is correct. multi-cell selection, TSV paste, column reorder or delete in the UI
-  (the API allows deleting the last column), row insert or delete in the UI,
-  undo/redo, formulas (the `formula` column type is storage-only and edits as
-  text), sorting, and filtering. Persistence **is** implemented — see "APIs
-  called".
+  (the API allows deleting the last column), row insert in the UI (row
+  *delete* is implemented — see "Row selection & delete"), undo/redo, formulas
+  (the `formula` column type is storage-only and edits as text), sorting, and
+  filtering. Persistence **is** implemented — see "APIs called".
 
 ## Reusable pieces
 

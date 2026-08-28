@@ -15,12 +15,14 @@ import { AiSpreadsheetHeader } from "./ai-spreadsheet-header";
 import { AiSpreadsheetImportButton } from "./ai-spreadsheet-import-button";
 import { AiSpreadsheetInputProxy } from "./ai-spreadsheet-input-proxy";
 import { AiSpreadsheetJsonEditor } from "./ai-spreadsheet-json-editor";
+import { AiSpreadsheetSelectionBar } from "./ai-spreadsheet-selection-bar";
 import { AiSpreadsheetSidePanel } from "./ai-spreadsheet-side-panel";
 import { AiSpreadsheetUploadEditor } from "./ai-spreadsheet-upload-editor";
 import { useSheetCanvas } from "./use-sheet-canvas";
 import { useSheetImport } from "./use-sheet-import";
 import { useSheetLabels } from "./use-sheet-labels";
 import { useSheetModel } from "./use-sheet-model";
+import { useSheetSelection } from "./use-sheet-selection";
 import { useSheetSync } from "./use-sheet-sync";
 
 type AiSpreadsheetGridProps = { payload: SheetPayload };
@@ -57,6 +59,23 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     requestPaint,
   });
   const setCell = sync.setCell;
+  const discardPending = sync.discardPending;
+
+  // Set after the canvas exists — the selection hook only calls it on delete.
+  const cancelEditRef = useRef<() => void>(() => {});
+  const onBeforeDelete = useCallback(() => {
+    // A pending debounced write to a deleted row would re-create its cell
+    // right after the delete; an active edit could do the same on commit.
+    discardPending();
+    cancelEditRef.current();
+  }, [discardPending]);
+
+  const selection = useSheetSelection({
+    modelRef,
+    requestPaint,
+    onBeforeDelete,
+    removeRowsLocal: model.removeRows,
+  });
 
   const openJson = useCallback((row: number, columnId: string) => {
     setPanel({ kind: "json", row, columnId });
@@ -88,8 +107,13 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     onOpenAudio: openAudio,
     onOpenFile: openFile,
     onOpenColumn: openColumn,
+    selectedRef: selection.selectedRef,
+    selectAllState: selection.selectAllState,
+    onToggleRow: selection.toggleRow,
+    onToggleAllRows: selection.toggleAll,
   });
   requestPaintRef.current = canvas.requestPaint;
+  cancelEditRef.current = canvas.editor.cancel;
 
   const importer = useSheetImport({
     sheetId: payload.spreadsheet.id,
@@ -180,6 +204,18 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
         labels={{ import: t("import.label"), importing: t("import.importing") }}
         onPick={importer.run}
         status={importer.status}
+      />
+
+      <AiSpreadsheetSelectionBar
+        count={selection.count}
+        labels={{
+          selected: t("selection.selected", { count: selection.count }),
+          delete: t("selection.delete"),
+          deleting: t("selection.deleting"),
+          error: t("selection.error"),
+        }}
+        onDelete={selection.deleteSelected}
+        status={selection.status}
       />
 
       <AiSpreadsheetHeader

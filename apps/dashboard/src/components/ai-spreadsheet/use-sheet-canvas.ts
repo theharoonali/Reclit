@@ -9,6 +9,7 @@ import {
   ROW_HEIGHT,
 } from "@/lib/ai-spreadsheet/geometry";
 import { paintBody } from "@/lib/ai-spreadsheet/paint-body";
+import type { CheckboxPaintState } from "@/lib/ai-spreadsheet/paint-checkbox";
 import { paintEditor } from "@/lib/ai-spreadsheet/paint-editor";
 import { paintHeader } from "@/lib/ai-spreadsheet/paint-header";
 import type {
@@ -37,6 +38,11 @@ export type SheetCanvasArgs = {
   onOpenAudio: (row: number, columnId: string) => void;
   onOpenFile: (row: number, columnId: string) => void;
   onOpenColumn: (columnId?: string) => void;
+  /** Row selection: the ticked set, its header state, and the toggles. */
+  selectedRef: React.RefObject<Set<number>>;
+  selectAllState: () => CheckboxPaintState;
+  onToggleRow: (row: number) => void;
+  onToggleAllRows: () => void;
 };
 
 /**
@@ -52,6 +58,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   const { getCell, setCell } = args;
   const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile, onOpenColumn } =
     args;
+  const { selectedRef, selectAllState, onToggleRow, onToggleAllRows } = args;
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const spacerRef = useRef<HTMLDivElement | null>(null);
@@ -139,6 +146,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         labels,
         formatters,
         playing: audio.playingRef.current,
+        selected: selectedRef.current,
       });
       paintEditor({ ...shared, editor: editorRef.current });
       positionProxy();
@@ -156,6 +164,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         labels,
         fonts: fontsRef.current,
         hover: hoverRef.current,
+        selectAll: selectAllState(),
       });
     }
   }, [
@@ -171,6 +180,8 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     modelRef,
     paletteRef,
     positionProxy,
+    selectAllState,
+    selectedRef,
     viewportRef,
   ]);
 
@@ -200,6 +211,8 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     onOpenJson,
     onOpenColumn,
     onToggleAudio: audio.toggle,
+    onToggleRow,
+    onToggleAllRows,
   });
 
   return {

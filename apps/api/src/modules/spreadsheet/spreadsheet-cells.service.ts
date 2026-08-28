@@ -16,9 +16,11 @@ import {
   shortRowId,
 } from "./spreadsheet.ids";
 import type {
+  AppendRowInput,
   CellValue,
   CreateColumnInput,
   CreateRowInput,
+  RemoveRowsInput,
   SetCellInput,
   SheetCell,
   SheetColumn,
@@ -32,6 +34,7 @@ import {
   toWireColumnType,
 } from "./spreadsheet.schema";
 import { columnSelect, spreadsheetService } from "./spreadsheet.service";
+import type { ColumnRecord } from "./spreadsheet.shape";
 import { toSheetColumn } from "./spreadsheet.shape";
 
 // Framework-free (see spreadsheet.service.ts). Grid writes live here; the
@@ -98,16 +101,24 @@ export class SpreadsheetCellsService {
     };
   }
 
-  /** Batch of cell writes on one row, validated up front, in one transaction. */
-  async updateRow({ id, rowIndex, cells }: UpdateRowInput): Promise<SheetRow> {
-    await spreadsheetService.byId(id);
-    const columns = await spreadsheetService.columnsOf(id);
+  /** Throws unless every entry targets an existing column with a fitting value. */
+  private assertCellsFit(
+    columns: ColumnRecord[],
+    cells: { columnIndex: number; value: CellValue }[],
+  ): void {
     const byIndex = new Map(columns.map((column) => [column.index, column]));
     for (const entry of cells) {
       const column = byIndex.get(entry.columnIndex);
       if (!column) throw new SpreadsheetColumnNotFoundError(entry.columnIndex);
       assertValueFits(entry.value, column.type);
     }
+  }
+
+  /** Batch of cell writes on one row, validated up front, in one transaction. */
+  async updateRow({ id, rowIndex, cells }: UpdateRowInput): Promise<SheetRow> {
+    await spreadsheetService.byId(id);
+    const columns = await spreadsheetService.columnsOf(id);
+    this.assertCellsFit(columns, cells);
     const rid = rowId(id, rowIndex);
     await prisma.$transaction([
       prisma.row.upsert({
@@ -133,6 +144,57 @@ export class SpreadsheetCellsService {
       }),
     ]);
     return spreadsheetService.row(id, rowIndex);
+  }
+
+  /**
+   * Appends a row at one past the highest stored index, writing its cells in
+   * the same transaction. The index race with concurrent appends is retried
+   * internally; `value: null` entries write no cell (a row is sparse).
+   */
+  async appendRow({ id, cells }: AppendRowInput): Promise<SheetRow> {
+    await spreadsheetService.byId(id);
+    const columns = await spreadsheetService.columnsOf(id);
+    this.assertCellsFit(columns, cells);
+    const writes = cells.filter(
+      (
+        entry,
+      ): entry is { columnIndex: number; value: Exclude<CellValue, null> } =>
+        entry.value !== null,
+    );
+    const MAX_ATTEMPTS = 3;
+    let target = 0;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      target =
+        ((
+          await prisma.row.aggregate({
+            where: { spreadsheetId: id },
+            _max: { index: true },
+          })
+        )._max.index ?? -1) + 1;
+      try {
+        await prisma.$transaction([
+          prisma.row.create({
+            data: { id: rowId(id, target), spreadsheetId: id, index: target },
+          }),
+          ...writes.map(({ columnIndex, value }) =>
+            prisma.cell.create({
+              data: {
+                id: cellId(id, target, columnIndex),
+                spreadsheetId: id,
+                rowIndex: target,
+                columnIndex,
+                value: toJsonInput(value),
+              },
+            }),
+          ),
+        ]);
+        return spreadsheetService.row(id, target);
+      } catch (error) {
+        if (isUniqueViolation(error)) continue;
+        throw error;
+      }
+    }
+    throw new SpreadsheetRowExistsError(target);
   }
 
   /** `index` defaults to one past the highest stored row. */
@@ -208,6 +270,28 @@ export class SpreadsheetCellsService {
       select: columnSelect,
     });
     return toSheetColumn(record);
+  }
+
+  /**
+   * `removeRow` for a batch: clears every listed row and its cells in one
+   * transaction. Same semantics — absolute positions, nothing shifts, and an
+   * index that holds no stored row is a no-op rather than an error.
+   */
+  async removeRows({
+    id,
+    rowIndexes,
+  }: RemoveRowsInput): Promise<{ ids: string[] }> {
+    await spreadsheetService.byId(id);
+    const unique = [...new Set(rowIndexes)];
+    await prisma.$transaction([
+      prisma.cell.deleteMany({
+        where: { spreadsheetId: id, rowIndex: { in: unique } },
+      }),
+      prisma.row.deleteMany({
+        where: { spreadsheetId: id, index: { in: unique } },
+      }),
+    ]);
+    return { ids: unique.map(shortRowId) };
   }
 
   /**

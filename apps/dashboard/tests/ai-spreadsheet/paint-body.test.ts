@@ -76,6 +76,7 @@ function ringFor(editor: EditorState, dpr: number) {
     labels: TEST_LABELS,
     formatters: FORMATTERS,
     fonts: FONTS,
+    selected: new Set<number>(),
   });
   const stroke = calls.find(
     (call) => call.op === "strokeRect" && call.style === "ring",

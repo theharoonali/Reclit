@@ -9,7 +9,8 @@
       "leave": "Leave",
       "timesheet": "Timesheet",
       "resume": "My Resume",
-      "aiSpreadsheet": "AI Spreadsheet"
+      "aiSpreadsheet": "AI Spreadsheet",
+      "populate": "Populate"
     }
   },
   "sidebar": {
@@ -110,6 +111,12 @@
       "clear": "Clear file",
       "empty": "No file yet."
     },
+    "selection": {
+      "selected": "{count, plural, one {# row selected} other {# rows selected}}",
+      "delete": "Delete rows",
+      "deleting": "Deleting...",
+      "error": "Deleting failed. Try again."
+    },
     "import": {
       "label": "Import",
       "importing": "Importing...",
@@ -124,5 +131,51 @@
       "title": "No spreadsheet yet",
       "description": "Create one via the API or run the seed: bun run --filter=@reclit/api db:seed"
     }
+  },
+  "populate": {
+    "title": "Populate",
+    "description": "Collect spreadsheet rows from a public form.",
+    "form": {
+      "title": "Public form",
+      "description": "Anyone with this link can submit a new row to the spreadsheet.",
+      "copy": "Copy link",
+      "copied": "Copied",
+      "open": "Open form"
+    },
+    "api": {
+      "title": "API",
+      "comingSoon": "Coming soon"
+    }
+  },
+  "publicForm": {
+    "title": "Form",
+    "description": "Fill in the fields below to add a new entry.",
+    "submit": "Submit",
+    "submitting": "Submitting...",
+    "atLeastOne": "Fill in at least one field before submitting.",
+    "submitError": "The submission failed. Try again.",
+    "loading": "Loading form...",
+    "loadError": "The form could not be loaded.",
+    "notFound": "This form does not exist.",
+    "empty": "This form has no fields yet.",
+    "success": {
+      "title": "Response submitted",
+      "description": "Your entry was added.",
+      "again": "Submit another response"
+    },
+    "errors": {
+      "number": "Enter a valid number.",
+      "email": "Enter a valid email address.",
+      "url": "Enter a valid URL starting with http:// or https://.",
+      "json": "Enter a valid JSON object, e.g. {\"key\": \"value\"}.",
+      "upload": "The upload failed. Try again."
+    },
+    "file": {
+      "choose": "Choose file",
+      "chooseAudio": "Choose audio file",
+      "replace": "Replace file",
+      "remove": "Remove file"
+    },
+    "poweredBy": "Powered by {name}"
   }
 }

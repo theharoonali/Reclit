@@ -10,8 +10,11 @@ import {
   cellRect,
   containsPoint,
   GUTTER_WIDTH,
+  gutterCheckboxRect,
+  headerCheckboxRect,
   hitTest,
   hitTestHeader,
+  inflateRect,
 } from "@/lib/ai-spreadsheet/geometry";
 import { AUDIO_LEADING, capsuleRect } from "@/lib/ai-spreadsheet/paint-cell";
 import type {
@@ -38,7 +41,12 @@ export type SheetPointerArgs = {
   onOpenJson: (row: number, columnId: string) => void;
   onOpenColumn: (columnId?: string) => void;
   onToggleAudio: (row: number, columnId: string, url: string) => void;
+  onToggleRow: (row: number) => void;
+  onToggleAllRows: () => void;
 };
+
+/** The extra slack around a 14px checkbox that makes it comfortably clickable. */
+const CHECKBOX_HIT_PAD = 5;
 
 /**
  * Turns pointer events on the two canvases into sheet actions.
@@ -51,6 +59,7 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
   const { modelRef, viewportRef, ctxRef, fontsRef, hoverRef } = args;
   const { labels, editor, getCell, requestPaint } = args;
   const { onOpenJson, onOpenColumn, onToggleAudio } = args;
+  const { onToggleRow, onToggleAllRows } = args;
 
   /** Canvas-relative CSS pixels. DPR never enters this — see `geometry`. */
   const localPoint = (event: MouseEvent<HTMLElement>) => {
@@ -118,6 +127,15 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     // have given us, which is why the editor re-focuses the proxy explicitly.
     event.preventDefault();
     const hit = hitTest(x, y, viewportRef.current);
+    if (hit.kind === "gutter") {
+      // The checkbox rect is gutter-x / content-y; the pointer is canvas
+      // space, so only `y` needs the scroll added back.
+      const zone = inflateRect(gutterCheckboxRect(hit.row), CHECKBOX_HIT_PAD);
+      if (containsPoint(zone, x, y + viewportRef.current.scrollY)) {
+        onToggleRow(hit.row);
+        return;
+      }
+    }
     if (hit.kind !== "cell") {
       editor.focusProxy();
       return;
@@ -155,7 +173,15 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
   };
 
   const handleHeaderPointerDown = (event: MouseEvent<HTMLDivElement>) => {
-    const hit = hitTestHeader(localPoint(event).x, viewportRef.current);
+    const { x, y } = localPoint(event);
+    // The corner block is left of every column, so the select-all checkbox is
+    // checked before the column hit-test (which starts at GUTTER_WIDTH).
+    const corner = inflateRect(headerCheckboxRect(), CHECKBOX_HIT_PAD);
+    if (containsPoint(corner, x, y)) {
+      onToggleAllRows();
+      return;
+    }
+    const hit = hitTestHeader(x, viewportRef.current);
     if (hit.kind === "plus") onOpenColumn();
     else if (hit.kind === "header") {
       onOpenColumn(modelRef.current?.columns[hit.col]?.id);

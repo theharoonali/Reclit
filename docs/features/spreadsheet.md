@@ -45,7 +45,7 @@ Cell · Relations: all cascade from Spreadsheet · Migrations:
 | `apps/api/src/modules/spreadsheet/spreadsheet-import.infer.ts` | schema | grid → columns with inferred types and coerced values |
 | `apps/api/src/modules/spreadsheet/spreadsheet-import.service.ts` | service | parses an upload and replaces the whole grid in one transaction |
 | `apps/api/src/modules/spreadsheet/spreadsheet.controller.ts` | controller | the predictable REST paths |
-| `apps/api/src/trpc/routers/spreadsheet.ts` | router | the 15 procedures |
+| `apps/api/src/trpc/routers/spreadsheet.ts` | router | the 17 procedures |
 | `apps/api/prisma/seed.ts` | — | seeds the sample "Customers" sheet via the services |
 
 ## Procedures
@@ -63,7 +63,9 @@ Cell · Relations: all cascade from Spreadsheet · Migrations:
 | `spreadsheet.setCell` | mutation | `SpreadsheetCellsService.setCell` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.updateRow` | mutation | `SpreadsheetCellsService.updateRow` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.createRow` | mutation | `SpreadsheetCellsService.createRow` | NOT_FOUND, CONFLICT |
+| `spreadsheet.appendRow` | mutation | `SpreadsheetCellsService.appendRow` | NOT_FOUND, BAD_REQUEST, CONFLICT |
 | `spreadsheet.removeRow` | mutation | `SpreadsheetCellsService.removeRow` | NOT_FOUND |
+| `spreadsheet.removeRows` | mutation | `SpreadsheetCellsService.removeRows` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.createColumn` | mutation | `SpreadsheetCellsService.createColumn` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.updateColumn` | mutation | `SpreadsheetCellsService.updateColumn` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.removeColumn` | mutation | `SpreadsheetCellsService.removeColumn` | NOT_FOUND, CONFLICT |
@@ -84,6 +86,14 @@ pull the parsers into `src/trpc/**`, which the dashboard transpiles.
 - `setCell` validates the value against the column type in the service
   (`cellValueMatchesType`) and upserts row + cell by pk in one transaction;
   `value: null` deletes the cell.
+- `appendRow` writes a new row at one past the highest stored index, row +
+  cells in one transaction. The index race with concurrent appends is retried
+  internally (CONFLICT only after retries are exhausted); `value: null` entries
+  write no cell. Its REST twin is `POST /spreadsheets/:id/rows/append`.
+- `removeRows` is `removeRow` for a batch (1..10,000 indexes): one transaction,
+  duplicates collapsed, never-stored indexes are no-ops, nothing shifts. Its
+  REST twin is `POST /spreadsheets/:id/rows/remove` (200 — a delete creates
+  nothing).
 - `updateColumn` changing `type` does not convert or revalidate stored cells.
 - `FORMULA` is storage-only; nothing evaluates formulas.
 - `rows` pages *stored* rows (`startRow`/`limit` capped at 500, take limit+1 →
@@ -119,4 +129,7 @@ pull the parsers into `src/trpc/**`, which the dashboard transpiles.
 ## Used by
 
 - `/ai-spreadsheet` ([route doc](../routes/ai-spreadsheet.md)) — `list`, `rows`
-  on load; `setCell`, `createColumn`, `updateColumn` from the grid.
+  on load; `setCell`, `createColumn`, `updateColumn`, `removeRows` from the
+  grid.
+- `/form/[spreadsheetId]` ([route doc](../routes/form.md)) — `rows` (limit 1,
+  for name + columns) on load; `appendRow` on submit.

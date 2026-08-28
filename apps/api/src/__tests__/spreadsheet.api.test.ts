@@ -45,7 +45,9 @@
  * | spreadsheet.setCell      | mutation | { id; rowIndex; columnIndex; value }            | SheetCell         | NOT_FOUND, BAD_REQUEST (type) |
  * | spreadsheet.updateRow    | mutation | { id; rowIndex; cells: {columnIndex; value}[] } | SheetRow          | NOT_FOUND, BAD_REQUEST (type) |
  * | spreadsheet.createRow    | mutation | { id; index?: >=0 } (default: max stored + 1)   | SheetRow          | NOT_FOUND, CONFLICT (exists)  |
+ * | spreadsheet.appendRow    | mutation | { id; cells: {columnIndex; value}[] (min 1) }   | SheetRow          | NOT_FOUND, BAD_REQUEST (type), CONFLICT (retries exhausted) |
  * | spreadsheet.removeRow    | mutation | { id; rowIndex }                                | { id: "row.N" }   | NOT_FOUND (sheet)             |
+ * | spreadsheet.removeRows   | mutation | { id; rowIndexes: number[] (1..10_000) }        | { ids: string[] } | NOT_FOUND (sheet), BAD_REQUEST|
  * | spreadsheet.createColumn | mutation | { id; name; type? (default "string") }          | SheetColumn       | NOT_FOUND, BAD_REQUEST        |
  * | spreadsheet.updateColumn | mutation | { id; columnIndex; name?; type? }               | SheetColumn       | NOT_FOUND, BAD_REQUEST        |
  * | spreadsheet.removeColumn | mutation | { id; columnIndex }                             | { id: "col.N" }   | NOT_FOUND, CONFLICT (not last)|
@@ -57,6 +59,8 @@
  * | DELETE /spreadsheets/:id                           | 200 | remove       |
  * | GET    /spreadsheets/:id/rows?startRow&limit       | 200 | rows         |
  * | POST   /spreadsheets/:id/rows                      | 201 | createRow    |
+ * | POST   /spreadsheets/:id/rows/append               | 201 | appendRow    |
+ * | POST   /spreadsheets/:id/rows/remove               | 200 | removeRows   |
  * | GET    /spreadsheets/:id/rows/:r                   | 200 | row          |
  * | PATCH  /spreadsheets/:id/rows/:r                   | 200 | updateRow    |
  * | DELETE /spreadsheets/:id/rows/:r                   | 200 | removeRow    |
@@ -84,6 +88,13 @@
  * - Columns are append-only (index = current count) and only the last column
  *   can be deleted (CONFLICT otherwise) — index-derived ids never renumber.
  * - setCell(value: null) deletes the cell record; `value` is never stored null.
+ * - appendRow writes at one past the highest stored row index, row + cells in
+ *   one transaction; the index race with concurrent appends is retried
+ *   internally. `value: null` entries write no cell.
+ * - removeRows is removeRow for a batch: one transaction, absolute positions,
+ *   nothing shifts, indexes without a stored row are no-ops. Duplicates are
+ *   collapsed; `ids` lists the distinct short row ids acted on. Returns 200
+ *   over REST — a delete creates nothing.
  * - Cell values are validated against the column type: number→number,
  *   boolean→boolean, date→parseable ISO string, json→plain object,
  *   audio/file/url→http(s) URL string, email→email string,
@@ -665,6 +676,96 @@ describe.skipIf(!dbUp)("spreadsheet.createRow", () => {
   });
 });
 
+describe.skipIf(!dbUp)("spreadsheet.appendRow", () => {
+  it("appends at index 0 on a sheet with no stored rows", async () => {
+    const sheet = await makeTypedSheet();
+    const row = await caller.spreadsheet.appendRow({
+      id: sheet.id,
+      cells: [
+        { columnIndex: 1, value: 7 },
+        { columnIndex: 0, value: "first" },
+      ],
+    });
+    expect(row).toEqual({
+      id: "row.0",
+      index: 0,
+      columns: [
+        { id: "col.0", name: "text", value: "first" },
+        { id: "col.1", name: "num", value: 7 },
+      ],
+    });
+  });
+
+  it("appends past the highest stored row, not the row count", async () => {
+    const sheet = await makeTypedSheet();
+    await caller.spreadsheet.setCell({
+      id: sheet.id,
+      rowIndex: 4,
+      columnIndex: 0,
+      value: "sparse",
+    });
+    const row = await caller.spreadsheet.appendRow({
+      id: sheet.id,
+      cells: [{ columnIndex: 0, value: "next" }],
+    });
+    expect(row.index).toBe(5);
+  });
+
+  it("writes no cell for a null entry", async () => {
+    const sheet = await makeTypedSheet();
+    const row = await caller.spreadsheet.appendRow({
+      id: sheet.id,
+      cells: [
+        { columnIndex: 0, value: "kept" },
+        { columnIndex: 1, value: null },
+      ],
+    });
+    expect(row.columns).toEqual([{ id: "col.0", name: "text", value: "kept" }]);
+  });
+
+  it("rejects the whole batch on a type mismatch, creating no row", async () => {
+    const sheet = await makeTypedSheet();
+    await expectTRPCError(
+      caller.spreadsheet.appendRow({
+        id: sheet.id,
+        cells: [
+          { columnIndex: 0, value: "fine" },
+          { columnIndex: 1, value: "not a number" },
+        ],
+      }),
+      "BAD_REQUEST",
+    );
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(payload.rows).toEqual([]); // nothing was written
+  });
+
+  it("returns NOT_FOUND for an unknown column and an unknown sheet", async () => {
+    const sheet = await makeTypedSheet();
+    await expectTRPCError(
+      caller.spreadsheet.appendRow({
+        id: sheet.id,
+        cells: [{ columnIndex: 9, value: "x" }],
+      }),
+      "NOT_FOUND",
+    );
+    await expectTRPCError(
+      caller.spreadsheet.appendRow({
+        id: "does-not-exist",
+        cells: [{ columnIndex: 0, value: "x" }],
+      }),
+      "NOT_FOUND",
+    );
+  });
+
+  it("rejects an empty cells array", async () => {
+    const sheet = await makeTypedSheet();
+    await expectTRPCError(
+      caller.spreadsheet.appendRow({ id: sheet.id, cells: [] }),
+      "BAD_REQUEST",
+    );
+  });
+});
+
 describe.skipIf(!dbUp)("spreadsheet.removeRow", () => {
   it("clears the row without shifting later rows", async () => {
     const sheet = await makeTypedSheet();
@@ -691,6 +792,54 @@ describe.skipIf(!dbUp)("spreadsheet.removeRow", () => {
     expect(kept.columns).toEqual([
       { id: "col.0", name: "text", value: "kept" },
     ]);
+  });
+});
+
+describe.skipIf(!dbUp)("spreadsheet.removeRows", () => {
+  it("clears the listed rows and leaves the rest alone", async () => {
+    const sheet = await makeTypedSheet();
+    for (const rowIndex of [0, 1, 2]) {
+      await caller.spreadsheet.setCell({
+        id: sheet.id,
+        rowIndex,
+        columnIndex: 0,
+        value: `row ${rowIndex}`,
+      });
+    }
+    const removed = await caller.spreadsheet.removeRows({
+      id: sheet.id,
+      rowIndexes: [0, 2],
+    });
+    expect(removed).toEqual({ ids: ["row.0", "row.2"] });
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(payload.rows).toEqual([
+      {
+        id: "row.1",
+        index: 1,
+        columns: [{ id: "col.0", name: "text", value: "row 1" }],
+      },
+    ]);
+  });
+
+  it("collapses duplicates and no-ops on never-stored indexes", async () => {
+    const sheet = await makeTypedSheet();
+    const removed = await caller.spreadsheet.removeRows({
+      id: sheet.id,
+      rowIndexes: [7, 7, 9],
+    });
+    expect(removed).toEqual({ ids: ["row.7", "row.9"] });
+  });
+
+  it("rejects an empty list and a missing sheet", async () => {
+    const sheet = await makeSheet("remove rows guards");
+    await expectTRPCError(
+      caller.spreadsheet.removeRows({ id: sheet.id, rowIndexes: [] }),
+      "BAD_REQUEST",
+    );
+    await expectTRPCError(
+      caller.spreadsheet.removeRows({ id: "does-not-exist", rowIndexes: [0] }),
+      "NOT_FOUND",
+    );
   });
 });
 
@@ -806,6 +955,28 @@ describe.skipIf(!dbUp)("REST surface", () => {
       json("POST", {}),
     );
     expect(postRow.status).toBe(201);
+
+    // POST /rows/append — the row lands past the highest stored index
+    const appendRes = await fetch(
+      `${baseUrl}/spreadsheets/${sheet.id}/rows/append`,
+      json("POST", { cells: [{ columnIndex: 0, value: 31 }] }),
+    );
+    expect(appendRes.status).toBe(201);
+    const appended = (await appendRes.json()) as { index: number };
+    expect(appended).toMatchObject({
+      columns: [{ id: "col.0", value: 31 }],
+    });
+
+    // POST /rows/remove — 200, batch delete of the row just appended
+    const removeRes = await fetch(
+      `${baseUrl}/spreadsheets/${sheet.id}/rows/remove`,
+      json("POST", { rowIndexes: [appended.index] }),
+    );
+    expect(removeRes.status).toBe(200);
+    expect(await removeRes.json()).toEqual({
+      ids: [`row.${appended.index}`],
+    });
+
     const delRow = await fetch(`${baseUrl}/spreadsheets/${sheet.id}/rows/0`, {
       method: "DELETE",
     });

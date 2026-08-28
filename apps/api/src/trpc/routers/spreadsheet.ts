@@ -1,10 +1,12 @@
 import { idInput } from "../../common/schema";
 import {
+  appendRowInput,
   cellRefInput,
   columnRefInput,
   createColumnInput,
   createRowInput,
   createSpreadsheetInput,
+  removeRowsInput,
   rowRefInput,
   setCellInput,
   sheetRowsInput,
@@ -82,12 +84,24 @@ export const spreadsheetRouter = createTRPCRouter({
       spreadsheetCellsService.createRow(input).catch(mapDomainError),
     ),
 
+  appendRow: publicProcedure
+    .input(appendRowInput)
+    .mutation(({ input }) =>
+      spreadsheetCellsService.appendRow(input).catch(mapDomainError),
+    ),
+
   removeRow: publicProcedure
     .input(rowRefInput)
     .mutation(({ input }) =>
       spreadsheetCellsService
         .removeRow(input.id, input.rowIndex)
         .catch(mapDomainError),
+    ),
+
+  removeRows: publicProcedure
+    .input(removeRowsInput)
+    .mutation(({ input }) =>
+      spreadsheetCellsService.removeRows(input).catch(mapDomainError),
     ),
 
   createColumn: publicProcedure

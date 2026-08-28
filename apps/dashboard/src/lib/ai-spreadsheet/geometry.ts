@@ -9,11 +9,20 @@ import type { SheetHit, Viewport } from "./types";
 export const ROW_HEIGHT = 32;
 export const COL_WIDTH = 160;
 export const HEADER_HEIGHT = 36;
-/** Just wide enough for a 7-digit row number at `GUTTER_FONT_SIZE`. */
-export const GUTTER_WIDTH = 48;
+/**
+ * A selection checkbox plus a row number at `GUTTER_FONT_SIZE`, kept snug so
+ * the number sits close to the checkbox. Comfortable through 6 digits; a
+ * 7-digit number (row 1,000,000+) reaches the checkbox's edge.
+ */
+export const GUTTER_WIDTH = 56;
 export const CELL_PAD_X = 10;
 /** The gutter is tight, so its numbers get their own smaller inset. */
 export const GUTTER_PAD_X = 6;
+/** The row-selection checkbox parked at the left edge of the gutter. */
+export const CHECKBOX_SIZE = 14;
+export const CHECKBOX_PAD_X = 6;
+/** The checked state's mini fill box, inset from the outline on every side. */
+export const CHECKBOX_INNER_INSET = 4;
 /** The "+ column" affordance, parked after the last column in the header. */
 export const PLUS_COLUMN_WIDTH = 44;
 export const OVERSCAN = 2;
@@ -128,6 +137,34 @@ export const plusButtonRect = (columnCount: number): Rect => ({
   y: 0,
   w: PLUS_COLUMN_WIDTH,
   h: HEADER_HEIGHT,
+});
+
+/**
+ * A row's selection checkbox. `x` is gutter space (the gutter never scrolls
+ * horizontally); `y` is content space — subtract `scrollY` to paint, add it
+ * to hit-test.
+ */
+export const gutterCheckboxRect = (row: number): Rect => ({
+  x: CHECKBOX_PAD_X,
+  y: row * ROW_HEIGHT + (ROW_HEIGHT - CHECKBOX_SIZE) / 2,
+  w: CHECKBOX_SIZE,
+  h: CHECKBOX_SIZE,
+});
+
+/** The select-all checkbox in the header's corner block. Canvas space. */
+export const headerCheckboxRect = (): Rect => ({
+  x: CHECKBOX_PAD_X,
+  y: (HEADER_HEIGHT - CHECKBOX_SIZE) / 2,
+  w: CHECKBOX_SIZE,
+  h: CHECKBOX_SIZE,
+});
+
+/** The rect grown by `pad` on every side — a finger-friendlier hit zone. */
+export const inflateRect = (rect: Rect, pad: number): Rect => ({
+  x: rect.x - pad,
+  y: rect.y - pad,
+  w: rect.w + pad * 2,
+  h: rect.h + pad * 2,
 });
 
 export const containsPoint = (rect: Rect, x: number, y: number) =>

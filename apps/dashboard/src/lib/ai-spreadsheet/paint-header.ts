@@ -3,9 +3,11 @@ import {
   COL_WIDTH,
   GUTTER_WIDTH,
   HEADER_HEIGHT,
+  headerCheckboxRect,
   plusButtonRect,
   visibleCols,
 } from "./geometry";
+import { type CheckboxPaintState, paintCheckbox } from "./paint-checkbox";
 import { measureWidth, truncateToWidth } from "./text-metrics";
 import { withAlpha } from "./theme-colors";
 import type {
@@ -26,6 +28,8 @@ export type HeaderPaintArgs = {
   labels: SheetLabels;
   fonts: SheetFonts;
   hover: SheetHit;
+  /** Select-all state: none, some stored rows selected, or all of them. */
+  selectAll: CheckboxPaintState;
   /**
    * The header canvas spans the side panel too, so it is wider than the body.
    * The strip is filled to this width; columns are clipped to `viewport.width`
@@ -114,6 +118,7 @@ export function paintHeader(args: HeaderPaintArgs) {
   // borders below are drawn last so no column separator overlaps them.
   ctx.fillStyle = palette.header;
   ctx.fillRect(0, 0, GUTTER_WIDTH, HEADER_HEIGHT);
+  paintCheckbox(ctx, headerCheckboxRect(), args.selectAll, palette, dpr);
   ctx.fillStyle = palette.gridline;
   ctx.fillRect(GUTTER_WIDTH - lineW, 0, lineW, HEADER_HEIGHT);
   ctx.fillRect(0, HEADER_HEIGHT - lineW, strip, lineW);

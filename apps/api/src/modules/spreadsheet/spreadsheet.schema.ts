@@ -181,6 +181,18 @@ export const createRowInput = idInput.extend({
   index: gridIndex.optional(),
 });
 
+/** Appends past the highest stored row; `null` entries write no cell. */
+export const appendRowInput = idInput.extend({
+  cells: z
+    .array(z.object({ columnIndex: gridIndex, value: cellValueSchema }))
+    .min(1),
+});
+
+/** Batch row delete. Idempotent per index, like `removeRow`. */
+export const removeRowsInput = idInput.extend({
+  rowIndexes: z.array(gridIndex).min(1).max(10_000),
+});
+
 export const createColumnInput = idInput.extend({
   name,
   type: columnTypeWire.default("string"),
@@ -195,6 +207,8 @@ export type SetCellInput = z.infer<typeof setCellInput>;
 export type UpdateRowInput = z.infer<typeof updateRowInput>;
 export type UpdateColumnInput = z.infer<typeof updateColumnInput>;
 export type CreateRowInput = z.infer<typeof createRowInput>;
+export type AppendRowInput = z.infer<typeof appendRowInput>;
+export type RemoveRowsInput = z.infer<typeof removeRowsInput>;
 export type CreateColumnInput = z.infer<typeof createColumnInput>;
 
 /* ----------------------------------------------------------------- import */

@@ -74,6 +74,7 @@ export type SheetModelApi = {
   setCell: (row: number, columnId: string, value: CellValue) => void;
   addColumn: (name: string, type: ColumnType) => void;
   updateColumn: (id: string, name: string, type: ColumnType) => void;
+  removeRows: (rows: ReadonlySet<number>) => void;
 };
 
 export function useSheetModel(payload: SheetPayload): SheetModelApi {
@@ -132,6 +133,18 @@ export function useSheetModel(payload: SheetPayload): SheetModelApi {
     [],
   );
 
+  // Deleted rows go blank in place (absolute positions, nothing shifts), so
+  // like a cell edit this repaints rather than re-renders.
+  const removeRows = useCallback((rows: ReadonlySet<number>) => {
+    const current = modelRef.current;
+    if (!current) return;
+    for (const key of [...current.cells.keys()]) {
+      const row = Number.parseInt(key, 10);
+      if (rows.has(row)) current.cells.delete(key);
+    }
+    for (const row of rows) current.rowIds.delete(row);
+  }, []);
+
   return {
     modelRef: modelRef as React.RefObject<SheetModel>,
     columnsVersion,
@@ -139,5 +152,6 @@ export function useSheetModel(payload: SheetPayload): SheetModelApi {
     setCell,
     addColumn,
     updateColumn,
+    removeRows,
   };
 }

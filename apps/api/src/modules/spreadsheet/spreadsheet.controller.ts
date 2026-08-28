@@ -13,11 +13,13 @@ import {
 import type { MulterFile } from "../../common/multipart";
 import { requireFile, UploadFile } from "../../common/upload";
 import {
+  appendRowInput,
   cellRefInput,
   columnRefInput,
   createColumnInput,
   createRowInput,
   createSpreadsheetInput,
+  removeRowsInput,
   rowRefInput,
   setCellInput,
   sheetRowsInput,
@@ -81,6 +83,20 @@ export class SpreadsheetController {
   createRow(@Param("id") id: string, @Body() body: unknown) {
     const input = createRowInput.parse({ ...(body as object), id });
     return spreadsheetCellsService.createRow(input);
+  }
+
+  @Post(":id/rows/append")
+  appendRow(@Param("id") id: string, @Body() body: unknown) {
+    const input = appendRowInput.parse({ ...(body as object), id });
+    return spreadsheetCellsService.appendRow(input);
+  }
+
+  /** 200, not 201: a batch delete creates nothing. */
+  @Post(":id/rows/remove")
+  @HttpCode(200)
+  removeRows(@Param("id") id: string, @Body() body: unknown) {
+    const input = removeRowsInput.parse({ ...(body as object), id });
+    return spreadsheetCellsService.removeRows(input);
   }
 
   @Get(":id/rows/:rowIndex")

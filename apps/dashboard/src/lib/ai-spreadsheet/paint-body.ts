@@ -3,11 +3,13 @@ import {
   cellRect,
   GUTTER_PAD_X,
   GUTTER_WIDTH,
+  gutterCheckboxRect,
   ROW_HEIGHT,
   visibleCols,
   visibleRows,
 } from "./geometry";
 import { paintCell } from "./paint-cell";
+import { paintCheckbox } from "./paint-checkbox";
 import type {
   EditorState,
   SheetFonts,
@@ -47,6 +49,8 @@ export type BodyPaintArgs = {
   fonts: SheetFonts;
   /** The audio cell currently sounding, if any. */
   playing?: { row: number; columnId: string } | null;
+  /** Row indexes ticked for deletion — drives the gutter checkboxes. */
+  selected: ReadonlySet<number>;
 };
 
 /**
@@ -139,6 +143,15 @@ export function paintBody(args: BodyPaintArgs) {
     ctx.fillStyle =
       active && active.row === row ? palette.text : palette.mutedText;
     ctx.fillText(String(row + 1), GUTTER_WIDTH - GUTTER_PAD_X, y);
+
+    const box = gutterCheckboxRect(row);
+    paintCheckbox(
+      ctx,
+      { ...box, y: box.y - scrollY },
+      args.selected.has(row) ? "all" : "none",
+      palette,
+      dpr,
+    );
   }
   ctx.textAlign = "left";
 }
