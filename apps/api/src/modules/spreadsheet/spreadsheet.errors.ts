@@ -33,6 +33,15 @@ export class SpreadsheetCellTypeMismatchError extends DomainError {
   }
 }
 
+export class SpreadsheetPromptWithoutNodeError extends DomainError {
+  readonly kind = "bad_request";
+  readonly code = "SPREADSHEET_PROMPT_WITHOUT_NODE";
+  constructor() {
+    super("A prompt requires a node; the column has none");
+    this.name = "SpreadsheetPromptWithoutNodeError";
+  }
+}
+
 export class SpreadsheetRowExistsError extends DomainError {
   readonly kind = "conflict";
   readonly code = "SPREADSHEET_ROW_EXISTS";

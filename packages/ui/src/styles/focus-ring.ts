@@ -20,3 +20,15 @@ export const focusRing = [
   "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
   "aria-invalid:border-destructive aria-invalid:ring-destructive/20",
 ].join(" ");
+
+/**
+ * The field variant: bordered text controls (`Input`, `Textarea`,
+ * `SelectTrigger`) show focus by border colour alone — no halo. Buttons and
+ * links keep `focusRing`; most have no border, so a border-only recipe would
+ * leave them invisible to keyboard users.
+ */
+export const focusField = [
+  "outline-none",
+  "focus-visible:border-ring",
+  "aria-invalid:border-destructive",
+].join(" ");

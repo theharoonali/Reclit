@@ -2,6 +2,7 @@ import type {
   CellValue,
   ColumnType,
   JsonObject,
+  NodeType,
   SheetFormatters,
   SheetLabels,
 } from "./types";
@@ -28,6 +29,14 @@ const ALL_COLUMN_TYPES: ColumnType[] = [
 export const columnTypes: ColumnType[] = ALL_COLUMN_TYPES.filter(
   (type) => type !== "formula",
 );
+
+/** The nodes a user may pick in the column form, in the API's order. */
+export const nodeTypes: NodeType[] = ["ai", "email"];
+
+/** Unknown server nodes degrade to a plain column rather than throwing. */
+export function toNodeType(raw: string | null): NodeType | null {
+  return nodeTypes.find((node) => node === raw) ?? null;
+}
 
 // Character-for-character the API's rule (`spreadsheet.schema.ts`); the two
 // cannot be shared, since `apps/api` exports only `./trpc/routers/_app`.

@@ -12,6 +12,9 @@ import type { SheetPayload } from "@/lib/ai-spreadsheet/types";
  * `row.2` carries one explicit `value: null` to cover the normaliser's
  * defensive skip (the real API never sends one).
  */
+/** No sample column carries a node; node cases live in the tests. */
+const plain = { node: null, prompt: null };
+
 export const SAMPLE_PAYLOAD: SheetPayload = {
   spreadsheet: {
     id: "sheet_123",
@@ -21,14 +24,14 @@ export const SAMPLE_PAYLOAD: SheetPayload = {
   },
 
   columns: [
-    { id: "col.0", index: 0, name: "Name", type: "string" },
-    { id: "col.1", index: 1, name: "Email", type: "email" },
-    { id: "col.2", index: 2, name: "Age", type: "number" },
-    { id: "col.3", index: 3, name: "Joined", type: "date" },
-    { id: "col.4", index: 4, name: "Metadata", type: "json" },
-    { id: "col.5", index: 5, name: "Active", type: "boolean" },
-    { id: "col.6", index: 6, name: "Resume", type: "file" },
-    { id: "col.7", index: 7, name: "Intro", type: "audio" },
+    { id: "col.0", index: 0, name: "Name", type: "string", ...plain },
+    { id: "col.1", index: 1, name: "Email", type: "email", ...plain },
+    { id: "col.2", index: 2, name: "Age", type: "number", ...plain },
+    { id: "col.3", index: 3, name: "Joined", type: "date", ...plain },
+    { id: "col.4", index: 4, name: "Metadata", type: "json", ...plain },
+    { id: "col.5", index: 5, name: "Active", type: "boolean", ...plain },
+    { id: "col.6", index: 6, name: "Resume", type: "file", ...plain },
+    { id: "col.7", index: 7, name: "Intro", type: "audio", ...plain },
   ],
 
   rows: [

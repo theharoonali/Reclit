@@ -1,11 +1,17 @@
 import { shortColumnId, shortRowId } from "./spreadsheet.ids";
 import type { CellValue, SheetColumn, SheetRow } from "./spreadsheet.schema";
-import { toWireColumnType } from "./spreadsheet.schema";
+import { toWireColumnType, toWireNodeType } from "./spreadsheet.schema";
 
 // Pure assembly from database records to the nested wire shapes. No prisma
 // imports — the services hand in already-selected records.
 
-export type ColumnRecord = { index: number; name: string; type: string };
+export type ColumnRecord = {
+  index: number;
+  name: string;
+  type: string;
+  node: string | null;
+  prompt: string | null;
+};
 export type CellRecord = {
   rowIndex: number;
   columnIndex: number;
@@ -18,6 +24,8 @@ export function toSheetColumn(record: ColumnRecord): SheetColumn {
     index: record.index,
     name: record.name,
     type: toWireColumnType(record.type),
+    node: record.node === null ? null : toWireNodeType(record.node),
+    prompt: record.prompt,
   };
 }
 

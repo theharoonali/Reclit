@@ -6,7 +6,8 @@
  *   Spreadsheet  id (pk uuid), name, totalRows (default 5_000_000),
  *                createdAt (indexed), updatedAt
  *   Column       id (pk "<sheetId>.col.<index>"), spreadsheetId (fk cascade),
- *                index, name, type ColumnType, unique(spreadsheetId, index)
+ *                index, name, type ColumnType, node NodeType? (null = plain
+ *                column), prompt String?, unique(spreadsheetId, index)
  *   Row          id (pk "<sheetId>.row.<index>"), spreadsheetId (fk cascade),
  *                index, unique(spreadsheetId, index) — sparse: a record exists
  *                only where something was written
@@ -15,12 +16,14 @@
  *                unique(spreadsheetId, rowIndex, columnIndex)
  *
  * ColumnType (db): STRING NUMBER BOOLEAN DATE JSON FORMULA AUDIO FILE EMAIL URL
- * On the wire the type vocabulary is lowercase ("string", "audio", ...).
+ * NodeType (db): AI EMAIL — a column's automated-processing kind; null = none.
+ * On the wire both vocabularies are lowercase ("string", "audio", "ai", ...).
  *
  * MODELS (wire — ids are always the short form)
  *   SpreadsheetMeta = { id, name, totalRows, totalColumns, createdAt: Date,
  *                       updatedAt: Date }           (dates via superjson)
- *   SheetColumn  = { id: "col.<i>", index, name, type }
+ *   SheetColumn  = { id: "col.<i>", index, name, type,
+ *                    node: "ai" | "email" | null, prompt: string | null }
  *   SheetRow     = { id: "row.<i>", index,
  *                    columns: { id: "col.<i>", name, value }[] } — one entry
  *                    per stored cell, ordered by column index; blank cells are
@@ -48,8 +51,8 @@
  * | spreadsheet.appendRow    | mutation | { id; cells: {columnIndex; value}[] (min 1) }   | SheetRow          | NOT_FOUND, BAD_REQUEST (type), CONFLICT (retries exhausted) |
  * | spreadsheet.removeRow    | mutation | { id; rowIndex }                                | { id: "row.N" }   | NOT_FOUND (sheet)             |
  * | spreadsheet.removeRows   | mutation | { id; rowIndexes: number[] (1..10_000) }        | { ids: string[] } | NOT_FOUND (sheet), BAD_REQUEST|
- * | spreadsheet.createColumn | mutation | { id; name; type? (default "string") }          | SheetColumn       | NOT_FOUND, BAD_REQUEST        |
- * | spreadsheet.updateColumn | mutation | { id; columnIndex; name?; type? }               | SheetColumn       | NOT_FOUND, BAD_REQUEST        |
+ * | spreadsheet.createColumn | mutation | { id; name; type? (default "string"); node?; prompt? } | SheetColumn | NOT_FOUND, BAD_REQUEST  |
+ * | spreadsheet.updateColumn | mutation | { id; columnIndex; name?; type?; node?; prompt? } | SheetColumn     | NOT_FOUND, BAD_REQUEST        |
  * | spreadsheet.removeColumn | mutation | { id; columnIndex }                             | { id: "col.N" }   | NOT_FOUND, CONFLICT (not last)|
  *
  * REST (same service, same shapes; errors as { statusCode, code, message })
@@ -100,6 +103,11 @@
  *   audio/file/url→http(s) URL string, email→email string,
  *   string/formula→string.
  * - updateColumn changing `type` does not convert or revalidate stored cells.
+ * - `node`/`prompt` both default to null; a prompt without a node is
+ *   BAD_REQUEST (create checks the payload, update checks the effective
+ *   stored+incoming pair). On updateColumn, `undefined` leaves a field
+ *   unchanged and `null` clears it; `node: null` also clears `prompt`.
+ *   Imported columns never carry a node.
  * - FORMULA is storage-only; nothing evaluates formulas.
  * - `rows` pagination counts *stored* rows: take limit+1, hasMore when the
  *   extra record exists, nextCursor is its short row id.
@@ -278,15 +286,55 @@ describe.skipIf(!dbUp)("spreadsheet.createColumn", () => {
       index: 0,
       name: "First",
       type: "string",
+      node: null,
+      prompt: null,
     });
     expect(second).toEqual({
       id: "col.1",
       index: 1,
       name: "Second",
       type: "number",
+      node: null,
+      prompt: null,
     });
     const meta = await caller.spreadsheet.byId({ id: sheet.id });
     expect(meta.totalColumns).toBe(2);
+  });
+
+  it("stores a node and its prompt", async () => {
+    const sheet = await makeSheet("node columns");
+    const column = await caller.spreadsheet.createColumn({
+      id: sheet.id,
+      name: "Summary",
+      node: "ai",
+      prompt: "Summarise the row",
+    });
+    expect(column).toMatchObject({ node: "ai", prompt: "Summarise the row" });
+    const read = await caller.spreadsheet.column({
+      id: sheet.id,
+      columnIndex: 0,
+    });
+    expect(read).toMatchObject({ node: "ai", prompt: "Summarise the row" });
+  });
+
+  it("rejects a prompt without a node and an unknown node", async () => {
+    const sheet = await makeSheet("bad node columns");
+    await expectTRPCError(
+      caller.spreadsheet.createColumn({
+        id: sheet.id,
+        name: "x",
+        prompt: "orphan",
+      }),
+      "BAD_REQUEST",
+    );
+    await expectTRPCError(
+      caller.spreadsheet.createColumn({
+        id: sheet.id,
+        name: "x",
+        node: "robot" as never,
+      }),
+      "BAD_REQUEST",
+    );
   });
 
   it("rejects a blank name and an unknown type", async () => {
@@ -325,6 +373,8 @@ describe.skipIf(!dbUp)("spreadsheet.column", () => {
       index: 2,
       name: "tune",
       type: "audio",
+      node: null,
+      prompt: null,
     });
   });
 
@@ -361,6 +411,8 @@ describe.skipIf(!dbUp)("spreadsheet.updateColumn", () => {
       index: 0,
       name: "renamed",
       type: "number",
+      node: null,
+      prompt: null,
     });
     const cell = await caller.spreadsheet.cell({
       id: sheet.id,
@@ -368,6 +420,64 @@ describe.skipIf(!dbUp)("spreadsheet.updateColumn", () => {
       columnIndex: 0,
     });
     expect(cell.value).toBe("keep");
+  });
+
+  it("keeps node and prompt through a name-only update", async () => {
+    const sheet = await makeSheet("node kept");
+    await caller.spreadsheet.createColumn({
+      id: sheet.id,
+      name: "Summary",
+      node: "ai",
+      prompt: "Summarise the row",
+    });
+    const updated = await caller.spreadsheet.updateColumn({
+      id: sheet.id,
+      columnIndex: 0,
+      name: "renamed",
+    });
+    expect(updated).toMatchObject({
+      name: "renamed",
+      node: "ai",
+      prompt: "Summarise the row",
+    });
+  });
+
+  it("clearing the node also clears the prompt", async () => {
+    const sheet = await makeSheet("node cleared");
+    await caller.spreadsheet.createColumn({
+      id: sheet.id,
+      name: "Summary",
+      node: "email",
+      prompt: "Draft a reply",
+    });
+    const updated = await caller.spreadsheet.updateColumn({
+      id: sheet.id,
+      columnIndex: 0,
+      node: null,
+    });
+    expect(updated).toMatchObject({ node: null, prompt: null });
+  });
+
+  it("rejects a prompt when the effective node is null", async () => {
+    const sheet = await makeSheet("orphan prompt");
+    await caller.spreadsheet.createColumn({ id: sheet.id, name: "plain" });
+    await expectTRPCError(
+      caller.spreadsheet.updateColumn({
+        id: sheet.id,
+        columnIndex: 0,
+        prompt: "orphan",
+      }),
+      "BAD_REQUEST",
+    );
+    await expectTRPCError(
+      caller.spreadsheet.updateColumn({
+        id: sheet.id,
+        columnIndex: 0,
+        node: null,
+        prompt: "orphan",
+      }),
+      "BAD_REQUEST",
+    );
   });
 
   it("returns NOT_FOUND for a missing column", async () => {
@@ -897,6 +1007,8 @@ describe.skipIf(!dbUp)("REST surface", () => {
       index: 0,
       name: "Age",
       type: "number",
+      node: null,
+      prompt: null,
     });
 
     // PATCH + GET a cell
@@ -935,6 +1047,8 @@ describe.skipIf(!dbUp)("REST surface", () => {
       index: 0,
       name: "Age",
       type: "number",
+      node: null,
+      prompt: null,
     });
 
     // PATCH /rows/:r + PATCH /columns/:c
@@ -1086,7 +1200,14 @@ describe.skipIf(!dbUp)("REST surface", () => {
       totalColumns: number;
       rowCount: number;
       cellCount: number;
-      columns: { id: string; index: number; name: string; type: string }[];
+      columns: {
+        id: string;
+        index: number;
+        name: string;
+        type: string;
+        node: string | null;
+        prompt: string | null;
+      }[];
     };
     expect(body.columns.map((column) => column.type)).toEqual([
       "string",
@@ -1105,6 +1226,8 @@ describe.skipIf(!dbUp)("REST surface", () => {
       index: 0,
       name: "Name",
       type: "string",
+      node: null,
+      prompt: null,
     });
     expect(body).toMatchObject({ rowCount: 2, cellCount: 20 });
     // The virtual grid height is not a row count and import does not touch it.

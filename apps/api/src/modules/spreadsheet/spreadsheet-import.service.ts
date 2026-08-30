@@ -112,6 +112,8 @@ export class SpreadsheetImportService {
         index,
         name: column.name,
         type: column.type,
+        node: null,
+        prompt: null,
       })),
     };
   }

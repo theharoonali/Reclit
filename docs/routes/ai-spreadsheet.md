@@ -56,7 +56,9 @@ Feature: [spreadsheet](../features/spreadsheet.md) ·
   sees anything; a sheet imported from a real file has far more rows than one
   page.
 - On edit: `spreadsheet.setCell` (per-cell, debounced 400 ms, latest wins),
-  `spreadsheet.createColumn` / `spreadsheet.updateColumn` from the column form.
+  `spreadsheet.createColumn` / `spreadsheet.updateColumn` from the column form
+  (name, type, node, prompt — every field sent explicitly, so a cleared
+  node/prompt reaches the wire as `null` rather than an omission).
 - On row delete: `spreadsheet.removeRows` with every ticked row index; on
   success the rows are removed from the local model and repainted (the same
   no-invalidation deviation as cell edits).
@@ -106,6 +108,12 @@ key gone, and blank a freshly imported cell.
 - **Columns.** Types come from the payload; unknown types degrade to `string`.
   Clicking a column header opens the panel to edit its name and type; clicking
   the `+` after the last column adds one. Widths are uniform and fixed.
+- **Column nodes.** The panel form also offers a Node select (None / AI /
+  Email; unknown server nodes degrade to None). Choosing a node reveals a
+  Prompt textarea; setting it back to None hides the field and submits
+  `prompt: null`. A column whose node has a glyph (`ai` → ✨, see
+  `NODE_GLYPHS` in `paint-header.ts`) paints it left of its header name.
+  Nothing executes prompts yet.
 - **Editing.** One click selects a cell, a second opens it — Enter and F2 do
   the same from the keyboard. Editing is fully canvas-drawn: the text, the
   selection and the blinking caret are painted, and a 1×1 hidden textarea holds

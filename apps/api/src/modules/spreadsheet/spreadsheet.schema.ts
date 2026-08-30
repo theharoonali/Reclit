@@ -27,6 +27,18 @@ export const toDbColumnType = (type: ColumnTypeWire): ColumnTypeDb =>
 export const toWireColumnType = (type: string): ColumnTypeWire =>
   type.toLowerCase() as ColumnTypeWire;
 
+/** Automated-processing kinds a column may carry; null = plain column. */
+export const NODE_TYPES_WIRE = ["ai", "email"] as const;
+
+export const nodeTypeWire = z.enum(NODE_TYPES_WIRE);
+export type NodeTypeWire = z.infer<typeof nodeTypeWire>;
+export type NodeTypeDb = Uppercase<NodeTypeWire>;
+
+export const toDbNodeType = (node: NodeTypeWire): NodeTypeDb =>
+  node.toUpperCase() as NodeTypeDb;
+export const toWireNodeType = (node: string): NodeTypeWire =>
+  node.toLowerCase() as NodeTypeWire;
+
 /** What a cell may hold on the wire. `null` clears the cell. */
 export const cellValueSchema = z.union([
   z.string().max(10_000),
@@ -94,6 +106,8 @@ export const sheetColumnSchema = z.object({
   index: z.number().int(),
   name: z.string(),
   type: columnTypeWire,
+  node: nodeTypeWire.nullable(),
+  prompt: z.string().nullable(),
 });
 
 /** One stored cell inside a nested row: column id + name + value. */
@@ -145,6 +159,7 @@ export type SheetPayload = z.infer<typeof sheetPayloadSchema>;
 /* ----------------------------------------------------------------- inputs */
 
 const name = z.string().trim().min(1, "Name is required").max(200);
+const prompt = z.string().trim().min(1, "Prompt cannot be empty").max(10_000);
 // Coerced so REST path params ("0") parse through the same schemas as tRPC
 // numbers.
 const gridIndex = z.coerce.number().int().min(0);
@@ -173,7 +188,12 @@ export const updateRowInput = rowRefInput.extend({
  * name-only update.
  */
 export const updateColumnInput = z
-  .object({ name, type: columnTypeWire })
+  .object({
+    name,
+    type: columnTypeWire,
+    node: nodeTypeWire.nullable(),
+    prompt: prompt.nullable(),
+  })
   .partial()
   .extend(columnRefInput.shape);
 
@@ -193,10 +213,17 @@ export const removeRowsInput = idInput.extend({
   rowIndexes: z.array(gridIndex).min(1).max(10_000),
 });
 
-export const createColumnInput = idInput.extend({
-  name,
-  type: columnTypeWire.default("string"),
-});
+export const createColumnInput = idInput
+  .extend({
+    name,
+    type: columnTypeWire.default("string"),
+    node: nodeTypeWire.nullable().default(null),
+    prompt: prompt.nullable().default(null),
+  })
+  .refine((input) => input.node !== null || input.prompt === null, {
+    message: "A prompt requires a node",
+    path: ["prompt"],
+  });
 
 export type CreateSpreadsheetInput = z.infer<typeof createSpreadsheetInput>;
 export type SheetRowsInput = z.infer<typeof sheetRowsInput>;

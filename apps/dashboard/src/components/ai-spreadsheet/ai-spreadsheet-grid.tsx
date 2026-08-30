@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useCallback, useRef, useState } from "react";
 import type {
-  ColumnType,
+  ColumnDraft,
   JsonObject,
   PanelState,
   SheetPayload,
@@ -138,15 +138,15 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
 
   const columns = modelRef.current.columns;
 
-  const submitColumn = (name: string, type: ColumnType) => {
+  const submitColumn = (draft: ColumnDraft) => {
     const target = shownRef.current;
     if (target.kind !== "column") return;
     if (target.columnId) {
-      model.updateColumn(target.columnId, name, type);
-      sync.syncColumnUpdate(target.columnId, name, type);
+      model.updateColumn(target.columnId, draft);
+      sync.syncColumnUpdate(target.columnId, draft);
     } else {
-      model.addColumn(name, type);
-      sync.syncColumnCreate(name, type);
+      model.addColumn(draft);
+      sync.syncColumnCreate(draft);
     }
     closePanel();
   };
@@ -261,9 +261,17 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
                 name: t("column.name"),
                 namePlaceholder: t("column.namePlaceholder"),
                 type: t("column.type"),
+                node: t("column.node"),
+                prompt: t("column.prompt"),
+                promptPlaceholder: t("column.promptPlaceholder"),
                 submit: editedColumn ? t("column.save") : t("column.add"),
                 cancel: t("column.cancel"),
                 typeNames: labels.typeNames,
+                nodeNames: {
+                  none: t("nodes.none"),
+                  ai: t("nodes.ai"),
+                  email: t("nodes.email"),
+                },
               }}
               onCancel={closePanel}
               onSubmit={submitColumn}

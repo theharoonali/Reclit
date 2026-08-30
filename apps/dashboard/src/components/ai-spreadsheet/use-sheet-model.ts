@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toColumnType } from "@/lib/ai-spreadsheet/cell-format";
+import { toColumnType, toNodeType } from "@/lib/ai-spreadsheet/cell-format";
 import type {
   CellValue,
-  ColumnType,
+  ColumnDraft,
   SheetColumn,
   SheetModel,
   SheetPayload,
@@ -35,6 +35,8 @@ export function normalize(payload: SheetPayload): SheetModel {
       id: column.id,
       name: column.name,
       type: toColumnType(column.type),
+      node: toNodeType(column.node),
+      prompt: column.prompt,
     }));
 
   let maxIndex = -1;
@@ -72,8 +74,8 @@ export type SheetModelApi = {
   columnsVersion: number;
   getCell: (row: number, columnId: string) => CellValue;
   setCell: (row: number, columnId: string, value: CellValue) => void;
-  addColumn: (name: string, type: ColumnType) => void;
-  updateColumn: (id: string, name: string, type: ColumnType) => void;
+  addColumn: (draft: ColumnDraft) => void;
+  updateColumn: (id: string, draft: ColumnDraft) => void;
   removeRows: (rows: ReadonlySet<number>) => void;
 };
 
@@ -110,28 +112,25 @@ export function useSheetModel(payload: SheetPayload): SheetModelApi {
     [],
   );
 
-  const addColumn = useCallback((name: string, type: ColumnType) => {
+  const addColumn = useCallback((draft: ColumnDraft) => {
     const current = modelRef.current;
     if (!current) return;
     // Matches the server's own id shape, and is deterministic — no
     // `crypto.randomUUID()`, which would differ between server and client.
     const id = `col.${current.nextColumnIndex}`;
     current.nextColumnIndex += 1;
-    current.columns = [...current.columns, { id, name, type }];
+    current.columns = [...current.columns, { id, ...draft }];
     setColumnsVersion((version) => version + 1);
   }, []);
 
-  const updateColumn = useCallback(
-    (id: string, name: string, type: ColumnType) => {
-      const current = modelRef.current;
-      if (!current) return;
-      current.columns = current.columns.map((column) =>
-        column.id === id ? { ...column, name, type } : column,
-      );
-      setColumnsVersion((version) => version + 1);
-    },
-    [],
-  );
+  const updateColumn = useCallback((id: string, draft: ColumnDraft) => {
+    const current = modelRef.current;
+    if (!current) return;
+    current.columns = current.columns.map((column) =>
+      column.id === id ? { ...column, ...draft } : column,
+    );
+    setColumnsVersion((version) => version + 1);
+  }, []);
 
   // Deleted rows go blank in place (absolute positions, nothing shifts), so
   // like a cell edit this repaints rather than re-renders.

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { focusRing } from "../styles/focus-ring";
+import { focusField } from "../styles/focus-ring";
 import { cn } from "../utils";
 
 export type InputProps = React.InputHTMLAttributes<HTMLInputElement>;
@@ -14,10 +14,10 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       <input
         type={type}
         className={cn(
-          "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-body transition-colors",
+          "flex h-9 w-full rounded-sm border border-input bg-transparent px-3 py-1 text-body transition-colors",
           "placeholder:text-muted-foreground",
           "disabled:cursor-not-allowed disabled:opacity-50",
-          focusRing,
+          focusField,
           className,
         )}
         ref={ref}

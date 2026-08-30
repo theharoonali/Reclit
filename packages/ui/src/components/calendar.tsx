@@ -50,7 +50,7 @@ function Calendar({ className, classNames, ...props }: CalendarProps) {
         day: "h-9 w-9 p-0",
         day_button: cn(
           buttonVariants({ variant: "ghost" }),
-          "h-9 w-9 rounded-md p-0 font-normal",
+          "h-9 w-9 rounded-sm p-0 font-normal",
         ),
         selected:
           "[&>button]:bg-primary [&>button]:text-primary-foreground [&>button:hover]:bg-primary [&>button:hover]:text-primary-foreground",

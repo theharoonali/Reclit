@@ -5,6 +5,7 @@ import {
   SpreadsheetCellTypeMismatchError,
   SpreadsheetColumnNotFoundError,
   SpreadsheetColumnNotLastError,
+  SpreadsheetPromptWithoutNodeError,
   SpreadsheetRowExistsError,
 } from "./spreadsheet.errors";
 import {
@@ -31,6 +32,7 @@ import type {
 import {
   cellValueMatchesType,
   toDbColumnType,
+  toDbNodeType,
   toWireColumnType,
 } from "./spreadsheet.schema";
 import { columnSelect, spreadsheetService } from "./spreadsheet.service";
@@ -237,6 +239,8 @@ export class SpreadsheetCellsService {
     id,
     name,
     type,
+    node,
+    prompt,
   }: CreateColumnInput): Promise<SheetColumn> {
     await spreadsheetService.byId(id);
     const index = await prisma.column.count({ where: { spreadsheetId: id } });
@@ -247,25 +251,45 @@ export class SpreadsheetCellsService {
         index,
         name,
         type: toDbColumnType(type),
+        node: node === null ? null : toDbNodeType(node),
+        prompt,
       },
       select: columnSelect,
     });
     return toSheetColumn(record);
   }
 
-  /** Changing `type` does not convert or revalidate stored cells. */
+  /**
+   * Changing `type` does not convert or revalidate stored cells. `undefined`
+   * leaves a field unchanged, `null` clears it; clearing `node` also clears
+   * `prompt`, and the effective pair may never be prompt-without-node.
+   */
   async updateColumn({
     id,
     columnIndex,
     name,
     type,
+    node,
+    prompt,
   }: UpdateColumnInput): Promise<SheetColumn> {
-    await spreadsheetService.columnOrThrow(id, columnIndex);
+    const stored = await spreadsheetService.columnOrThrow(id, columnIndex);
+    const effectiveNode = node !== undefined ? node : stored.node;
+    // An explicit prompt always counts; otherwise clearing the node clears it.
+    const effectivePrompt =
+      prompt !== undefined ? prompt : node === null ? null : stored.prompt;
+    if (effectiveNode === null && effectivePrompt !== null) {
+      throw new SpreadsheetPromptWithoutNodeError();
+    }
     const record = await prisma.column.update({
       where: { id: columnId(id, columnIndex) },
       data: {
         ...(name !== undefined && { name }),
         ...(type !== undefined && { type: toDbColumnType(type) }),
+        ...(node !== undefined && {
+          node: node === null ? null : toDbNodeType(node),
+        }),
+        ...(prompt !== undefined && { prompt }),
+        ...(node === null && { prompt: null }),
       },
       select: columnSelect,
     });

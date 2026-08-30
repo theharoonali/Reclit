@@ -35,6 +35,8 @@ export const columnSelect = {
   index: true,
   name: true,
   type: true,
+  node: true,
+  prompt: true,
 } as const;
 
 export const cellSelect = {

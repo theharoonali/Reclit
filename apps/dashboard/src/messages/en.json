@@ -78,9 +78,17 @@
       "name": "Name",
       "namePlaceholder": "Column name",
       "type": "Type",
+      "node": "Node",
+      "prompt": "Prompt",
+      "promptPlaceholder": "What should this node do?",
       "add": "Add column",
       "save": "Save",
       "cancel": "Cancel"
+    },
+    "nodes": {
+      "none": "None",
+      "ai": "AI",
+      "email": "Email"
     },
     "json": {
       "key": "Key",

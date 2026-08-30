@@ -6,7 +6,7 @@ import { isMistyped } from "@/lib/ai-spreadsheet/cell-format";
 import { parseShortColumnId } from "@/lib/ai-spreadsheet/short-ids";
 import type {
   CellValue,
-  ColumnType,
+  ColumnDraft,
   SheetModel,
 } from "@/lib/ai-spreadsheet/types";
 import { cellKey } from "@/lib/ai-spreadsheet/types";
@@ -24,8 +24,8 @@ type DirtyCell = {
 export type SheetSyncApi = {
   /** Drop-in for the model's `setCell`: mutates the ref, then persists. */
   setCell: (row: number, columnId: string, value: CellValue) => void;
-  syncColumnCreate: (name: string, type: ColumnType) => void;
-  syncColumnUpdate: (columnId: string, name: string, type: ColumnType) => void;
+  syncColumnCreate: (draft: ColumnDraft) => void;
+  syncColumnUpdate: (columnId: string, draft: ColumnDraft) => void;
   /**
    * Drops every pending cell write *without* sending it, and disowns any
    * response still in flight. The deliberate opposite of the unmount effect,
@@ -153,20 +153,22 @@ export function useSheetSync(args: {
   // and the optimistic `col.<nextColumnIndex>` id matches the server's
   // append-only id, so success needs no reconciliation.
   const syncColumnCreate = useCallback(
-    (name: string, type: ColumnType) => {
+    (draft: ColumnDraft) => {
       const model = modelRef.current;
       if (!model) return;
-      mutateCreateRef.current({ id: model.sheetId, name, type });
+      mutateCreateRef.current({ id: model.sheetId, ...draft });
     },
     [modelRef],
   );
 
+  // Every draft field is sent explicitly: on update, an omitted field means
+  // "unchanged" to the API, so a cleared node/prompt must go out as `null`.
   const syncColumnUpdate = useCallback(
-    (columnId: string, name: string, type: ColumnType) => {
+    (columnId: string, draft: ColumnDraft) => {
       const model = modelRef.current;
       const columnIndex = parseShortColumnId(columnId);
       if (!model || columnIndex === null) return;
-      mutateUpdateRef.current({ id: model.sheetId, columnIndex, name, type });
+      mutateUpdateRef.current({ id: model.sheetId, columnIndex, ...draft });
     },
     [modelRef],
   );

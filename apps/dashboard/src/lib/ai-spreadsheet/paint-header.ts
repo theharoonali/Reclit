@@ -11,6 +11,7 @@ import { type CheckboxPaintState, paintCheckbox } from "./paint-checkbox";
 import { measureWidth, truncateToWidth } from "./text-metrics";
 import { withAlpha } from "./theme-colors";
 import type {
+  NodeType,
   SheetColumn,
   SheetFonts,
   SheetHit,
@@ -18,6 +19,14 @@ import type {
   SheetPalette,
   Viewport,
 } from "./types";
+
+/**
+ * The badge painted left of a column's name, keyed by its node. A node with
+ * no entry (email, for now) paints nothing. Emoji ignore `fillStyle`, so no
+ * colour plumbing is needed; the glyph is decorative and not hit-tested.
+ */
+const NODE_GLYPHS: Partial<Record<NodeType, string>> = { ai: "✨" };
+const GLYPH_GAP = 4;
 
 export type HeaderPaintArgs = {
   ctx: CanvasRenderingContext2D;
@@ -82,10 +91,16 @@ export function paintHeader(args: HeaderPaintArgs) {
     ctx.font = fonts.header;
     ctx.fillStyle = palette.headerText;
     ctx.textAlign = "left";
-    const room = COL_WIDTH - CELL_PAD_X * 3 - typeWidth;
+    const glyph = column.node === null ? undefined : NODE_GLYPHS[column.node];
+    let glyphSpace = 0;
+    if (glyph !== undefined) {
+      ctx.fillText(glyph, x + CELL_PAD_X, HEADER_HEIGHT / 2);
+      glyphSpace = measureWidth(ctx, glyph) + GLYPH_GAP;
+    }
+    const room = COL_WIDTH - CELL_PAD_X * 3 - typeWidth - glyphSpace;
     ctx.fillText(
       truncateToWidth(ctx, column.name, room),
-      x + CELL_PAD_X,
+      x + CELL_PAD_X + glyphSpace,
       HEADER_HEIGHT / 2,
     );
 

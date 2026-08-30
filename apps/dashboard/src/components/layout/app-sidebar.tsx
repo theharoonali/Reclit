@@ -100,11 +100,11 @@ export function AppSidebar() {
       <div className="shrink-0 border-t border-border p-3">
         <div
           className={cn(
-            "flex items-center gap-3 rounded-md px-2 py-2",
+            "flex items-center gap-3 rounded-sm px-2 py-2",
             collapsed && "justify-center px-0",
           )}
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-label font-semibold text-primary">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-primary/10 text-label font-semibold text-primary">
             {WORKSPACE.name.charAt(0)}
           </span>
           {!collapsed && (
@@ -139,7 +139,7 @@ function NavRow({
 }) {
   const Icon = item.icon;
   const shared = cn(
-    "relative flex items-center gap-3 rounded-md px-3 py-2 text-body transition-colors",
+    "relative flex items-center gap-3 rounded-sm px-3 py-2 text-body transition-colors",
     collapsed && "justify-center px-0",
     active && "bg-primary/10 font-medium text-primary",
   );

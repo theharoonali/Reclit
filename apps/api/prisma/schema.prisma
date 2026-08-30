@@ -12,6 +12,13 @@ datasource db {
   provider = "postgresql"
 }
 
+/// Automated-processing kind for a column. Absence (null) means a plain
+/// column; more kinds will be added.
+enum NodeType {
+  AI
+  EMAIL
+}
+
 enum ColumnType {
   STRING
   NUMBER
@@ -46,6 +53,8 @@ model Column {
   index         Int
   name          String
   type          ColumnType  @default(STRING)
+  node          NodeType?
+  prompt        String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   spreadsheet   Spreadsheet @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)

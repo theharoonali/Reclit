@@ -202,33 +202,39 @@ Rules that follow from this:
 
 | Class | Value | Use for |
 | --- | --- | --- |
-| `rounded-sm` | `--radius - 4px` | inline chips, list items inside a menu |
-| `rounded-md` | `--radius - 2px` | buttons, inputs, the select trigger — the default control radius |
+| `rounded-sm` | `--radius - 4px` | **every control** — buttons, inputs, textareas, selects (trigger and content), nav items, chips, menu items |
+| `rounded-md` | `--radius - 2px` | currently unused; an in-between step if a surface ever needs one |
 | `rounded-lg` | `--radius` | cards, panels, popovers |
 | `rounded-xl` / `rounded-2xl` | `+4px` / `+8px` | large surfaces and icon tiles |
 
 - **`rounded-full` and `rounded-none` are the only literal radii allowed.**
   Every other `rounded-*` must be one of the steps above; `rounded-r`,
   `rounded-[10px]` and friends bypass the token and will not move when it does.
+- **Controls all share one step, `rounded-sm`.** A new control never picks its
+  own; to resize every corner in the app at once, edit `--radius`.
 - A control that needs a different corner than its neighbours is almost always a
   sign the step is wrong. Change `--radius`, not the component.
 
 ### Focus
 
-There is **one** focus recipe, `focusRing` in
-`packages/ui/src/styles/focus-ring.ts`, and it is composed — never retyped:
+There are exactly **two** focus recipes, both in
+`packages/ui/src/styles/focus-ring.ts`, and they are composed — never retyped:
 
 ```ts
 import { focusRing } from "@reclit/ui/focus-ring";
 className={cn("...", focusRing)}
 ```
 
+- `focusRing` — buttons, links, and anything without a resting border: the
+  border moves to `--ring` and a soft 3px halo sits outside it (shadcn's
+  shape). Most of these controls are borderless, so the halo is what keeps
+  keyboard focus visible.
+- `focusField` — bordered text controls (`Input`, `Textarea`, the select
+  trigger): the border colour moves to `--ring` and nothing else. No halo.
 - **Never write `focus-visible:ring-*`, `focus:outline-*` or `outline-none` in a
-  component.** `focusRing` already carries `outline-none`, because the control
+  component.** Both recipes already carry `outline-none`, because the control
   draws its own indicator and the browser's would sit on top of it.
-- The shape is shadcn's: the border moves to `--ring` and a soft 3px halo sits
-  outside it, so focus reads as the control brightening. `aria-invalid` swaps
-  both to `--destructive`.
+- `aria-invalid` swaps the focus colours to `--destructive` in both recipes.
 - **Never suppress focus globally.** A `*:focus { outline: none }` in
   `apps/dashboard/src/styles/globals.css` makes every control the primitives do
   not cover invisible to keyboard users.

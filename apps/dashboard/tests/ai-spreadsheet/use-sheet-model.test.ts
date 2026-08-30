@@ -13,6 +13,8 @@ const row = (
   ],
 ): ApiRow => ({ id: `row.${index}`, index, columns: entries });
 
+const plain = { node: null, prompt: null };
+
 const payload = (overrides: Partial<SheetPayload> = {}): SheetPayload => ({
   spreadsheet: {
     id: "sheet_123",
@@ -21,9 +23,9 @@ const payload = (overrides: Partial<SheetPayload> = {}): SheetPayload => ({
     totalColumns: 3,
   },
   columns: [
-    { id: "col.0", index: 0, name: "Name", type: "string" },
-    { id: "col.1", index: 1, name: "Age", type: "number" },
-    { id: "col.2", index: 2, name: "Active", type: "boolean" },
+    { id: "col.0", index: 0, name: "Name", type: "string", ...plain },
+    { id: "col.1", index: 1, name: "Age", type: "number", ...plain },
+    { id: "col.2", index: 2, name: "Active", type: "boolean", ...plain },
   ],
   rows: [row(0)],
   pagination: { startRow: 0, limit: 100, hasMore: true, nextCursor: "row.100" },
@@ -110,9 +112,9 @@ describe("normalize", () => {
     const model = normalize(
       payload({
         columns: [
-          { id: "col.2", index: 2, name: "Active", type: "boolean" },
-          { id: "col.0", index: 0, name: "Name", type: "string" },
-          { id: "col.1", index: 1, name: "Age", type: "number" },
+          { id: "col.2", index: 2, name: "Active", type: "boolean", ...plain },
+          { id: "col.0", index: 0, name: "Name", type: "string", ...plain },
+          { id: "col.1", index: 1, name: "Age", type: "number", ...plain },
         ],
       }),
     );
@@ -123,12 +125,51 @@ describe("normalize", () => {
     ]);
   });
 
+  test("maps a column's node and prompt through", () => {
+    const model = normalize(
+      payload({
+        columns: [
+          {
+            id: "col.0",
+            index: 0,
+            name: "Summary",
+            type: "string",
+            node: "ai",
+            prompt: "Summarise the row",
+          },
+        ],
+      }),
+    );
+    expect(model.columns[0]?.node).toBe("ai");
+    expect(model.columns[0]?.prompt).toBe("Summarise the row");
+  });
+
+  test("degrades an unknown node to a plain column", () => {
+    const model = normalize(
+      payload({
+        columns: [
+          {
+            id: "col.0",
+            index: 0,
+            name: "Name",
+            type: "string",
+            node: "robot" as never,
+            prompt: null,
+          },
+        ],
+      }),
+    );
+    expect(model.columns[0]?.node).toBeNull();
+  });
+
   // `formula` is in the API's COLUMN_TYPES_WIRE but not in the column picker:
   // the sheet must still render one the API returns, as plain text.
   test("keeps a formula column rather than degrading it", () => {
     const model = normalize(
       payload({
-        columns: [{ id: "col.0", index: 0, name: "Total", type: "formula" }],
+        columns: [
+          { id: "col.0", index: 0, name: "Total", type: "formula", ...plain },
+        ],
       }),
     );
     expect(model.columns[0]?.type).toBe("formula");

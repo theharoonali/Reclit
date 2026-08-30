@@ -15,13 +15,16 @@ responses, and error codes live in its header. Do not duplicate them here.
 | `Spreadsheet.totalRows` | `Int` | default 5,000,000 — the virtual grid height |
 | `Column.id` | `String` | pk, scoped `"<sheetId>.col.<index>"` |
 | `Column.index` / `name` / `type` | `Int` / `String` / `ColumnType` | unique(spreadsheetId, index) |
+| `Column.node` | `NodeType?` | automated-processing kind; null = plain column |
+| `Column.prompt` | `String?` | the node's instruction; null without a node |
 | `Row.id` | `String` | pk, scoped `"<sheetId>.row.<index>"`; rows are sparse |
 | `Cell.id` | `String` | pk, scoped `"<sheetId>.cell.<row>.<col>"` |
 | `Cell.value` | `Json?` | never stored null — clearing deletes the record |
 | `createdAt` / `updatedAt` | `DateTime` | on all four models |
 
-`ColumnType`: `STRING NUMBER BOOLEAN DATE JSON FORMULA AUDIO FILE EMAIL URL`
-(lowercase on the wire). Scoped pks are a recorded deviation from the uuid rule
+`ColumnType`: `STRING NUMBER BOOLEAN DATE JSON FORMULA AUDIO FILE EMAIL URL` ·
+`NodeType`: `AI EMAIL` (both lowercase on the wire). Scoped pks are a recorded
+deviation from the uuid rule
 (docs/plans/006-spreadsheet-backend.md): they make the wire ids predictable
 (`row.0`, `col.1`, `cell.0.1`) and a cell write a single upsert by pk.
 
@@ -37,7 +40,7 @@ Cell · Relations: all cascade from Spreadsheet · Migrations:
 | `apps/api/prisma/schema.prisma` | model | the four tables + `ColumnType` |
 | `apps/api/src/modules/spreadsheet/spreadsheet.ids.ts` | schema | scoped/short id builders |
 | `apps/api/src/modules/spreadsheet/spreadsheet.schema.ts` | schema | zod shapes, wire↔db type case, `cellValueMatchesType` |
-| `apps/api/src/modules/spreadsheet/spreadsheet.errors.ts` | schema | the five domain errors |
+| `apps/api/src/modules/spreadsheet/spreadsheet.errors.ts` | schema | the domain errors |
 | `apps/api/src/modules/spreadsheet/spreadsheet.shape.ts` | schema | records → nested `SheetRow` assembly |
 | `apps/api/src/modules/spreadsheet/spreadsheet.service.ts` | service | reads + sheet lifecycle, `columnOrThrow` |
 | `apps/api/src/modules/spreadsheet/spreadsheet-cells.service.ts` | service | grid writes (cells, rows, columns) |
@@ -95,6 +98,11 @@ pull the parsers into `src/trpc/**`, which the dashboard transpiles.
   REST twin is `POST /spreadsheets/:id/rows/remove` (200 — a delete creates
   nothing).
 - `updateColumn` changing `type` does not convert or revalidate stored cells.
+- `node`/`prompt` default to null; a prompt without a node is BAD_REQUEST
+  (create checks the payload, update the effective stored+incoming pair). On
+  `updateColumn`, `undefined` leaves a field unchanged, `null` clears it, and
+  `node: null` also clears `prompt`. Imported columns never carry a node.
+  Nothing executes prompts yet (docs/plans/012-column-node.md).
 - `FORMULA` is storage-only; nothing evaluates formulas.
 - `rows` pages *stored* rows (`startRow`/`limit` capped at 500, take limit+1 →
   `hasMore`, `nextCursor`). The dashboard walks every page and merges them, so

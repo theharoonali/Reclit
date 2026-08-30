@@ -39,9 +39,9 @@ const MODEL: SheetModel = {
   sheetName: "Customers",
   rowCount: 100,
   columns: [
-    { id: "col.0", name: "Name", type: "string" },
-    { id: "col.1", name: "Age", type: "number" },
-    { id: "col.2", name: "Active", type: "boolean" },
+    { id: "col.0", name: "Name", type: "string", node: null, prompt: null },
+    { id: "col.1", name: "Age", type: "number", node: null, prompt: null },
+    { id: "col.2", name: "Active", type: "boolean", node: null, prompt: null },
   ],
   cells: new Map(),
   rowIds: new Map(),

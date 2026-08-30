@@ -33,6 +33,13 @@ export type ColumnType =
   | "email"
   | "url";
 
+/**
+ * A column's automated-processing kind; null = plain column. Must stay in
+ * lockstep with `NODE_TYPES_WIRE` in the API's `spreadsheet.schema.ts`, the
+ * same way `ColumnType` mirrors `COLUMN_TYPES_WIRE`.
+ */
+export type NodeType = "ai" | "email";
+
 export type JsonObject = Record<string, unknown>;
 
 export type CellValue = string | number | boolean | JsonObject | null;
@@ -54,7 +61,21 @@ export type SheetPagination = SheetPayload["pagination"];
 
 /* ----------------------------------------------------------------- model */
 
-export type SheetColumn = { id: string; name: string; type: ColumnType };
+export type SheetColumn = {
+  id: string;
+  name: string;
+  type: ColumnType;
+  node: NodeType | null;
+  prompt: string | null;
+};
+
+/** What the column form submits — everything but the minted id. */
+export type ColumnDraft = {
+  name: string;
+  type: ColumnType;
+  node: NodeType | null;
+  prompt: string | null;
+};
 
 /**
  * Cells are sparse. A 5,000,000-row array is not allocatable and pagination

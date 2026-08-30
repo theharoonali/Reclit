@@ -18,6 +18,7 @@
   "exports": {
     "./button": "./src/components/button.tsx",
     "./calendar": "./src/components/calendar.tsx",
+    "./capsule-select": "./src/components/capsule-select.tsx",
     "./checkbox": "./src/components/checkbox.tsx",
     "./input": "./src/components/input.tsx",
     "./label": "./src/components/label.tsx",
