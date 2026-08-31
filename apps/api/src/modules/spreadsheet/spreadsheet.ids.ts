@@ -1,4 +1,4 @@
-// Deterministic scoped ids (docs/plans/006-spreadsheet-backend.md). The
+// Deterministic scoped ids (docs/plans/005-spreadsheet-backend.md). The
 // database pk is the scoped form "<sheetId>.row.<index>"; the wire carries the
 // short form "row.<index>". The sheet id is a uuid and contains no ".", so the
 // scoped format is unambiguous.

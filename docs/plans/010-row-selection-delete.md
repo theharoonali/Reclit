@@ -1,4 +1,4 @@
-# 011 — Row selection & batch delete
+# 010 — Row selection & batch delete
 
 **Status:** implemented
 **Scope:** full feature

@@ -1,4 +1,4 @@
-# 007 — Remove the `note` feature
+# 006 — Remove the `note` feature
 
 **Status:** implemented
 **Scope:** backend (+ docs)
@@ -36,7 +36,7 @@ None.
 
 - **Reverses plan 002's decision** to keep the Note backend after deleting its
   UI ("the backend slice is the repo's only working procedure and its only
-  test"). That reasoning expired with plan 006: `spreadsheet` is now a working,
+  test"). That reasoning expired with plan 005: `spreadsheet` is now a working,
   page-consumed, fully contract-tested slice, so `note` proves nothing that is
   not already proven.
 - **A new drop migration, not a deleted one.** Removing
@@ -54,7 +54,7 @@ None.
   implementation: it is four tables, a service pair and a REST controller, which
   is a poor "copy this for anything new".
 - **Adjacent stale claims fixed in the same pass.** Statements sitting next to
-  the note references were already wrong after plan 006 — "No page consumes it
+  the note references were already wrong after plan 005 — "No page consumes it
   yet", "the tRPC client wiring is live but currently unused by any page",
   "`/` notes CRUD", and root.md's "the wiring has no consumer".
 
@@ -62,7 +62,7 @@ None.
 
 - The dropped table held 3 rows of contract-test data. Intentional — the feature
   was never used for anything real.
-- Plans 001, 002 and 006 still name `note`. Correct as written: plans are
+- Plans 001, 002 and 005 still name `note`. Correct as written: plans are
   historical records (COMMON.md §8) and are not edited to match later work.
 
 ---

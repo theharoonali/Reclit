@@ -1,4 +1,4 @@
-# 012 — Column node & prompt
+# 011 — Column node & prompt
 
 **Status:** implemented
 **Scope:** full feature

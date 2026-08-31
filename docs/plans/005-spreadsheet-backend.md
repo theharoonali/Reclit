@@ -1,4 +1,4 @@
-# 006 — Spreadsheet Backend
+# 005 — Spreadsheet Backend
 
 **Status:** implemented
 **Scope:** backend + frontend integration

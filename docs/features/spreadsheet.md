@@ -25,7 +25,7 @@ responses, and error codes live in its header. Do not duplicate them here.
 `ColumnType`: `STRING NUMBER BOOLEAN DATE JSON FORMULA AUDIO FILE EMAIL URL` ·
 `NodeType`: `AI EMAIL` (both lowercase on the wire). Scoped pks are a recorded
 deviation from the uuid rule
-(docs/plans/006-spreadsheet-backend.md): they make the wire ids predictable
+(docs/plans/005-spreadsheet-backend.md): they make the wire ids predictable
 (`row.0`, `col.1`, `cell.0.1`) and a cell write a single upsert by pk.
 
 Indexes: `unique(spreadsheetId, index)` on Column/Row,
@@ -104,7 +104,7 @@ pull the parsers into `src/trpc/**`, which the dashboard transpiles.
   (create checks the payload, update the effective stored+incoming pair). On
   `updateColumn`, `undefined` leaves a field unchanged, `null` clears it, and
   `node: null` also clears `prompt`. Imported columns never carry a node.
-  Nothing executes prompts yet (docs/plans/012-column-node.md).
+  Nothing executes prompts yet (docs/plans/011-column-node.md).
 - `FORMULA` is storage-only; nothing evaluates formulas.
 - `rows` pages *stored* rows (`startRow`/`limit` capped at 500, take limit+1 →
   `hasMore`, `nextCursor`). The dashboard walks every page and merges them, so

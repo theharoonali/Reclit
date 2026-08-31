@@ -1,4 +1,4 @@
-# 005 — AI Spreadsheet
+# 004 — AI Spreadsheet
 
 **Status:** implemented
 **Scope:** frontend

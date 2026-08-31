@@ -46,7 +46,7 @@ model Spreadsheet {
 }
 
 /// id is the deterministic scoped key "<sheetId>.col.<index>" — the wire id is
-/// the short "col.<index>" (docs/plans/006-spreadsheet-backend.md).
+/// the short "col.<index>" (docs/plans/005-spreadsheet-backend.md).
 model Column {
   id            String      @id
   spreadsheetId String

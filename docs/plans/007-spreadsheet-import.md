@@ -1,4 +1,4 @@
-# 008 — Spreadsheet import (CSV/XLSX)
+# 007 — Spreadsheet import (CSV/XLSX)
 
 **Status:** implemented
 **Scope:** full feature (chrome cleanup + backend + frontend)

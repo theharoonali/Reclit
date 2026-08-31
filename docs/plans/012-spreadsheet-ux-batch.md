@@ -1,4 +1,4 @@
-# 013 — Spreadsheet UX batch: column delete, cell multi-select, CSV export, styling
+# 012 — Spreadsheet UX batch: column delete, cell multi-select, CSV export, styling
 
 **Status:** implemented
 **Scope:** full feature

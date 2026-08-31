@@ -1,4 +1,4 @@
-# 009 — Design system standardization + backend cleanup
+# 008 — Design system standardization + backend cleanup
 
 **Status:** implemented
 **Scope:** frontend (tokens + primitives) · backend (dedupe) · rules
