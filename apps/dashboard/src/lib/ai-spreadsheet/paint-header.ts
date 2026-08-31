@@ -2,8 +2,11 @@ import {
   CELL_PAD_X,
   COL_WIDTH,
   GUTTER_WIDTH,
+  HEADER_DELETE_HIT_PAD,
   HEADER_HEIGHT,
   headerCheckboxRect,
+  headerDeleteRect,
+  inflateRect,
   plusButtonRect,
   visibleCols,
 } from "./geometry";
@@ -75,18 +78,43 @@ export function paintHeader(args: HeaderPaintArgs) {
   for (const column of visible) {
     const x = col * COL_WIDTH;
 
-    if (hover.kind === "header" && hover.col === col) {
+    const hovered =
+      (hover.kind === "header" || hover.kind === "header-delete") &&
+      hover.col === col;
+    if (hovered) {
       ctx.fillStyle = withAlpha(palette.ring, 0.08);
       ctx.fillRect(x, 0, COL_WIDTH, HEADER_HEIGHT);
     }
 
-    // The type name sits at the right edge; the column name gets what is left.
-    ctx.font = fonts.type;
-    const typeName = labels.typeNames[column.type];
-    const typeWidth = measureWidth(ctx, typeName);
-    ctx.fillStyle = palette.mutedText;
-    ctx.textAlign = "right";
-    ctx.fillText(typeName, x + COL_WIDTH - CELL_PAD_X, HEADER_HEIGHT / 2);
+    // The right edge holds the type name — swapped for the delete affordance
+    // while the column is hovered; the column name gets what is left.
+    let rightWidth: number;
+    if (hovered) {
+      const box = headerDeleteRect(col);
+      if (hover.kind === "header-delete") {
+        const zone = inflateRect(box, HEADER_DELETE_HIT_PAD);
+        ctx.fillStyle = withAlpha(palette.invalid, 0.12);
+        ctx.fillRect(zone.x, zone.y, zone.w, zone.h);
+      }
+      ctx.strokeStyle = palette.invalid;
+      ctx.lineWidth = Math.max(1, Math.round(1.5 * dpr)) / dpr;
+      const cx = box.x + box.w / 2;
+      const cy = box.y + box.h / 2;
+      ctx.beginPath();
+      ctx.moveTo(cx - 4, cy - 4);
+      ctx.lineTo(cx + 4, cy + 4);
+      ctx.moveTo(cx + 4, cy - 4);
+      ctx.lineTo(cx - 4, cy + 4);
+      ctx.stroke();
+      rightWidth = box.w;
+    } else {
+      ctx.font = fonts.type;
+      const typeName = labels.typeNames[column.type];
+      rightWidth = measureWidth(ctx, typeName);
+      ctx.fillStyle = palette.mutedText;
+      ctx.textAlign = "right";
+      ctx.fillText(typeName, x + COL_WIDTH - CELL_PAD_X, HEADER_HEIGHT / 2);
+    }
 
     ctx.font = fonts.header;
     ctx.fillStyle = palette.headerText;
@@ -97,7 +125,7 @@ export function paintHeader(args: HeaderPaintArgs) {
       ctx.fillText(glyph, x + CELL_PAD_X, HEADER_HEIGHT / 2);
       glyphSpace = measureWidth(ctx, glyph) + GLYPH_GAP;
     }
-    const room = COL_WIDTH - CELL_PAD_X * 3 - typeWidth - glyphSpace;
+    const room = COL_WIDTH - CELL_PAD_X * 3 - rightWidth - glyphSpace;
     ctx.fillText(
       truncateToWidth(ctx, column.name, room),
       x + CELL_PAD_X + glyphSpace,

@@ -53,7 +53,7 @@
  * | spreadsheet.removeRows   | mutation | { id; rowIndexes: number[] (1..10_000) }        | { ids: string[] } | NOT_FOUND (sheet), BAD_REQUEST|
  * | spreadsheet.createColumn | mutation | { id; name; type? (default "string"); node?; prompt? } | SheetColumn | NOT_FOUND, BAD_REQUEST  |
  * | spreadsheet.updateColumn | mutation | { id; columnIndex; name?; type?; node?; prompt? } | SheetColumn     | NOT_FOUND, BAD_REQUEST        |
- * | spreadsheet.removeColumn | mutation | { id; columnIndex }                             | { id: "col.N" }   | NOT_FOUND, CONFLICT (not last)|
+ * | spreadsheet.removeColumn | mutation | { id; columnIndex }                             | { id: "col.N" }   | NOT_FOUND                     |
  *
  * REST (same service, same shapes; errors as { statusCode, code, message })
  * | GET    /spreadsheets                               | 200 | list         |
@@ -88,8 +88,10 @@
  * - Rows are sparse; row indexes are absolute grid positions. removeRow clears
  *   the row and never shifts later rows; a never-written row/cell reads back
  *   blank (columns: [] / value: null), not 404.
- * - Columns are append-only (index = current count) and only the last column
- *   can be deleted (CONFLICT otherwise) — index-derived ids never renumber.
+ * - Columns are append-only: a new column lands one past the highest stored
+ *   index. Any column can be deleted — its cells go with it and its index
+ *   becomes a permanent gap that is never reused; index-derived ids never
+ *   renumber. Deleting an index with no column is NOT_FOUND.
  * - setCell(value: null) deletes the cell record; `value` is never stored null.
  * - appendRow writes at one past the highest stored row index, row + cells in
  *   one transaction; the index race with concurrent appends is retried
@@ -117,7 +119,7 @@
  * - Import is a **full replace**: every Column, Row and Cell of the sheet is
  *   deleted and rebuilt from the file in one transaction, so a failure leaves
  *   the sheet exactly as it was and a re-import of the same file is a no-op.
- *   It is the only operation that can drop a non-last column.
+ *   It is the only operation that rebuilds the grid wholesale.
  * - `totalRows` is the sheet's virtual grid height and is NOT changed by an
  *   import. `rowCount` is the data rows the file held (header excluded);
  *   `cellCount` the non-empty cells written.
@@ -515,11 +517,54 @@ describe.skipIf(!dbUp)("spreadsheet.removeColumn", () => {
     );
   });
 
-  it("returns CONFLICT for a non-last column", async () => {
+  it("removes an interior column, leaving a permanent gap", async () => {
     const sheet = await makeTypedSheet();
+    await caller.spreadsheet.setCell({
+      id: sheet.id,
+      rowIndex: 0,
+      columnIndex: 0,
+      value: "keep left",
+    });
+    await caller.spreadsheet.setCell({
+      id: sheet.id,
+      rowIndex: 0,
+      columnIndex: 1,
+      value: 7,
+    });
+    const removed = await caller.spreadsheet.removeColumn({
+      id: sheet.id,
+      columnIndex: 1,
+    });
+    expect(removed).toEqual({ id: "col.1" });
+
+    // Neighbors keep their indexes and values; the deleted column is gone.
+    const meta = await caller.spreadsheet.byId({ id: sheet.id });
+    expect(meta.totalColumns).toBe(2);
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(payload.columns.map((c) => c.id)).toEqual(["col.0", "col.2"]);
+    const left = await caller.spreadsheet.cell({
+      id: sheet.id,
+      rowIndex: 0,
+      columnIndex: 0,
+    });
+    expect(left.value).toBe("keep left");
     await expectTRPCError(
-      caller.spreadsheet.removeColumn({ id: sheet.id, columnIndex: 0 }),
-      "CONFLICT",
+      caller.spreadsheet.cell({ id: sheet.id, rowIndex: 0, columnIndex: 1 }),
+      "NOT_FOUND",
+    );
+
+    // The gap is never refilled: the next column appends past the max index.
+    const created = await caller.spreadsheet.createColumn({
+      id: sheet.id,
+      name: "fresh",
+    });
+    expect(created.id).toBe("col.3");
+    expect(created.index).toBe(3);
+
+    // Deleting the same index again is NOT_FOUND, matching updateColumn.
+    await expectTRPCError(
+      caller.spreadsheet.removeColumn({ id: sheet.id, columnIndex: 1 }),
+      "NOT_FOUND",
     );
   });
 });
@@ -1141,14 +1186,15 @@ describe.skipIf(!dbUp)("REST surface", () => {
     expect(badLimit.status).toBe(400);
     expect(await badLimit.json()).toMatchObject({ code: "VALIDATION_FAILED" });
 
-    // 409 non-last column delete
-    const notLast = await fetch(
-      `${baseUrl}/spreadsheets/${sheet.id}/columns/0`,
-      { method: "DELETE" },
+    // 409 creating a row at an already-stored index
+    await caller.spreadsheet.createRow({ id: sheet.id, index: 0 });
+    const exists = await fetch(
+      `${baseUrl}/spreadsheets/${sheet.id}/rows`,
+      json("POST", { index: 0 }),
     );
-    expect(notLast.status).toBe(409);
-    expect(await notLast.json()).toMatchObject({
-      code: "SPREADSHEET_COLUMN_NOT_LAST",
+    expect(exists.status).toBe(409);
+    expect(await exists.json()).toMatchObject({
+      code: "SPREADSHEET_ROW_EXISTS",
     });
   });
 

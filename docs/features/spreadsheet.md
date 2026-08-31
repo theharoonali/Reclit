@@ -71,7 +71,7 @@ Cell · Relations: all cascade from Spreadsheet · Migrations:
 | `spreadsheet.removeRows` | mutation | `SpreadsheetCellsService.removeRows` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.createColumn` | mutation | `SpreadsheetCellsService.createColumn` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.updateColumn` | mutation | `SpreadsheetCellsService.updateColumn` | NOT_FOUND, BAD_REQUEST |
-| `spreadsheet.removeColumn` | mutation | `SpreadsheetCellsService.removeColumn` | NOT_FOUND, CONFLICT |
+| `spreadsheet.removeColumn` | mutation | `SpreadsheetCellsService.removeColumn` | NOT_FOUND |
 
 | `POST /spreadsheets/:id/import` | REST only | `SpreadsheetImportService.import` | NOT_FOUND, BAD_REQUEST |
 
@@ -84,8 +84,10 @@ pull the parsers into `src/trpc/**`, which the dashboard transpiles.
 
 - Rows are sparse; indexes are absolute grid positions. `removeRow` clears and
   never shifts. Never-written rows/cells read back blank, not 404.
-- Columns are append-only (`index` = current count) and only the last column
-  can be deleted (CONFLICT otherwise), so index-derived ids never renumber.
+- Columns are append-only: a new column lands one past the highest stored
+  `index`. Any column can be deleted (`removeColumn` drops it and its cells in
+  one transaction); its index becomes a permanent gap that is never reused, so
+  index-derived ids never renumber.
 - `setCell` validates the value against the column type in the service
   (`cellValueMatchesType`) and upserts row + cell by pk in one transaction;
   `value: null` deletes the cell.
@@ -110,7 +112,7 @@ pull the parsers into `src/trpc/**`, which the dashboard transpiles.
 - **Import is a full replace.** `POST /spreadsheets/:id/import` deletes every
   Column, Row and Cell and rebuilds them from the file in one transaction, so a
   failure leaves the sheet untouched and re-importing the same file is a no-op.
-  It is the only operation that can drop a non-last column.
+  It is the only operation that rebuilds the grid wholesale.
 - Row 0 of the file names the columns. A column's type is inferred only if
   *every* non-empty value fits it, tried boolean → number → date → json →
   email → url → string; a `url` column of audio extensions becomes `audio`,
@@ -124,8 +126,8 @@ pull the parsers into `src/trpc/**`, which the dashboard transpiles.
 
 ## Reusable pieces
 
-- `SpreadsheetImportService.replaceAll` is the only way to wipe a sheet's grid —
-  `removeColumn` permits deleting the last column only.
+- `SpreadsheetImportService.replaceAll` is the only full-grid wipe-and-rebuild;
+  `removeColumn` drops single columns, leaving index gaps.
 - `src/common/multipart.ts` `MulterFile`/`MAX_UPLOAD_BYTES`, and
   `src/common/upload.ts` `@UploadFile()`/`requireFile()`, for any REST upload.
 - `isPlainObject` and `cellValueMatchesType` in `spreadsheet.schema.ts` — the
@@ -137,7 +139,7 @@ pull the parsers into `src/trpc/**`, which the dashboard transpiles.
 ## Used by
 
 - `/ai-spreadsheet` ([route doc](../routes/ai-spreadsheet.md)) — `list`, `rows`
-  on load; `setCell`, `createColumn`, `updateColumn`, `removeRows` from the
-  grid.
+  on load; `setCell`, `createColumn`, `updateColumn`, `removeColumn`,
+  `removeRows` from the grid.
 - `/form/[spreadsheetId]` ([route doc](../routes/form.md)) — `rows` (limit 1,
   for name + columns) on load; `appendRow` on submit.

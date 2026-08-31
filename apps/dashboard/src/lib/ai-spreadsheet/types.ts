@@ -107,6 +107,8 @@ export type SheetHit =
   | { kind: "cell"; row: number; col: number }
   | { kind: "gutter"; row: number }
   | { kind: "header"; col: number }
+  /** The delete affordance at the right edge of a hovered column header. */
+  | { kind: "header-delete"; col: number }
   | { kind: "plus" }
   | { kind: "empty" };
 
@@ -123,6 +125,12 @@ export type Viewport = {
 
 export type EditorState = {
   active: CellAddress | null;
+  /**
+   * The fixed corner of a shift-selection; the range is the rectangle between
+   * `anchor` and `active`. Equal to `active` (or null) when a single cell is
+   * selected. Both are display positions, not wire indexes.
+   */
+  anchor: CellAddress | null;
   mode: "idle" | "editing";
   /** The text being typed. Mirrors the hidden textarea's value. */
   buffer: string;

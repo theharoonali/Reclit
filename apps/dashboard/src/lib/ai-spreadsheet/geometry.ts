@@ -25,6 +25,10 @@ export const CHECKBOX_PAD_X = 6;
 export const CHECKBOX_INNER_INSET = 4;
 /** The "+ column" affordance, parked after the last column in the header. */
 export const PLUS_COLUMN_WIDTH = 44;
+/** The delete affordance at the right edge of a hovered column header. */
+export const HEADER_DELETE_SIZE = 14;
+/** Extra slack around the delete glyph so it is comfortably clickable. */
+export const HEADER_DELETE_HIT_PAD = 3;
 export const OVERSCAN = 2;
 
 /** Type-scale sizes, mirrored on the canvas: text-body, text-label, caption. */
@@ -131,6 +135,14 @@ export const cellRect = (row: number, col: number): Rect => ({
   h: ROW_HEIGHT,
 });
 
+/** Content-space rect of a column header's delete affordance. */
+export const headerDeleteRect = (col: number): Rect => ({
+  x: (col + 1) * COL_WIDTH - CELL_PAD_X - HEADER_DELETE_SIZE,
+  y: (HEADER_HEIGHT - HEADER_DELETE_SIZE) / 2,
+  w: HEADER_DELETE_SIZE,
+  h: HEADER_DELETE_SIZE,
+});
+
 /** Content-space rect of the "+ column" affordance in the header. */
 export const plusButtonRect = (columnCount: number): Rect => ({
   x: columnCount * COL_WIDTH,
@@ -185,11 +197,19 @@ export function hitTest(x: number, y: number, viewport: Viewport): SheetHit {
 }
 
 /** The same, for the *header* canvas, which shares the horizontal scroll. */
-export function hitTestHeader(x: number, viewport: Viewport): SheetHit {
+export function hitTestHeader(
+  x: number,
+  y: number,
+  viewport: Viewport,
+): SheetHit {
   if (x < GUTTER_WIDTH) return { kind: "empty" };
   const contentX = x - GUTTER_WIDTH + viewport.scrollX;
   const col = Math.floor(contentX / COL_WIDTH);
-  if (col >= 0 && col < viewport.columnCount) return { kind: "header", col };
+  if (col >= 0 && col < viewport.columnCount) {
+    const zone = inflateRect(headerDeleteRect(col), HEADER_DELETE_HIT_PAD);
+    if (containsPoint(zone, contentX, y)) return { kind: "header-delete", col };
+    return { kind: "header", col };
+  }
   if (containsPoint(plusButtonRect(viewport.columnCount), contentX, 0)) {
     return { kind: "plus" };
   }

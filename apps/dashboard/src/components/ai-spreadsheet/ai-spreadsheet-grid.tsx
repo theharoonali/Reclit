@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { useCallback, useRef, useState } from "react";
+import { sheetToCsv } from "@/lib/ai-spreadsheet/export-csv";
 import type {
   ColumnDraft,
   JsonObject,
@@ -9,8 +10,10 @@ import type {
   SheetPayload,
 } from "@/lib/ai-spreadsheet/types";
 import { AiSpreadsheetBody } from "./ai-spreadsheet-body";
+import { AiSpreadsheetCellClearButton } from "./ai-spreadsheet-cell-clear-button";
 import { AiSpreadsheetColumnForm } from "./ai-spreadsheet-column-form";
 import { AiSpreadsheetDateEditor } from "./ai-spreadsheet-date-editor";
+import { AiSpreadsheetExportButton } from "./ai-spreadsheet-export-button";
 import { AiSpreadsheetHeader } from "./ai-spreadsheet-header";
 import { AiSpreadsheetImportButton } from "./ai-spreadsheet-import-button";
 import { AiSpreadsheetInputProxy } from "./ai-spreadsheet-input-proxy";
@@ -18,6 +21,7 @@ import { AiSpreadsheetJsonEditor } from "./ai-spreadsheet-json-editor";
 import { AiSpreadsheetSelectionBar } from "./ai-spreadsheet-selection-bar";
 import { AiSpreadsheetSidePanel } from "./ai-spreadsheet-side-panel";
 import { AiSpreadsheetUploadEditor } from "./ai-spreadsheet-upload-editor";
+import { useColumnRemove } from "./use-column-remove";
 import { useSheetCanvas } from "./use-sheet-canvas";
 import { useSheetImport } from "./use-sheet-import";
 import { useSheetLabels } from "./use-sheet-labels";
@@ -42,6 +46,9 @@ type OpenPanel = Exclude<PanelState, { kind: "closed" }>;
 export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   const t = useTranslations("aiSpreadsheet");
   const [panel, setPanel] = useState<PanelState>({ kind: "closed" });
+  // Flipped by the editor only when the cell selection goes empty ↔ non-empty,
+  // so the header's clear button can be DOM without re-rendering per keystroke.
+  const [cellsSelected, setCellsSelected] = useState(false);
 
   const { labels, formatters } = useSheetLabels();
 
@@ -94,6 +101,16 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   }, []);
   const closePanel = useCallback(() => setPanel({ kind: "closed" }), []);
 
+  // Set after the canvas exists, like `cancelEditRef` — the removal hook is
+  // wired into the canvas's pointer handlers, so it must be created first.
+  const afterColumnRemoveRef = useRef<(columnId: string) => void>(() => {});
+  const columnRemove = useColumnRemove({
+    modelRef,
+    onBeforeRemove: onBeforeDelete,
+    removeColumnLocal: model.removeColumn,
+    onAfterRemove: (columnId) => afterColumnRemoveRef.current(columnId),
+  });
+
   const canvas = useSheetCanvas({
     modelRef,
     columnsVersion,
@@ -107,6 +124,8 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     onOpenAudio: openAudio,
     onOpenFile: openFile,
     onOpenColumn: openColumn,
+    onRemoveColumn: columnRemove.removeColumn,
+    onSelectionPresence: setCellsSelected,
     selectedRef: selection.selectedRef,
     selectAllState: selection.selectAllState,
     onToggleRow: selection.toggleRow,
@@ -114,6 +133,23 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   });
   requestPaintRef.current = canvas.requestPaint;
   cancelEditRef.current = canvas.editor.cancel;
+
+  const exportCsv = useCallback(() => {
+    const model = modelRef.current;
+    if (!model) return;
+    // The model is the most truthful snapshot: the loader merged every stored
+    // page before the grid mounted, and unsaved debounced edits are in it too.
+    // The BOM makes Excel detect UTF-8.
+    const blob = new Blob([String.fromCharCode(0xfeff), sheetToCsv(model)], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${model.sheetName.replace(/[\\/:*?"<>|]/g, "-")}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [modelRef]);
 
   const importer = useSheetImport({
     sheetId: payload.spreadsheet.id,
@@ -179,6 +215,25 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   const shown = shownRef.current;
   const isOpen = panel.kind !== "closed";
 
+  // Post-delete cleanup. The columns array just shifted left, so the editor's
+  // and hover's display positions are stale: clamp the active cell back into
+  // range (collapsing any shift-range with it) and drop the hover. The panel
+  // closes only when it was showing the deleted column.
+  afterColumnRemoveRef.current = (columnId: string) => {
+    const target = shownRef.current;
+    if ("columnId" in target && target.columnId === columnId) closePanel();
+    const remaining = modelRef.current.columns;
+    const active = canvas.editor.editorRef.current.active;
+    if (remaining.length > 0 && active) {
+      canvas.editor.selectCell(
+        active.row,
+        Math.min(active.col, remaining.length - 1),
+      );
+    }
+    canvas.resetHover();
+    canvas.requestPaint();
+  };
+
   const editedColumn =
     shown.kind === "column"
       ? columns.find((column) => column.id === shown.columnId)
@@ -204,6 +259,17 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
         labels={{ import: t("import.label"), importing: t("import.importing") }}
         onPick={importer.run}
         status={importer.status}
+      />
+
+      <AiSpreadsheetExportButton
+        label={t("export.label")}
+        onExport={exportCsv}
+      />
+
+      <AiSpreadsheetCellClearButton
+        label={t("cells.delete")}
+        onClear={canvas.editor.clearSelectedCells}
+        visible={cellsSelected}
       />
 
       <AiSpreadsheetSelectionBar

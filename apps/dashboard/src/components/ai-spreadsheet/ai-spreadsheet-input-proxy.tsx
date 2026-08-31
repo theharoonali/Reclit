@@ -76,26 +76,27 @@ export function AiSpreadsheetInputProxy(props: AiSpreadsheetInputProxyProps) {
         event.preventDefault();
         editor.moveActive(0, back ? -1 : 1);
         return;
+      // Shift+arrow extends the selection rectangle; a bare arrow moves it.
       case "ArrowUp":
         event.preventDefault();
-        editor.moveActive(-1, 0);
+        (back ? editor.extendMove : editor.moveActive)(-1, 0);
         return;
       case "ArrowDown":
         event.preventDefault();
-        editor.moveActive(1, 0);
+        (back ? editor.extendMove : editor.moveActive)(1, 0);
         return;
       case "ArrowLeft":
         event.preventDefault();
-        editor.moveActive(0, -1);
+        (back ? editor.extendMove : editor.moveActive)(0, -1);
         return;
       case "ArrowRight":
         event.preventDefault();
-        editor.moveActive(0, 1);
+        (back ? editor.extendMove : editor.moveActive)(0, 1);
         return;
       case "Delete":
       case "Backspace":
         event.preventDefault();
-        editor.clearActiveCell();
+        editor.clearSelectedCells();
         return;
       default:
         break;

@@ -16,6 +16,7 @@ const BLINK_MS = 530;
 
 const IDLE: EditorState = {
   active: null,
+  anchor: null,
   mode: "idle",
   buffer: "",
   caret: 0,
@@ -48,6 +49,12 @@ export type CellEditorArgs = {
   onOpenDate: (row: number, columnId: string) => void;
   onOpenAudio: (row: number, columnId: string) => void;
   onOpenFile: (row: number, columnId: string) => void;
+  /**
+   * Fired only when selection presence flips (nothing selected ↔ something
+   * selected), so the DOM control it drives re-renders at most once per flip —
+   * never per shift-click or arrow key.
+   */
+  onSelectionPresence?: (has: boolean) => void;
 };
 
 /**
@@ -67,6 +74,15 @@ export function useCellEditor(args: CellEditorArgs) {
   const { modelRef, viewportRef, ctxRef, fontsRef, requestPaint } = args;
   const { getCell, setCell, scrollCellIntoView } = args;
   const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile } = args;
+  const { onSelectionPresence } = args;
+
+  const presenceRef = useRef(false);
+  const notifyPresence = useCallback(() => {
+    const has = editorRef.current.active !== null;
+    if (has === presenceRef.current) return;
+    presenceRef.current = has;
+    onSelectionPresence?.(has);
+  }, [onSelectionPresence]);
 
   const stopBlink = useCallback(() => {
     if (blinkRef.current !== 0) window.clearInterval(blinkRef.current);
@@ -142,16 +158,69 @@ export function useCellEditor(args: CellEditorArgs) {
 
   // Commits before moving: clicking another cell mid-edit saves the edit —
   // pressing Enter first is not required, and Escape still discards.
+  // A plain select collapses any shift-range: the anchor snaps to the cell.
   const selectCell = useCallback(
     (row: number, col: number) => {
       commitPending();
       stopBlink();
-      editorRef.current = { ...IDLE, active: { row, col } };
+      editorRef.current = {
+        ...IDLE,
+        active: { row, col },
+        anchor: { row, col },
+      };
       resetProxy("");
       focusProxy();
       requestPaint();
+      notifyPresence();
     },
-    [commitPending, focusProxy, requestPaint, resetProxy, stopBlink],
+    [
+      commitPending,
+      focusProxy,
+      notifyPresence,
+      requestPaint,
+      resetProxy,
+      stopBlink,
+    ],
+  );
+
+  /**
+   * Shift-click / shift-arrow: moves `active` while the anchor stays put, so
+   * the rectangle between them is the selection. With no prior selection the
+   * anchor seeds at the target and the extend degrades to a plain select.
+   */
+  const extendTo = useCallback(
+    (row: number, col: number) => {
+      const before = editorRef.current;
+      const anchor = before.anchor ?? before.active ?? { row, col };
+      commitPending();
+      stopBlink();
+      editorRef.current = { ...IDLE, active: { row, col }, anchor };
+      resetProxy("");
+      focusProxy();
+      requestPaint();
+      notifyPresence();
+    },
+    [
+      commitPending,
+      focusProxy,
+      notifyPresence,
+      requestPaint,
+      resetProxy,
+      stopBlink,
+    ],
+  );
+
+  const extendMove = useCallback(
+    (deltaRow: number, deltaCol: number) => {
+      const active = editorRef.current.active;
+      const viewport = viewportRef.current;
+      if (!active || !viewport) return;
+      const row = clamp(active.row + deltaRow, 0, viewport.rowExtent - 1);
+      const col = clamp(active.col + deltaCol, 0, viewport.columnCount - 1);
+      extendTo(row, col);
+      scrollCellIntoView(row, col);
+    },
+    [extendTo, scrollCellIntoView, viewportRef],
   );
 
   const beginEdit = useCallback(
@@ -210,6 +279,7 @@ export function useCellEditor(args: CellEditorArgs) {
       const text = seed ?? editableText(getCell(row, column.id), column.type);
       editorRef.current = {
         active: { row, col },
+        anchor: { row, col },
         mode: "editing",
         buffer: text,
         caret: text.length,
@@ -286,24 +356,50 @@ export function useCellEditor(args: CellEditorArgs) {
     requestPaint();
   }, [refreshCaretMetrics, requestPaint, restartBlink]);
 
-  const clearActiveCell = useCallback(() => {
-    const active = editorRef.current.active;
-    const column = active ? columnAt(active.col) : undefined;
-    if (!active || !column) return;
-    setCell(active.row, column.id, null);
+  /**
+   * Blanks every stored cell in the shift-selection (a single cell when the
+   * range is collapsed). Walks the model's sparse cell map rather than the
+   * selected rectangle — a shift-selection can span millions of virtual rows,
+   * but only stored cells can need clearing.
+   */
+  const clearSelectedCells = useCallback(() => {
+    const editor = editorRef.current;
+    const model = modelRef.current;
+    const active = editor.active;
+    if (!model || !active) return;
+    const anchor = editor.anchor ?? active;
+    const rowFirst = Math.min(anchor.row, active.row);
+    const rowLast = Math.max(anchor.row, active.row);
+    const colFirst = Math.min(anchor.col, active.col);
+    const colLast = Math.max(anchor.col, active.col);
+    const displayCol = new Map<string, number>();
+    model.columns.forEach((column, index) => {
+      displayCol.set(column.id, index);
+    });
+    for (const key of [...model.cells.keys()]) {
+      const [rowText, columnId] = key.split(/:(.*)/s);
+      if (rowText === undefined || !columnId) continue;
+      const row = Number.parseInt(rowText, 10);
+      if (row < rowFirst || row > rowLast) continue;
+      const col = displayCol.get(columnId);
+      if (col === undefined || col < colFirst || col > colLast) continue;
+      setCell(row, columnId, null);
+    }
     requestPaint();
-  }, [columnAt, requestPaint, setCell]);
+  }, [modelRef, requestPaint, setCell]);
 
   return {
     editorRef,
     proxyRef,
     selectCell,
+    extendTo,
+    extendMove,
     beginEdit,
     commit,
     cancel,
     moveActive,
     syncFromProxy,
-    clearActiveCell,
+    clearSelectedCells,
     focusProxy,
   };
 }

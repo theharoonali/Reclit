@@ -66,10 +66,10 @@ function CapsuleSelect<T extends string = string>(
             className={cn(
               "inline-flex h-8 items-center rounded-full border px-3 text-label transition-colors",
               checked
-                ? "border-primary bg-primary text-primary-foreground"
+                ? "border-primary bg-transparent text-primary"
                 : "border-input bg-transparent text-muted-foreground hover:text-foreground",
               // Buttons keep the halo recipe: a checked capsule's border is
-              // already the ring colour, so a border-only focus would vanish.
+              // the ring colour, so a border-only focus would vanish.
               focusRing,
             )}
             data-value={option.value}

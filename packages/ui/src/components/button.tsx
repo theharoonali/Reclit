@@ -16,6 +16,7 @@ import { cn } from "../utils";
  * | `outline` | a neutral action that still needs an edge — toolbars, empty states |
  * | `ghost` | dense or repeated actions: icon buttons, list rows, cancel |
  * | `destructive` | delete, and nothing else |
+ * | `destructive-outline` | a destructive action that is not the surface's primary emphasis |
  * | `link` | an action that reads as text |
  *
  * Icons need no classes: the base sizes any `svg` child to 4 and spaces it
@@ -34,6 +35,8 @@ const buttonVariants = cva(
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        "destructive-outline":
+          "border border-destructive bg-transparent text-destructive hover:bg-destructive/10",
         outline:
           "border border-input bg-transparent hover:bg-accent hover:text-accent-foreground",
         secondary:

@@ -4,7 +4,6 @@ import { prisma } from "../../db/prisma";
 import {
   SpreadsheetCellTypeMismatchError,
   SpreadsheetColumnNotFoundError,
-  SpreadsheetColumnNotLastError,
   SpreadsheetPromptWithoutNodeError,
   SpreadsheetRowExistsError,
 } from "./spreadsheet.errors";
@@ -234,7 +233,11 @@ export class SpreadsheetCellsService {
     return { id: shortRowId(rowIndex) };
   }
 
-  /** Append-only: the new column's index is always the current column count. */
+  /**
+   * Append-only: the new column lands one past the highest stored index.
+   * Not the count — `removeColumn` leaves permanent gaps, and reusing a
+   * deleted index would resurrect its old identity.
+   */
   async createColumn({
     id,
     name,
@@ -243,7 +246,11 @@ export class SpreadsheetCellsService {
     prompt,
   }: CreateColumnInput): Promise<SheetColumn> {
     await spreadsheetService.byId(id);
-    const index = await prisma.column.count({ where: { spreadsheetId: id } });
+    const maxIndex = await prisma.column.aggregate({
+      where: { spreadsheetId: id },
+      _max: { index: true },
+    });
+    const index = (maxIndex._max.index ?? -1) + 1;
     const record = await prisma.column.create({
       data: {
         id: columnId(id, index),
@@ -319,15 +326,13 @@ export class SpreadsheetCellsService {
   }
 
   /**
-   * Only the last column can be deleted — an interior delete would leave a
-   * hole or force renumbering every column and cell pk after it.
+   * Column indexes are absolute positions: deleting drops the column and its
+   * cells, never renumbers later columns, and the index becomes a permanent
+   * gap — it is never reused. Deleting an index that holds no column is
+   * NOT_FOUND, matching `updateColumn`.
    */
   async removeColumn(id: string, columnIndex: number): Promise<{ id: string }> {
     await spreadsheetService.columnOrThrow(id, columnIndex);
-    const count = await prisma.column.count({ where: { spreadsheetId: id } });
-    if (columnIndex !== count - 1) {
-      throw new SpreadsheetColumnNotLastError(columnIndex, count - 1);
-    }
     await prisma.$transaction([
       prisma.cell.deleteMany({ where: { spreadsheetId: id, columnIndex } }),
       prisma.column.delete({ where: { id: columnId(id, columnIndex) } }),

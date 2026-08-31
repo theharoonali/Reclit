@@ -10,6 +10,7 @@ import {
 } from "./geometry";
 import { paintCell } from "./paint-cell";
 import { paintCheckbox } from "./paint-checkbox";
+import { withAlpha } from "./theme-colors";
 import type {
   EditorState,
   SheetFonts,
@@ -115,6 +116,27 @@ export function paintBody(args: BodyPaintArgs) {
   // protects the gutter eats it — the first column and first row would come
   // out visibly thinner than the rest.
   const active = editor.active;
+  const anchor = editor.anchor;
+  const hasRange =
+    active !== null &&
+    anchor !== null &&
+    (anchor.row !== active.row || anchor.col !== active.col);
+  if (hasRange && editor.mode === "idle") {
+    // The shift-selection rectangle: a wash plus its own ring, painted first
+    // so the active cell's ring stays readable inside it.
+    const r0 = Math.min(anchor.row, active.row);
+    const c0 = Math.min(anchor.col, active.col);
+    const x = c0 * COL_WIDTH;
+    const y = r0 * ROW_HEIGHT;
+    const w = (Math.abs(anchor.col - active.col) + 1) * COL_WIDTH;
+    const h = (Math.abs(anchor.row - active.row) + 1) * ROW_HEIGHT;
+    ctx.fillStyle = withAlpha(palette.ring, 0.08);
+    ctx.fillRect(x, y, w, h);
+    const ring = 2 / dpr;
+    ctx.strokeStyle = palette.ring;
+    ctx.lineWidth = ring;
+    ctx.strokeRect(x + ring / 2, y + ring / 2, w - ring, h - ring);
+  }
   if (active && editor.mode === "idle") {
     const rect = cellRect(active.row, active.col);
     const ring = 2 / dpr;

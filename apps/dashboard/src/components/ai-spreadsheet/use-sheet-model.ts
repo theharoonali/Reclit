@@ -76,6 +76,7 @@ export type SheetModelApi = {
   setCell: (row: number, columnId: string, value: CellValue) => void;
   addColumn: (draft: ColumnDraft) => void;
   updateColumn: (id: string, draft: ColumnDraft) => void;
+  removeColumn: (id: string) => void;
   removeRows: (rows: ReadonlySet<number>) => void;
 };
 
@@ -132,6 +133,21 @@ export function useSheetModel(payload: SheetPayload): SheetModelApi {
     setColumnsVersion((version) => version + 1);
   }, []);
 
+  // Mirrors the backend: the column's wire index becomes a permanent gap, so
+  // `nextColumnIndex` is deliberately untouched — the next column still
+  // appends past the highest index ever minted. The columns array just gets
+  // shorter, which narrows the content, so this one re-renders.
+  const removeColumn = useCallback((id: string) => {
+    const current = modelRef.current;
+    if (!current) return;
+    current.columns = current.columns.filter((column) => column.id !== id);
+    for (const key of [...current.cells.keys()]) {
+      const [, columnId] = key.split(/:(.*)/s);
+      if (columnId === id) current.cells.delete(key);
+    }
+    setColumnsVersion((version) => version + 1);
+  }, []);
+
   // Deleted rows go blank in place (absolute positions, nothing shifts), so
   // like a cell edit this repaints rather than re-renders.
   const removeRows = useCallback((rows: ReadonlySet<number>) => {
@@ -151,6 +167,7 @@ export function useSheetModel(payload: SheetPayload): SheetModelApi {
     setCell,
     addColumn,
     updateColumn,
+    removeColumn,
     removeRows,
   };
 }

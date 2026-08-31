@@ -162,6 +162,24 @@ describe("normalize", () => {
     expect(model.columns[0]?.node).toBeNull();
   });
 
+  // Deleting a column leaves its index as a permanent gap on the backend, so
+  // a payload can arrive gapped; the next column must still mint past the max.
+  test("a gapped payload renders compactly and appends past the max index", () => {
+    const model = normalize(
+      payload({
+        columns: [
+          { id: "col.0", index: 0, name: "Name", type: "string", ...plain },
+          { id: "col.2", index: 2, name: "Active", type: "boolean", ...plain },
+        ],
+      }),
+    );
+    expect(model.columns.map((column) => column.id)).toEqual([
+      "col.0",
+      "col.2",
+    ]);
+    expect(model.nextColumnIndex).toBe(3);
+  });
+
   // `formula` is in the API's COLUMN_TYPES_WIRE but not in the column picker:
   // the sheet must still render one the API returns, as plain text.
   test("keeps a formula column rather than degrading it", () => {

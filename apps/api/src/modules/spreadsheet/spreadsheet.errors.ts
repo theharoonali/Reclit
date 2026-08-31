@@ -51,17 +51,6 @@ export class SpreadsheetRowExistsError extends DomainError {
   }
 }
 
-export class SpreadsheetColumnNotLastError extends DomainError {
-  readonly kind = "conflict";
-  readonly code = "SPREADSHEET_COLUMN_NOT_LAST";
-  constructor(columnIndex: number, lastIndex: number) {
-    super(
-      `Only the last column (${lastIndex}) can be deleted; got ${columnIndex}`,
-    );
-    this.name = "SpreadsheetColumnNotLastError";
-  }
-}
-
 // Import failures. All `bad_request`: `conflict` in this repo means the sheet's
 // state forbids the operation, and an import is state-indifferent by design —
 // it overwrites whatever is there. Every import failure is a bad payload.

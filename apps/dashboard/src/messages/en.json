@@ -18,10 +18,6 @@
     "expand": "Expand sidebar",
     "workspace": "Workspace"
   },
-  "header": {
-    "searchPlaceholder": "Search...",
-    "searchLabel": "Search"
-  },
   "dashboard": {
     "title": "Dashboard",
     "subtitle": "An overview of your workspace.",
@@ -124,6 +120,12 @@
       "delete": "Delete rows",
       "deleting": "Deleting...",
       "error": "Deleting failed. Try again."
+    },
+    "export": {
+      "label": "Export"
+    },
+    "cells": {
+      "delete": "Delete"
     },
     "import": {
       "label": "Import",

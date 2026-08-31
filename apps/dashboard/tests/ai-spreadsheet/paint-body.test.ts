@@ -50,6 +50,7 @@ const MODEL: SheetModel = {
 
 const idleAt = (row: number, col: number): EditorState => ({
   active: { row, col },
+  anchor: { row, col },
   mode: "idle",
   buffer: "",
   caret: 0,

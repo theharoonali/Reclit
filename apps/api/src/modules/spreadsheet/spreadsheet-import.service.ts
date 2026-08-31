@@ -119,9 +119,10 @@ export class SpreadsheetImportService {
   }
 
   /**
-   * The only way to wipe a sheet's grid. `removeColumn` permits deleting the
-   * LAST column only, so a wipe cannot loop it. Delete and rebuild happen in
-   * one transaction, so a failed import leaves the sheet exactly as it was.
+   * The only full-grid wipe-and-rebuild: `removeColumn` drops single columns
+   * (leaving index gaps), but only an import replaces everything at once.
+   * Delete and rebuild happen in one transaction, so a failed import leaves
+   * the sheet exactly as it was.
    */
   async replaceAll(
     id: string,

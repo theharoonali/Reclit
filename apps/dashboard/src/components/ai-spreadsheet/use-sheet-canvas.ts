@@ -38,6 +38,9 @@ export type SheetCanvasArgs = {
   onOpenAudio: (row: number, columnId: string) => void;
   onOpenFile: (row: number, columnId: string) => void;
   onOpenColumn: (columnId?: string) => void;
+  onRemoveColumn: (columnId: string) => void;
+  /** Flips when the cell selection goes empty ↔ non-empty. See use-cell-editor. */
+  onSelectionPresence?: (has: boolean) => void;
   /** Row selection: the ticked set, its header state, and the toggles. */
   selectedRef: React.RefObject<Set<number>>;
   selectAllState: () => CheckboxPaintState;
@@ -58,6 +61,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   const { getCell, setCell } = args;
   const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile, onOpenColumn } =
     args;
+  const { onRemoveColumn, onSelectionPresence } = args;
   const { selectedRef, selectAllState, onToggleRow, onToggleAllRows } = args;
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -109,8 +113,14 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     onOpenDate,
     onOpenAudio,
     onOpenFile,
+    onSelectionPresence,
   });
   const { editorRef, proxyRef } = editor;
+
+  /** For post-delete cleanup: a stale hover would paint a ghost affordance. */
+  const resetHover = useCallback(() => {
+    hoverRef.current = { kind: "empty" };
+  }, []);
 
   /** Parks the hidden textarea over the active cell — see the proxy's docs. */
   const positionProxy = useCallback(() => {
@@ -210,6 +220,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     requestPaint,
     onOpenJson,
     onOpenColumn,
+    onRemoveColumn,
     onToggleAudio: audio.toggle,
     onToggleRow,
     onToggleAllRows,
@@ -222,6 +233,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     spacerRef,
     editor,
     requestPaint,
+    resetHover,
     ...pointer,
   };
 }

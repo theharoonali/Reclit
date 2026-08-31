@@ -52,7 +52,7 @@ route-group layout — never by rendering chrome itself.
 | --- | --- | --- |
 | `components/layout/app-shell.tsx` | the grid **and the scroll model**: sidebar + header + `{children}` | the only file that knows the overall page geometry |
 | `components/layout/app-sidebar.tsx` | side menu, collapsed/expanded state | renders `navSections` + `bottomNavItems` from `config/nav.ts` — no hardcoded links |
-| `components/layout/app-header.tsx` | top bar: title slot, actions slot, search | takes slots as props; knows nothing about any feature |
+| `components/layout/app-header.tsx` | top bar: title slot, actions slot | takes slots as props; knows nothing about any feature |
 | `components/layout/header-actions.tsx` | the portal that puts a page's controls in the header | the page owns the state; only the DOM moves |
 
 Consequences you must preserve:

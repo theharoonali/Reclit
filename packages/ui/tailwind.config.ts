@@ -81,7 +81,7 @@ export default {
       // The app's one motion setting. Panels, drawers and the sidebar all
       // share it so nothing slides at its own private speed.
       transitionDuration: {
-        smooth: "220ms",
+        smooth: "300ms",
       },
       transitionTimingFunction: {
         smooth: "cubic-bezier(0.32, 0.72, 0, 1)",

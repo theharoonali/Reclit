@@ -24,8 +24,11 @@ page of rows, and hands the payload to the grid.
 | `…/ai-spreadsheet-date-editor.tsx` | client | UTC calendar behind a date cell |
 | `…/ai-spreadsheet-upload-editor.tsx` | client | upload panel behind file and audio cells (`POST /files`) |
 | `…/ai-spreadsheet-import-button.tsx` | client | the Import control, portalled into the app header |
+| `…/ai-spreadsheet-export-button.tsx` | client | the Export (CSV download) control, portalled into the app header |
+| `…/ai-spreadsheet-cell-clear-button.tsx` | client | the red-outline Delete for the cell selection, portalled into the app header |
 | `…/ai-spreadsheet-selection-bar.tsx` | client | the "N rows selected" + Delete control, portalled into the app header |
 | `…/use-sheet-selection.ts` | hook | the gutter's tick set, select-all, and the batch delete mutation |
+| `…/use-column-remove.ts` | hook | the header's per-column delete mutation and local-model cleanup |
 | `…/use-sheet-import.ts` | hook | uploads a CSV/XLSX, then refreshes the grid without remounting it |
 | `…/use-sheet-canvas.ts` | hook | wires sizing, painting, pointer routing and the editor |
 | `…/use-sheet-audio.ts` | hook | one shared `Audio` element and which audio cell is playing |
@@ -62,6 +65,13 @@ Feature: [spreadsheet](../features/spreadsheet.md) ·
 - On row delete: `spreadsheet.removeRows` with every ticked row index; on
   success the rows are removed from the local model and repainted (the same
   no-invalidation deviation as cell edits).
+- On column delete: `spreadsheet.removeColumn` with the column's wire index; on
+  success the column and its cells are dropped from the local model (the wire
+  index stays a permanent gap — nothing renumbers) and the grid re-renders via
+  `columnsVersion`.
+- Export calls no API: the CSV is serialised from the in-memory model
+  (`lib/ai-spreadsheet/export-csv.ts`) — the loader already merged every stored
+  page, and unsaved debounced edits are included — and downloaded as a Blob.
 - Audio uploads: REST `POST /files`, then the returned public URL is stored in
   the cell via `setCell`.
 - Import: REST `POST /spreadsheets/:id/import` (multipart), sent for the sheet
@@ -108,6 +118,12 @@ key gone, and blank a freshly imported cell.
 - **Columns.** Types come from the payload; unknown types degrade to `string`.
   Clicking a column header opens the panel to edit its name and type; clicking
   the `+` after the last column adds one. Widths are uniform and fixed.
+- **Column delete.** Hovering a column header swaps its type name for a red ×
+  at the right edge; clicking it calls `spreadsheet.removeColumn`. The column
+  and its cells go for good and its wire index is never reused (later columns
+  keep their ids — the grid just renders the remaining columns side by side).
+  Pending debounced writes are discarded first, the panel closes if it was
+  showing that column, and the active cell is clamped back into range.
 - **Column nodes.** The panel form also offers a Node select (None / AI /
   Email; unknown server nodes degrade to None). Choosing a node reveals a
   Prompt textarea; setting it back to None hides the field and submits
@@ -123,6 +139,17 @@ key gone, and blank a freshly imported cell.
   discards); an unchanged buffer commits nothing. An entry that does not parse
   for its column type is kept as raw text and painted in the destructive
   colour rather than discarded.
+- **Multi-cell selection.** Shift+click (or shift+arrows) extends a rectangle
+  from the anchor — the last plainly-selected cell — to the target; it is
+  painted as a translucent ring-coloured wash with its own ring, the active
+  cell's ring on top. A plain click or arrow collapses it. While any cell is
+  selected a red-outline **Delete** button (the `destructive-outline` Button
+  variant from `packages/ui`) shows in the app header; it and the Delete /
+  Backspace keys blank every stored cell in the rectangle via the same
+  debounced `setCell(null)` path as typing. The clearing walks the sparse cell
+  map, not the rectangle, so a selection spanning millions of virtual rows
+  costs only the stored cells it covers. Shift+click never triggers capsule
+  actions (file open, audio play).
 - **The selection ring** is stroked inset by half its width. A stroke straddles
   its path, so ringing the cell bounds would put half the ring outside the
   cell, where the clip that protects the gutter eats it — the first column and
@@ -177,6 +204,10 @@ key gone, and blank a freshly imported cell.
   area and still owns the import state. Picking a `.csv`/`.xlsx` replaces the
   sheet's entire grid; the button reads "Importing…" while it runs and a failure
   shows inline beside it (`role="alert"`) with the sheet untouched.
+- **Export** sits beside Import in the app header and downloads the sheet as
+  CSV (RFC 4180 quoting, UTF-8 BOM for Excel, filename from the sheet name).
+  Values export raw — unlocalised numbers, ISO dates, stringified JSON — so the
+  file re-imports cleanly.
 - **The panel** slides in over the sheet from the right, inside the row below
   the header, so it never covers the column names and never resizes or reflows
   the grid. It stays mounted and inert while closed so it can animate out.
@@ -193,8 +224,8 @@ key gone, and blank a freshly imported cell.
   reads every **stored** row up front and merges the pages, which is bounded by
   what was actually written (rows are sparse, and import caps at 20,000) rather
   than by the 5,000,000-row virtual height — but a very large sheet is still one
-  big payload on load. Rows past what is stored render blank, which is correct. multi-cell selection, TSV paste, column reorder or delete in the UI
-  (the API allows deleting the last column), row insert in the UI (row
+  big payload on load. Rows past what is stored render blank, which is correct.
+  Also not implemented: TSV paste, column reorder, row insert in the UI (row
   *delete* is implemented — see "Row selection & delete"), undo/redo, formulas
   (the `formula` column type is storage-only and edits as text), sorting, and
   filtering. Persistence **is** implemented — see "APIs called".

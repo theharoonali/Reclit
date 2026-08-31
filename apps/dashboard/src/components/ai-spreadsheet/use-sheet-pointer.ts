@@ -40,6 +40,7 @@ export type SheetPointerArgs = {
   requestPaint: () => void;
   onOpenJson: (row: number, columnId: string) => void;
   onOpenColumn: (columnId?: string) => void;
+  onRemoveColumn: (columnId: string) => void;
   onToggleAudio: (row: number, columnId: string, url: string) => void;
   onToggleRow: (row: number) => void;
   onToggleAllRows: () => void;
@@ -58,7 +59,7 @@ const CHECKBOX_HIT_PAD = 5;
 export function createSheetPointerHandlers(args: SheetPointerArgs) {
   const { modelRef, viewportRef, ctxRef, fontsRef, hoverRef } = args;
   const { labels, editor, getCell, requestPaint } = args;
-  const { onOpenJson, onOpenColumn, onToggleAudio } = args;
+  const { onOpenJson, onOpenColumn, onRemoveColumn, onToggleAudio } = args;
   const { onToggleRow, onToggleAllRows } = args;
 
   /** Canvas-relative CSS pixels. DPR never enters this — see `geometry`. */
@@ -141,6 +142,13 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
       return;
     }
 
+    // Shift-click extends the selection and nothing more — a capsule under
+    // the pointer must not open files or toggle audio mid-selection.
+    if (event.shiftKey) {
+      editor.extendTo(hit.row, hit.col);
+      return;
+    }
+
     editor.selectCell(hit.row, hit.col);
 
     const target = capsuleTargetAt(hit.row, hit.col, x, y);
@@ -181,20 +189,29 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
       onToggleAllRows();
       return;
     }
-    const hit = hitTestHeader(x, viewportRef.current);
+    const hit = hitTestHeader(x, y, viewportRef.current);
     if (hit.kind === "plus") onOpenColumn();
-    else if (hit.kind === "header") {
+    else if (hit.kind === "header-delete") {
+      const columnId = modelRef.current?.columns[hit.col]?.id;
+      if (columnId) onRemoveColumn(columnId);
+    } else if (hit.kind === "header") {
       onOpenColumn(modelRef.current?.columns[hit.col]?.id);
     }
   };
 
   const handleHeaderPointerMove = (event: MouseEvent<HTMLDivElement>) => {
-    const hit = hitTestHeader(localPoint(event).x, viewportRef.current);
+    const { x, y } = localPoint(event);
+    const hit = hitTestHeader(x, y, viewportRef.current);
     const previous = hoverRef.current;
-    const sameColumn =
-      hit.kind !== "header" ||
-      (previous.kind === "header" && hit.col === previous.col);
-    if (hit.kind === previous.kind && sameColumn) return;
+    // `header` and `header-delete` are distinct kinds on purpose: crossing
+    // onto the delete glyph within one column must still repaint.
+    const same =
+      hit.kind === "header" || hit.kind === "header-delete"
+        ? previous.kind === hit.kind &&
+          "col" in previous &&
+          previous.col === hit.col
+        : hit.kind === previous.kind;
+    if (same) return;
     hoverRef.current = hit;
     requestPaint();
   };
