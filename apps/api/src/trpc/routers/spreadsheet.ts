@@ -32,7 +32,9 @@ export const spreadsheetRouter = createTRPCRouter({
 
   create: publicProcedure
     .input(createSpreadsheetInput)
-    .mutation(({ input }) => spreadsheetService.create(input)),
+    .mutation(({ input }) =>
+      spreadsheetService.create(input).catch(mapDomainError),
+    ),
 
   remove: publicProcedure
     .input(idInput)

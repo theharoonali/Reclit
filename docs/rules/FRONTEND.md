@@ -51,7 +51,7 @@ route-group layout — never by rendering chrome itself.
 | File | Owns | Rule |
 | --- | --- | --- |
 | `components/layout/app-shell.tsx` | the grid **and the scroll model**: sidebar + header + `{children}` | the only file that knows the overall page geometry |
-| `components/layout/app-sidebar.tsx` | side menu, collapsed/expanded state | renders `navSections` + `bottomNavItems` from `config/nav.ts` — no hardcoded links |
+| `components/layout/app-sidebar.tsx` | side menu, collapsed/expanded state | renders `navSections` from `config/nav.ts` — no hardcoded links |
 | `components/layout/app-header.tsx` | top bar: title slot, actions slot | takes slots as props; knows nothing about any feature |
 | `components/layout/header-actions.tsx` | the portal that puts a page's controls in the header | the page owns the state; only the DOM moves |
 
@@ -173,7 +173,7 @@ Rules that follow from this:
   | Global | File | How |
   | --- | --- | --- |
   | colors | `packages/ui/src/globals.css` | HSL triples on `:root` and `.dark`, one per token |
-  | border radius | `packages/ui/src/globals.css` | `--radius`; the `rounded-*` steps derive from it in `tailwind.config.ts` |
+  | border radius | `packages/ui/src/globals.css` | `--radius`; the single `rounded-sm` step derives from it in `tailwind.config.ts` |
   | focus | `packages/ui/src/styles/focus-ring.ts` | the one `focusRing` string every focusable control composes |
   | type scale ↔ `cn()` | `packages/ui/src/utils/cn.ts` | `FONT_SIZES`, so tailwind-merge treats the scale as sizes, not colours |
   | fonts | `packages/ui/tailwind.config.ts` | `font-sans`/`font-mono` → `--font-sans`/`--font-mono`, set in `app/layout.tsx` (`Google_Sans` + `Geist_Mono`) |
@@ -197,22 +197,23 @@ Rules that follow from this:
 ### Radius
 
 `--radius` in `packages/ui/src/globals.css` is the only radius in the app, and
-`theme.extend.borderRadius` derives every step from it:
+`theme.extend.borderRadius` defines exactly one step from it:
 
 | Class | Value | Use for |
 | --- | --- | --- |
-| `rounded-sm` | `--radius - 4px` | **every control** — buttons, inputs, textareas, selects (trigger and content), nav items, chips, menu items |
-| `rounded-md` | `--radius - 2px` | currently unused; an in-between step if a surface ever needs one |
-| `rounded-lg` | `--radius` | cards, panels, popovers |
-| `rounded-xl` / `rounded-2xl` | `+4px` / `+8px` | large surfaces and icon tiles |
+| `rounded-sm` | `--radius - 4px` | **everything** — divs/cards/panels, buttons, inputs, textareas, selects (trigger and content), popovers, dialogs, menus, nav items, chips, avatars |
 
-- **`rounded-full` and `rounded-none` are the only literal radii allowed.**
-  Every other `rounded-*` must be one of the steps above; `rounded-r`,
-  `rounded-[10px]` and friends bypass the token and will not move when it does.
-- **Controls all share one step, `rounded-sm`.** A new control never picks its
-  own; to resize every corner in the app at once, edit `--radius`.
-- A control that needs a different corner than its neighbours is almost always a
-  sign the step is wrong. Change `--radius`, not the component.
+- **`rounded-sm` is the app's one corner.** Every element that rounds uses it,
+  so the whole app reshapes with a single `--radius` edit. `rounded-md`,
+  `rounded-lg`, `rounded-xl` etc. are not part of the system — the config
+  deliberately defines only `sm`, and using another step (which would fall
+  back to Tailwind's core value) is a rule violation.
+- **`rounded-full` and `rounded-none` are the only other radii allowed** —
+  `rounded-full` strictly for pills (badges, capsules, progress tracks).
+  `rounded-r`, `rounded-[10px]` and friends bypass the token and will not
+  move when it does.
+- A surface that seems to need a different corner than its neighbours is a
+  sign the token is wrong. Change `--radius`, not the component.
 
 ### Focus
 

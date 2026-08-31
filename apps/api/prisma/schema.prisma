@@ -32,17 +32,48 @@ enum ColumnType {
   URL
 }
 
+/// The person using the app. There is no auth yet: exactly one user is seeded
+/// and every workspace belongs to them (docs/plans/013-workspaces.md).
+model User {
+  id         String      @id @default(uuid())
+  name       String
+  email      String?
+  imageUrl   String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  workspaces Workspace[]
+}
+
+/// A workspace owns spreadsheets. The relation is one-to-many for future
+/// scope; the app creates exactly one sheet per workspace today, named after
+/// the workspace.
+model Workspace {
+  id           String        @id @default(uuid())
+  name         String
+  ownerId      String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  spreadsheets Spreadsheet[]
+
+  @@index([ownerId])
+  @@index([createdAt])
+}
+
 model Spreadsheet {
-  id        String   @id @default(uuid())
-  name      String
-  totalRows Int      @default(5000000)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  columns   Column[]
-  rows      Row[]
-  cells     Cell[]
+  id          String    @id @default(uuid())
+  name        String
+  totalRows   Int       @default(5000000)
+  workspaceId String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  columns     Column[]
+  rows        Row[]
+  cells       Cell[]
 
   @@index([createdAt])
+  @@index([workspaceId])
 }
 
 /// id is the deterministic scoped key "<sheetId>.col.<index>" — the wire id is

@@ -1,5 +1,9 @@
-import { isRecordNotFound } from "../../common/prisma-errors";
+import {
+  isForeignKeyViolation,
+  isRecordNotFound,
+} from "../../common/prisma-errors";
 import { prisma } from "../../db/prisma";
+import { WorkspaceNotFoundError } from "../workspace/workspace.errors";
 import {
   SpreadsheetColumnNotFoundError,
   SpreadsheetNotFoundError,
@@ -78,11 +82,21 @@ export class SpreadsheetService {
   }
 
   async create(input: CreateSpreadsheetInput): Promise<SpreadsheetMeta> {
-    const record = await prisma.spreadsheet.create({
-      data: { name: input.name, totalRows: input.totalRows },
-      select: metaSelect,
-    });
-    return toMeta(record);
+    try {
+      const record = await prisma.spreadsheet.create({
+        data: {
+          name: input.name,
+          totalRows: input.totalRows,
+          workspaceId: input.workspaceId,
+        },
+        select: metaSelect,
+      });
+      return toMeta(record);
+    } catch (error) {
+      if (isForeignKeyViolation(error))
+        throw new WorkspaceNotFoundError(input.workspaceId);
+      throw error;
+    }
   }
 
   async remove(id: string): Promise<{ id: string }> {

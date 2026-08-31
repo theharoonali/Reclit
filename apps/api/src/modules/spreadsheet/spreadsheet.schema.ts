@@ -164,9 +164,18 @@ const prompt = z.string().trim().min(1, "Prompt cannot be empty").max(10_000);
 // numbers.
 const gridIndex = z.coerce.number().int().min(0);
 
+/** The sheet's virtual grid height; shared with workspaceService.create. */
+export const DEFAULT_TOTAL_ROWS = 5_000_000;
+
 export const createSpreadsheetInput = z.object({
   name,
-  totalRows: z.coerce.number().int().min(1).max(10_000_000).default(5_000_000),
+  workspaceId: z.string().min(1),
+  totalRows: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10_000_000)
+    .default(DEFAULT_TOTAL_ROWS),
 });
 
 export const sheetRowsInput = idInput.extend(paginationInput.shape);

@@ -15,7 +15,62 @@
   "sidebar": {
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
-    "workspace": "Workspace"
+    "credits": {
+      "label": "Credits",
+      "count": "{used}/{total}",
+      "progressLabel": "Credits used",
+      "plans": {
+        "pro": "Pro",
+        "premium": "Premium"
+      }
+    }
+  },
+  "account": {
+    "menuLabel": "Account menu",
+    "settings": "Settings",
+    "logout": "Log out"
+  },
+  "workspace": {
+    "newWorkspace": "New workspace",
+    "create": {
+      "title": "New workspace",
+      "description": "A spreadsheet with the same name is created with it.",
+      "nameLabel": "Name",
+      "namePlaceholder": "Workspace name",
+      "submit": "Create",
+      "submitting": "Creating...",
+      "cancel": "Cancel",
+      "error": "The workspace could not be created. Try again."
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "description": "Your profile and subscription.",
+    "profile": {
+      "title": "Profile",
+      "nameLabel": "Name",
+      "emailLabel": "Email",
+      "loading": "Loading profile...",
+      "loadError": "The profile could not be loaded."
+    },
+    "subscription": {
+      "title": "Subscription",
+      "price": "${price}",
+      "perMonth": "/month",
+      "credits": "{credits} credits / month",
+      "currentPlan": "Current plan",
+      "upgrade": "Upgrade",
+      "plans": {
+        "pro": "Pro",
+        "premium": "Premium"
+      },
+      "addons": {
+        "title": "Add-ons",
+        "credits": "{credits} credits",
+        "price": "${price} one-time",
+        "buy": "Buy"
+      }
+    }
   },
   "dashboard": {
     "title": "Dashboard",
@@ -131,7 +186,7 @@
     "loadError": "The spreadsheet could not be loaded.",
     "empty": {
       "title": "No spreadsheet yet",
-      "description": "Create one via the API or run the seed: bun run --filter=@reclit/api db:seed"
+      "description": "Create a workspace from the sidebar menu to get a spreadsheet, or run the seed: bun run --filter=@reclit/api db:seed"
     }
   },
   "populate": {
@@ -142,7 +197,8 @@
       "description": "Anyone with this link can submit a new row to the spreadsheet.",
       "copy": "Copy link",
       "copied": "Copied",
-      "open": "Open form"
+      "open": "Open form",
+      "noSheet": "Create a workspace to get a form link."
     },
     "api": {
       "title": "API",

@@ -4,7 +4,8 @@
  *
  * TABLES
  *   Spreadsheet  id (pk uuid), name, totalRows (default 5_000_000),
- *                createdAt (indexed), updatedAt
+ *                workspaceId (fk cascade → Workspace, indexed — see the
+ *                workspace contract), createdAt (indexed), updatedAt
  *   Column       id (pk "<sheetId>.col.<index>"), spreadsheetId (fk cascade),
  *                index, name, type ColumnType, node NodeType? (null = plain
  *                column), prompt String?, unique(spreadsheetId, index)
@@ -39,7 +40,7 @@
  * | ------------------------ | -------- | ----------------------------------------------- | ----------------- | ----------------------------- |
  * | spreadsheet.list         | query    | —                                               | SpreadsheetMeta[] | —                             |
  * | spreadsheet.byId         | query    | { id }                                          | SpreadsheetMeta   | NOT_FOUND                     |
- * | spreadsheet.create       | mutation | { name: 1..200; totalRows?: 1..10_000_000 }     | SpreadsheetMeta   | BAD_REQUEST                   |
+ * | spreadsheet.create       | mutation | { name: 1..200; workspaceId; totalRows?: 1..10_000_000 } | SpreadsheetMeta | BAD_REQUEST, NOT_FOUND (workspace) |
  * | spreadsheet.remove       | mutation | { id }                                          | { id }            | NOT_FOUND                     |
  * | spreadsheet.rows         | query    | { id; startRow?: >=0; limit?: 1..500 }          | SheetPayload      | NOT_FOUND, BAD_REQUEST        |
  * | spreadsheet.row          | query    | { id; rowIndex }                                | SheetRow          | NOT_FOUND (sheet)             |
@@ -113,6 +114,10 @@
  * - FORMULA is storage-only; nothing evaluates formulas.
  * - `rows` pagination counts *stored* rows: take limit+1, hasMore when the
  *   extra record exists, nextCursor is its short row id.
+ * - Every sheet belongs to a workspace (`workspaceId`, cascade on delete). The
+ *   app creates sheets only through `workspace.create`, which names the sheet
+ *   after the workspace; `spreadsheet.create` itself does not enforce
+ *   one-sheet-per-workspace — the schema is one-to-many by design.
  * - Every procedure is public; there is no auth yet.
  *
  * IMPORT NOTES
@@ -150,6 +155,7 @@ import ExcelJS from "exceljs";
 import { createApp } from "../bootstrap";
 import { pingDatabase } from "../db/prisma";
 import { spreadsheetService } from "../modules/spreadsheet/spreadsheet.service";
+import { makeWorkspace, removeWorkspace } from "./support/fixtures";
 import { caller, expectDate, expectTRPCError } from "./support/trpc";
 
 // Skips (rather than fails) when DATABASE_URL points nowhere, so a checkout
@@ -158,9 +164,16 @@ const dbUp = await pingDatabase();
 
 const createdIds: string[] = [];
 
+// Every sheet needs a workspace; one hosts them all for this file. Its own
+// auto-created sheet goes with it in cleanup (fk cascade).
+let workspaceId = "";
+if (dbUp) {
+  workspaceId = (await makeWorkspace("spreadsheet contract host")).id;
+}
+
 /** Creates a spreadsheet and registers it for cleanup. */
 async function makeSheet(name = "contract sheet") {
-  const sheet = await caller.spreadsheet.create({ name });
+  const sheet = await caller.spreadsheet.create({ name, workspaceId });
   createdIds.push(sheet.id);
   return sheet;
 }
@@ -186,6 +199,7 @@ afterAll(async () => {
   for (const id of createdIds) {
     await spreadsheetService.remove(id).catch(() => {});
   }
+  if (workspaceId) await removeWorkspace(workspaceId);
 });
 
 describe.skipIf(!dbUp)("spreadsheet.create", () => {
@@ -203,6 +217,7 @@ describe.skipIf(!dbUp)("spreadsheet.create", () => {
   it("honours an explicit totalRows", async () => {
     const sheet = await caller.spreadsheet.create({
       name: "sized",
+      workspaceId,
       totalRows: 100,
     });
     createdIds.push(sheet.id);
@@ -211,8 +226,15 @@ describe.skipIf(!dbUp)("spreadsheet.create", () => {
 
   it("rejects a blank name", async () => {
     await expectTRPCError(
-      caller.spreadsheet.create({ name: "  " }),
+      caller.spreadsheet.create({ name: "  ", workspaceId }),
       "BAD_REQUEST",
+    );
+  });
+
+  it("returns NOT_FOUND for a missing workspace", async () => {
+    await expectTRPCError(
+      caller.spreadsheet.create({ name: "orphan", workspaceId: "no-such-ws" }),
+      "NOT_FOUND",
     );
   });
 });
@@ -1026,7 +1048,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
     // POST /spreadsheets
     const createRes = await fetch(
       `${baseUrl}/spreadsheets`,
-      json("POST", { name: "rest sheet" }),
+      json("POST", { name: "rest sheet", workspaceId }),
     );
     expect(createRes.status).toBe(201);
     const sheet = (await createRes.json()) as { id: string };

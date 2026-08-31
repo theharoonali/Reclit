@@ -4,12 +4,15 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { ErrorState } from "@/components/common/error-state";
 import { LoadingState } from "@/components/common/loading-state";
+import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { fetchAllRows } from "@/lib/ai-spreadsheet/fetch-all-rows";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import { AiSpreadsheetGrid } from "./ai-spreadsheet-grid";
 
 /**
- * Fetches the newest spreadsheet and hands it to the grid.
+ * Fetches the active workspace's spreadsheet and hands it to the grid.
+ * Switching workspaces swaps `sheetId`, which refetches — the URL never
+ * changes (docs/plans/013-workspaces.md).
  *
  * `spreadsheet.rows` is paged, so this walks every page and merges them before
  * the grid sees anything — a sheet imported from a real file has far more rows
@@ -27,24 +30,23 @@ export function AiSpreadsheetLoader() {
   const trpc = useTRPC();
   const client = useTRPCClient();
 
-  const sheets = useQuery(trpc.spreadsheet.list.queryOptions());
-  const newest = sheets.data?.[0];
-  const sheetId = newest?.id ?? "";
+  const workspace = useWorkspace();
+  const sheetId = workspace.activeWorkspace?.spreadsheetId ?? "";
 
   const rows = useQuery({
     queryKey: trpc.spreadsheet.rows.queryKey({ id: sheetId }),
     queryFn: () =>
       fetchAllRows((input) => client.spreadsheet.rows.query(input), sheetId),
-    enabled: newest !== undefined,
+    enabled: sheetId !== "",
   });
 
-  if (sheets.isError || rows.isError) {
+  if (workspace.isError || rows.isError) {
     return <ErrorState message={t("loadError")} />;
   }
-  if (sheets.isPending || (newest !== undefined && rows.isPending)) {
+  if (workspace.isPending || (sheetId !== "" && rows.isPending)) {
     return <LoadingState label={t("loading")} />;
   }
-  if (!newest || !rows.data) {
+  if (sheetId === "" || !rows.data) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-8">
         <p className="text-subtitle">{t("empty.title")}</p>

@@ -8,6 +8,7 @@ every file and API behind the page and what it does today.
 | `/` | [root.md](root.md) | The dashboard and the app shell — sidebar + header. Calls no API |
 | `/ai-spreadsheet` | [ai-spreadsheet.md](ai-spreadsheet.md) | A canvas spreadsheet: endless rows, typed columns, canvas-drawn editing. Persists through the spreadsheet API + `POST /files` uploads |
 | `/populate` | [populate.md](populate.md) | The public form link + API placeholder. Calls no API |
+| `/settings` | [settings.md](settings.md) | User profile + workspace rename/delete. Calls `user.me`, `user.update`, `workspace.rename`, `workspace.remove` |
 | `/form/[spreadsheetId]` | [form.md](form.md) | Public, chrome-less form that appends a row to a spreadsheet. Calls `spreadsheet.rows`, `spreadsheet.appendRow`, `POST /files` |
 
 New route? Copy [`_template.md`](_template.md), fill it in, add a row here.

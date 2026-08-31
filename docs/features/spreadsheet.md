@@ -11,8 +11,9 @@ responses, and error codes live in its header. Do not duplicate them here.
 | Column | Type | Notes |
 | --- | --- | --- |
 | `Spreadsheet.id` | `String` | pk, `@default(uuid())` |
-| `Spreadsheet.name` | `String` | required |
-| `Spreadsheet.totalRows` | `Int` | default 5,000,000 — the virtual grid height |
+| `Spreadsheet.name` | `String` | required — kept equal to the workspace's name by `workspace.create`/`rename` |
+| `Spreadsheet.totalRows` | `Int` | default 5,000,000 (`DEFAULT_TOTAL_ROWS`) — the virtual grid height |
+| `Spreadsheet.workspaceId` | `String` | required, fk cascade → `Workspace`, indexed ([workspace.md](workspace.md)) |
 | `Column.id` | `String` | pk, scoped `"<sheetId>.col.<index>"` |
 | `Column.index` / `name` / `type` | `Int` / `String` / `ColumnType` | unique(spreadsheetId, index) |
 | `Column.node` | `NodeType?` | automated-processing kind; null = plain column |
@@ -49,7 +50,7 @@ Cell · Relations: all cascade from Spreadsheet · Migrations:
 | `apps/api/src/modules/spreadsheet/spreadsheet-import.service.ts` | service | parses an upload and replaces the whole grid in one transaction |
 | `apps/api/src/modules/spreadsheet/spreadsheet.controller.ts` | controller | the predictable REST paths |
 | `apps/api/src/trpc/routers/spreadsheet.ts` | router | the 17 procedures |
-| `apps/api/prisma/seed.ts` | — | seeds the sample "Customers" sheet via the services |
+| `apps/api/prisma/seed.ts` | — | seeds the default user + "Customers" workspace/sheet via the services |
 
 ## Procedures
 
@@ -57,7 +58,7 @@ Cell · Relations: all cascade from Spreadsheet · Migrations:
 | --- | --- | --- | --- |
 | `spreadsheet.list` | query | `SpreadsheetService.list` | — |
 | `spreadsheet.byId` | query | `SpreadsheetService.byId` | NOT_FOUND |
-| `spreadsheet.create` | mutation | `SpreadsheetService.create` | BAD_REQUEST |
+| `spreadsheet.create` | mutation | `SpreadsheetService.create` | BAD_REQUEST, NOT_FOUND (workspace) |
 | `spreadsheet.remove` | mutation | `SpreadsheetService.remove` | NOT_FOUND |
 | `spreadsheet.rows` | query | `SpreadsheetService.rows` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.row` | query | `SpreadsheetService.row` | NOT_FOUND |
@@ -82,6 +83,10 @@ pull the parsers into `src/trpc/**`, which the dashboard transpiles.
 
 ## Behaviour
 
+- Every sheet belongs to a workspace (`workspaceId` required on `create`; a
+  missing workspace is NOT_FOUND). The app creates sheets through
+  `workspace.create`, which names the sheet after the workspace;
+  `spreadsheet.create` itself does not enforce one-sheet-per-workspace.
 - Rows are sparse; indexes are absolute grid positions. `removeRow` clears and
   never shifts. Never-written rows/cells read back blank, not 404.
 - Columns are append-only: a new column lands one past the highest stored
@@ -138,8 +143,10 @@ pull the parsers into `src/trpc/**`, which the dashboard transpiles.
 
 ## Used by
 
-- `/ai-spreadsheet` ([route doc](../routes/ai-spreadsheet.md)) — `list`, `rows`
-  on load; `setCell`, `createColumn`, `updateColumn`, `removeColumn`,
-  `removeRows` from the grid.
+- `/ai-spreadsheet` ([route doc](../routes/ai-spreadsheet.md)) — `rows` for the
+  active workspace's sheet on load; `setCell`, `createColumn`, `updateColumn`,
+  `removeColumn`, `removeRows` from the grid.
+- `workspace.create`/`rename` write sheets directly inside their transactions
+  ([workspace.md](workspace.md)).
 - `/form/[spreadsheetId]` ([route doc](../routes/form.md)) — `rows` (limit 1,
   for name + columns) on load; `appendRow` on submit.

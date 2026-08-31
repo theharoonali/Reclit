@@ -86,16 +86,14 @@ export default {
       transitionTimingFunction: {
         smooth: "cubic-bezier(0.32, 0.72, 0, 1)",
       },
-      // Every radius in the app derives from `--radius`, so one edit in
-      // `globals.css` reshapes every button, input, select and card. A
-      // component that wants a corner reaches for one of these steps —
-      // `rounded-full` and `rounded-none` are the only literal radii allowed.
+      // One corner for the whole app: every element — div, card, button,
+      // input, select, popover, dialog — uses `rounded-sm`, which derives
+      // from `--radius` in `globals.css`, so one edit there reshapes
+      // everything. The other steps are deliberately not defined; besides
+      // `rounded-sm`, only `rounded-full` (pills, progress tracks) and
+      // `rounded-none` are allowed.
       borderRadius: {
         sm: "calc(var(--radius) - 4px)",
-        md: "calc(var(--radius) - 2px)",
-        lg: "var(--radius)",
-        xl: "calc(var(--radius) + 4px)",
-        "2xl": "calc(var(--radius) + 8px)",
       },
     },
   },

@@ -3,7 +3,8 @@
 **Purpose:** shows the public form link for the spreadsheet, plus an API
 placeholder.
 
-**Rendering:** static — the page shows a configured link and calls no API.
+**Rendering:** dynamic like every `(app)` route; the panel itself reads the
+active workspace client-side.
 
 ## Frontend files
 
@@ -11,20 +12,23 @@ placeholder.
 | --- | --- | --- |
 | `apps/dashboard/src/app/(app)/populate/page.tsx` | RSC | heading + metadata, renders the panel |
 | `apps/dashboard/src/components/populate/populate-panel.tsx` | client | the form-link card (copy/open) and the API "coming soon" card |
-| `apps/dashboard/src/config/populate.ts` | config | the hardcoded target sheet id and `formPath()` |
+| `apps/dashboard/src/config/populate.ts` | config | `formPath()` — the form path shape |
 
-Shared pieces used: `@reclit/ui/button`.
+Shared pieces used: `@reclit/ui/button`,
+`components/workspace/workspace-provider.tsx` (`useWorkspace`).
 
 ## APIs called
 
-None. The link target is `POPULATE_FORM_SPREADSHEET_ID` in
-`src/config/populate.ts` — hardcoded until the dashboard grows
-per-spreadsheet routing.
+None directly. The link's id is the **active workspace's spreadsheet id**,
+read from `useWorkspace()` (which owns the `workspace.list` cache) — so
+switching workspaces switches the form link.
 
 ## Behaviour
 
-- The card shows the absolute form URL (origin resolved after mount, so the
-  server renders the bare path and hydration stays clean).
+- The card shows the absolute form URL for the active workspace's sheet
+  (origin resolved after mount, so the server renders the bare path and
+  hydration stays clean). With no workspace or sheet yet, the card shows a
+  hint instead and Copy/Open are disabled.
 - "Copy link" writes the absolute URL to the clipboard and flips its label to
   "Copied" for two seconds; "Open form" opens the public page in a new tab.
 - The API card is a placeholder: heading + "Coming soon".

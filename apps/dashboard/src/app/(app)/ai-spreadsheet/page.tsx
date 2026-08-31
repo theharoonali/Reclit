@@ -12,7 +12,8 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default function Page() {
-  prefetch(trpc.spreadsheet.list.queryOptions());
+  // The loader reads the active workspace's sheet; hydrate the provider's list.
+  prefetch(trpc.workspace.list.queryOptions());
 
   // Full bleed: the sheet owns the whole content area and its
   // own scrolling. `h-full` resolves because <main> has a definite height

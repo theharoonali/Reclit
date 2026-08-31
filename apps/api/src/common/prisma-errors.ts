@@ -3,6 +3,7 @@
 
 const PRISMA_RECORD_NOT_FOUND = "P2025";
 const PRISMA_UNIQUE_VIOLATION = "P2002";
+const PRISMA_FOREIGN_KEY_VIOLATION = "P2003";
 
 function hasCode(error: unknown, code: string): boolean {
   return (
@@ -18,3 +19,6 @@ export const isRecordNotFound = (error: unknown): boolean =>
 
 export const isUniqueViolation = (error: unknown): boolean =>
   hasCode(error, PRISMA_UNIQUE_VIOLATION);
+
+export const isForeignKeyViolation = (error: unknown): boolean =>
+  hasCode(error, PRISMA_FOREIGN_KEY_VIOLATION);

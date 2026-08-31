@@ -52,12 +52,3 @@ export const navSections: NavSection[] = [
     ],
   },
 ];
-
-/**
- * Pinned to the bottom of the sidebar, above the workspace block and inside the
- * scrolling nav area. Not a section: it carries no heading.
- */
-export const bottomNavItems: NavItem[] = [];
-
-/** Workspace name is data, not copy. Its label lives in `sidebar.workspace`. */
-export const WORKSPACE = { name: "Phenomenon" };

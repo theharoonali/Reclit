@@ -5,15 +5,17 @@ typed columns the user can add, cell editing drawn on the canvas, and JSON and
 date cells edited in a side panel.
 
 **Rendering:** dynamic (`force-dynamic`). The page prefetches
-`spreadsheet.list`; a client loader picks the newest sheet, fetches its first
-page of rows, and hands the payload to the grid.
+`workspace.list`; a client loader reads the active workspace's
+`spreadsheetId` (via `useWorkspace()`), fetches its rows, and hands the
+payload to the grid. Switching workspaces swaps the sheet without a URL
+change.
 
 ## Frontend files
 
 | Path | Kind | Responsibility |
 | --- | --- | --- |
-| `apps/dashboard/src/app/(app)/ai-spreadsheet/page.tsx` | RSC | metadata, `prefetch(spreadsheet.list)`, full-bleed `h-full` wrapper |
-| `…/ai-spreadsheet-loader.tsx` | client | newest sheet → first `rows` page → grid; loading/error/empty states |
+| `apps/dashboard/src/app/(app)/ai-spreadsheet/page.tsx` | RSC | metadata, `prefetch(workspace.list)`, full-bleed `h-full` wrapper |
+| `…/ai-spreadsheet-loader.tsx` | client | active workspace's sheet → merged `rows` pages → grid; loading/error/empty states |
 | `apps/dashboard/src/components/ai-spreadsheet/ai-spreadsheet-grid.tsx` | client | the main component; takes `payload`, owns panel state and the i18n labels |
 | `…/ai-spreadsheet-header.tsx` | client | header canvas, click routing, the screen-reader "add column" button |
 | `…/ai-spreadsheet-body.tsx` | client | body canvas, scroll container, scroll spacer |
@@ -52,8 +54,9 @@ Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`,
 Feature: [spreadsheet](../features/spreadsheet.md) ·
 [file](../features/file.md).
 
-- On load: `spreadsheet.list` (prefetched in the RSC), then
-  `spreadsheet.rows` for the newest sheet — every page of it. `rows` is paged
+- On load: `workspace.list` (prefetched in the RSC, consumed through
+  `components/workspace/workspace-provider.tsx`), then `spreadsheet.rows` for
+  the active workspace's sheet — every page of it. `rows` is paged
   at the API's `limit` cap, so `lib/ai-spreadsheet/fetch-all-rows.ts` walks
   `hasMore`/`nextCursor` and merges the pages into one payload before the grid
   sees anything; a sheet imported from a real file has far more rows than one
