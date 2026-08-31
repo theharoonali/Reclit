@@ -58,10 +58,7 @@ account menu's create dialog calls `workspace.create` (invalidating
   readers and carries `aria-expanded`.
 - `Dashboard`, `AI Spreadsheet` and `Populate` are real destinations;
   `/settings` is reached from the account menu (there is no pinned Settings
-  nav row). Every other nav item is `disabled` in `config/nav.ts` and renders
-  as inert text with `aria-disabled="true"` — it is not a link, because
-  `not-found.tsx` redirects unknown paths to `/` and a dead link would bounce
-  the user home with no explanation.
+  nav row).
 - The active row is derived from `usePathname()` and marked `aria-current="page"`.
 - **Light only.** `providers.tsx` passes `forcedTheme="light"`, so the `.dark`
   tokens in `@reclit/ui` can never apply and there is no theme control in the
@@ -107,5 +104,3 @@ account menu's create dialog calls `workspace.create` (invalidating
 ## Linked routes
 
 - `/settings` ([settings.md](settings.md)) — reached from the account menu.
-  Every `disabled` entry in `config/nav.ts` is a route that does not exist
-  yet.

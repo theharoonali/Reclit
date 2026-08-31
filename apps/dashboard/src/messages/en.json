@@ -5,9 +5,6 @@
     },
     "items": {
       "dashboard": "Dashboard",
-      "employee": "Employee",
-      "leave": "Leave",
-      "timesheet": "Timesheet",
       "aiSpreadsheet": "AI Spreadsheet",
       "populate": "Populate"
     }

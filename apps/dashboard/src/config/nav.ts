@@ -1,11 +1,8 @@
 import {
-  CalendarDays,
-  Clock,
   LayoutDashboard,
   type LucideIcon,
   Send,
   Table2,
-  Users,
 } from "lucide-react";
 
 /**
@@ -41,14 +38,6 @@ export const navSections: NavSection[] = [
       { labelKey: "dashboard", href: "/", icon: LayoutDashboard },
       { labelKey: "aiSpreadsheet", href: "/ai-spreadsheet", icon: Table2 },
       { labelKey: "populate", href: "/populate", icon: Send },
-      { labelKey: "employee", href: "/employee", icon: Users, disabled: true },
-      { labelKey: "leave", href: "/leave", icon: CalendarDays, disabled: true },
-      {
-        labelKey: "timesheet",
-        href: "/timesheet",
-        icon: Clock,
-        disabled: true,
-      },
     ],
   },
 ];
