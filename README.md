@@ -1,14 +1,27 @@
-# reclit
+# Reclit
 
-reclit — a Bun + Turborepo monorepo template with a Next.js frontend and a NestJS backend,
-connected end-to-end with tRPC. It contains exactly one example of each pattern —
-copy the pattern to build features.
+Best spreadsheet infrastructure out there.
+
+The UI is built on Canvas — millions of virtual rows, typed columns, selection
+and cell editing painted directly on the grid. No DOM table. Behind it: a real
+spreadsheet API on Postgres, Prisma, tRPC and REST.
+
+## What you get
+
+- **Canvas grid** — endless vertical scroll, DPR-correct paint, in-place
+  editing, JSON / date / file / audio cells in a side panel
+- **Spreadsheet backend** — sparse rows, typed columns
+  (`STRING NUMBER BOOLEAN DATE JSON FORMULA AUDIO FILE EMAIL URL`),
+  predictable cell ids, debounced writes
+- **Import / export** — CSV and XLSX in, CSV out
+- **Public forms** — a chrome-less form that appends a row to a sheet
+- **Dashboard** — Next.js app shell, workspaces, settings
 
 ## Stack
 
 - **Runtime / package manager:** [Bun](https://bun.sh)
 - **Monorepo:** [Turborepo](https://turborepo.dev) with Bun workspaces
-- **Frontend:** Next.js 16 (App Router) + React 19 + Tailwind + a shadcn-style `Button`
+- **Frontend:** Next.js 16 (App Router) + React 19 + Tailwind + Canvas
 - **Backend:** NestJS 11 (running directly on Bun) + tRPC 11
 - **Database:** PostgreSQL via Prisma 7
 - **Lint/format:** Biome
@@ -18,8 +31,8 @@ copy the pattern to build features.
 | Path | Description |
 | --- | --- |
 | `apps/api` | NestJS API server (port 4001), tRPC at `/trpc`, Prisma schema in `prisma/` |
-| `apps/dashboard` | Next.js web app (port 4000) |
-| `packages/ui` | The one shared package: `Button` component + Tailwind preset |
+| `apps/dashboard` | Next.js web app (port 4000) — Canvas spreadsheet at `/ai-spreadsheet` |
+| `packages/ui` | Shared primitives: `Button`, `Input`, `Label`, `Select`, `Calendar`, `Spinner` + Tailwind preset |
 
 ## Getting started
 
