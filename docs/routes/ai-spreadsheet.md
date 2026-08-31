@@ -258,7 +258,5 @@ key gone, and blank a freshly imported cell.
 
 ## Linked routes
 
-- `/` ([root.md](root.md)) — same shell; this page is full-bleed like
-  `/resume` rather than guttered.
-- `/resume` ([resume.md](resume.md)) — the other full-bleed, canvas-drawing
-  route.
+- `/` ([root.md](root.md)) — same shell; this page is full-bleed rather
+  than guttered.

@@ -19,7 +19,7 @@ page.
 
 ## Frontend (Agent 2)
 
-- **Route:** `/ai-spreadsheet`, static, full-bleed (`h-full`) like `/resume`.
+- **Route:** `/ai-spreadsheet`, static, full-bleed (`h-full`).
   Nav entry added to `navSections[0]` in `config/nav.ts`; `app-sidebar.tsx`
   untouched.
 - **Components:** all new, under `components/ai-spreadsheet/` (grid, header,

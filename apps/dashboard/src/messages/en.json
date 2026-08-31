@@ -8,7 +8,6 @@
       "employee": "Employee",
       "leave": "Leave",
       "timesheet": "Timesheet",
-      "resume": "My Resume",
       "aiSpreadsheet": "AI Spreadsheet",
       "populate": "Populate"
     }
@@ -30,13 +29,6 @@
   "metadata": {
     "title": "Dashboard",
     "description": "Overview of your workspace."
-  },
-  "resume": {
-    "title": "My Resume",
-    "description": "Curriculum vitae.",
-    "viewerLabel": "My resume, PDF document",
-    "loading": "Loading resume...",
-    "error": "The resume could not be displayed."
   },
   "aiSpreadsheet": {
     "title": "AI Spreadsheet",

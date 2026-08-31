@@ -14,7 +14,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default function Page() {
   prefetch(trpc.spreadsheet.list.queryOptions());
 
-  // Full bleed, like /resume: the sheet owns the whole content area and its
+  // Full bleed: the sheet owns the whole content area and its
   // own scrolling. `h-full` resolves because <main> has a definite height
   // inside the shell's fixed-height column.
   return (

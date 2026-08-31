@@ -13,7 +13,7 @@ import { HeaderActionsProvider } from "./header-actions";
  * the bottom of the page.
  *
  * `<main>` carries no padding: a page that wants gutters adds its own, and a
- * full-bleed page (`/resume`) gets the whole area.
+ * full-bleed page (`/ai-spreadsheet`) gets the whole area.
  *
  * Mounted once from `app/(app)/layout.tsx`; no page renders chrome itself. A
  * page that needs a control in the header portals it there with

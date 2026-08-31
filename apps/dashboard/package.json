@@ -25,7 +25,6 @@
     "next-themes": "^0.4.6",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "react-pdf": "^10.5.0",
     "superjson": "^2.2.6"
   },
   "devDependencies": {

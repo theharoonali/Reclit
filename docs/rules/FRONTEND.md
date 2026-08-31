@@ -32,9 +32,9 @@ apps/dashboard/src/
 Shared primitives live in `packages/ui/src/components/` and are imported by
 subpath (`@reclit/ui/button`) — see [shadcn](#shadcn) below.
 
-> Today the dashboard has two routes (`/` and `/resume`), the chrome in
-> `components/layout/`, and `components/common/` holding `loading-state` and
-> `error-state`. There is still no data-bound feature component.
+> Today the dashboard has `/`, `/ai-spreadsheet`, `/populate`, and
+> `/form/[spreadsheetId]`, the chrome in `components/layout/`, and
+> `components/common/` holding `loading-state` and `error-state`.
 
 ### Pages are thin
 
@@ -89,14 +89,13 @@ Consequences you must preserve:
 - A page that must **fill** the frame rather than flow inside it (an embedded
   document, a map, an editor) uses `h-full` on its wrapper — `<main>` has a
   definite height, so that resolves — and lets its own child own the scrolling.
-  See [`/resume`](../routes/resume.md).
+  See [`/ai-spreadsheet`](../routes/ai-spreadsheet.md).
 
 **Nothing in this app is framed**, and `next.config.ts` sends
 `X-Frame-Options: DENY` accordingly. Do not reach for an `<iframe>` to embed a
-document: a browser or extension that treats the file type as a download (IDM,
-Chrome's "download PDFs" setting) will grab it instead of rendering it, and no
-response header overrides that. Render the content yourself — see
-[`/resume`](../routes/resume.md).
+  document: a browser or extension that treats the file type as a download (IDM,
+  Chrome's "download PDFs" setting) will grab it instead of rendering it, and no
+  response header overrides that. Render the content yourself.
 
 ## Reuse before you build
 

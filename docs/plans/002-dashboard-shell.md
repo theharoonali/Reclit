@@ -73,7 +73,8 @@ None. No component in this change calls a procedure.
   - `h-dvh`, not `h-screen`: `100vh` is clipped by mobile browser chrome.
   - `<main>` carries **no padding**. Gutters are a page's own concern, because a
     shell that pads its content cannot host a full-bleed page without negative
-    margins. `(app)/page.tsx` adds `px-4 py-8 md:px-8`; `/resume` adds nothing.
+    margins. `(app)/page.tsx` adds `px-4 py-8 md:px-8`; a full-bleed page
+    (`/ai-spreadsheet`) adds nothing.
   - Every flex child that scrolls carries `min-h-0`, and every one that must not
     be squeezed carries `shrink-0`. Without `min-h-0` a flex item's automatic
     minimum size defeats `overflow-y-auto` and the content overflows instead of

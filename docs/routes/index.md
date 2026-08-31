@@ -9,7 +9,6 @@ every file and API behind the page and what it does today.
 | `/ai-spreadsheet` | [ai-spreadsheet.md](ai-spreadsheet.md) | A canvas spreadsheet: endless rows, typed columns, canvas-drawn editing. Persists through the spreadsheet API + `POST /files` uploads |
 | `/populate` | [populate.md](populate.md) | The public form link + API placeholder. Calls no API |
 | `/form/[spreadsheetId]` | [form.md](form.md) | Public, chrome-less form that appends a row to a spreadsheet. Calls `spreadsheet.rows`, `spreadsheet.appendRow`, `POST /files` |
-| `/resume` | [resume.md](resume.md) | The resume PDF, embedded in the browser's viewer. Calls no API |
 
 New route? Copy [`_template.md`](_template.md), fill it in, add a row here.
 
