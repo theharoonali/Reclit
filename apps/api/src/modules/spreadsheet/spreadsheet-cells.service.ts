@@ -4,43 +4,28 @@ import { prisma } from "../../db/prisma";
 import {
   SpreadsheetCellTypeMismatchError,
   SpreadsheetColumnNotFoundError,
-  SpreadsheetPromptWithoutNodeError,
   SpreadsheetRowExistsError,
 } from "./spreadsheet.errors";
-import {
-  cellId,
-  columnId,
-  rowId,
-  shortCellId,
-  shortColumnId,
-  shortRowId,
-} from "./spreadsheet.ids";
+import { cellId, rowId, shortCellId, shortRowId } from "./spreadsheet.ids";
 import type {
   AppendRowInput,
   CellValue,
-  CreateColumnInput,
   CreateRowInput,
   RemoveRowsInput,
   SetCellInput,
   SheetCell,
-  SheetColumn,
   SheetRow,
-  UpdateColumnInput,
   UpdateRowInput,
 } from "./spreadsheet.schema";
-import {
-  cellValueMatchesType,
-  toDbColumnType,
-  toDbNodeType,
-  toWireColumnType,
-} from "./spreadsheet.schema";
-import { columnSelect, spreadsheetService } from "./spreadsheet.service";
+import { cellValueMatchesType, toWireColumnType } from "./spreadsheet.schema";
+import { spreadsheetService } from "./spreadsheet.service";
 import type { ColumnRecord } from "./spreadsheet.shape";
-import { toSheetColumn } from "./spreadsheet.shape";
 
-// Framework-free (see spreadsheet.service.ts). Grid writes live here; the
-// split keeps both services inside the size caps (docs/rules/COMMON.md §5).
-// Lookups are reused from `spreadsheetService`, never re-implemented.
+// Framework-free (see spreadsheet.service.ts). Row and cell writes live here;
+// column writes live in spreadsheet-columns.service.ts and the full-grid
+// rebuild in spreadsheet-import.service.ts, which keeps all three inside the
+// size caps (docs/rules/COMMON.md §5). Lookups are reused from
+// `spreadsheetService`, never re-implemented.
 
 // Zod cannot express Prisma.InputJsonValue exactly; the runtime shapes match.
 const toJsonInput = (value: Exclude<CellValue, null>): Prisma.InputJsonValue =>
@@ -234,76 +219,6 @@ export class SpreadsheetCellsService {
   }
 
   /**
-   * Append-only: the new column lands one past the highest stored index.
-   * Not the count — `removeColumn` leaves permanent gaps, and reusing a
-   * deleted index would resurrect its old identity.
-   */
-  async createColumn({
-    id,
-    name,
-    type,
-    node,
-    prompt,
-  }: CreateColumnInput): Promise<SheetColumn> {
-    await spreadsheetService.byId(id);
-    const maxIndex = await prisma.column.aggregate({
-      where: { spreadsheetId: id },
-      _max: { index: true },
-    });
-    const index = (maxIndex._max.index ?? -1) + 1;
-    const record = await prisma.column.create({
-      data: {
-        id: columnId(id, index),
-        spreadsheetId: id,
-        index,
-        name,
-        type: toDbColumnType(type),
-        node: node === null ? null : toDbNodeType(node),
-        prompt,
-      },
-      select: columnSelect,
-    });
-    return toSheetColumn(record);
-  }
-
-  /**
-   * Changing `type` does not convert or revalidate stored cells. `undefined`
-   * leaves a field unchanged, `null` clears it; clearing `node` also clears
-   * `prompt`, and the effective pair may never be prompt-without-node.
-   */
-  async updateColumn({
-    id,
-    columnIndex,
-    name,
-    type,
-    node,
-    prompt,
-  }: UpdateColumnInput): Promise<SheetColumn> {
-    const stored = await spreadsheetService.columnOrThrow(id, columnIndex);
-    const effectiveNode = node !== undefined ? node : stored.node;
-    // An explicit prompt always counts; otherwise clearing the node clears it.
-    const effectivePrompt =
-      prompt !== undefined ? prompt : node === null ? null : stored.prompt;
-    if (effectiveNode === null && effectivePrompt !== null) {
-      throw new SpreadsheetPromptWithoutNodeError();
-    }
-    const record = await prisma.column.update({
-      where: { id: columnId(id, columnIndex) },
-      data: {
-        ...(name !== undefined && { name }),
-        ...(type !== undefined && { type: toDbColumnType(type) }),
-        ...(node !== undefined && {
-          node: node === null ? null : toDbNodeType(node),
-        }),
-        ...(prompt !== undefined && { prompt }),
-        ...(node === null && { prompt: null }),
-      },
-      select: columnSelect,
-    });
-    return toSheetColumn(record);
-  }
-
-  /**
    * `removeRow` for a batch: clears every listed row and its cells in one
    * transaction. Same semantics — absolute positions, nothing shifts, and an
    * index that holds no stored row is a no-op rather than an error.
@@ -323,21 +238,6 @@ export class SpreadsheetCellsService {
       }),
     ]);
     return { ids: unique.map(shortRowId) };
-  }
-
-  /**
-   * Column indexes are absolute positions: deleting drops the column and its
-   * cells, never renumbers later columns, and the index becomes a permanent
-   * gap — it is never reused. Deleting an index that holds no column is
-   * NOT_FOUND, matching `updateColumn`.
-   */
-  async removeColumn(id: string, columnIndex: number): Promise<{ id: string }> {
-    await spreadsheetService.columnOrThrow(id, columnIndex);
-    await prisma.$transaction([
-      prisma.cell.deleteMany({ where: { spreadsheetId: id, columnIndex } }),
-      prisma.column.delete({ where: { id: columnId(id, columnIndex) } }),
-    ]);
-    return { id: shortColumnId(columnIndex) };
   }
 }
 

@@ -13,6 +13,7 @@ import { AiSpreadsheetBody } from "./ai-spreadsheet-body";
 import { AiSpreadsheetCellClearButton } from "./ai-spreadsheet-cell-clear-button";
 import { AiSpreadsheetColumnForm } from "./ai-spreadsheet-column-form";
 import { AiSpreadsheetDateEditor } from "./ai-spreadsheet-date-editor";
+import { AiSpreadsheetDragChip } from "./ai-spreadsheet-drag-chip";
 import { AiSpreadsheetExportButton } from "./ai-spreadsheet-export-button";
 import { AiSpreadsheetHeader } from "./ai-spreadsheet-header";
 import { AiSpreadsheetImportButton } from "./ai-spreadsheet-import-button";
@@ -22,6 +23,7 @@ import { AiSpreadsheetSelectionBar } from "./ai-spreadsheet-selection-bar";
 import { AiSpreadsheetSidePanel } from "./ai-spreadsheet-side-panel";
 import { AiSpreadsheetUploadEditor } from "./ai-spreadsheet-upload-editor";
 import { useColumnRemove } from "./use-column-remove";
+import { useColumnReorder } from "./use-column-reorder";
 import { useSheetCanvas } from "./use-sheet-canvas";
 import { useSheetImport } from "./use-sheet-import";
 import { useSheetLabels } from "./use-sheet-labels";
@@ -111,6 +113,23 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     onAfterRemove: (columnId) => afterColumnRemoveRef.current(columnId),
   });
 
+  // Set after the canvas exists, like `afterColumnRemoveRef`.
+  const afterColumnReorderRef = useRef<
+    (columnId: string, from: number) => void
+  >(() => {});
+  const columnReorder = useColumnReorder({
+    modelRef,
+    setColumnOrder: model.setColumnOrder,
+    applyColumnOrder: model.applyColumnOrder,
+    onAfterReorder: (columnId, from) =>
+      afterColumnReorderRef.current(columnId, from),
+  });
+
+  // The chip that rides the pointer during a column drag. Refs, not state: it
+  // is repositioned on every pointer move.
+  const dragChipRef = useRef<HTMLDivElement | null>(null);
+  const dragChipLabelRef = useRef<HTMLSpanElement | null>(null);
+
   const canvas = useSheetCanvas({
     modelRef,
     columnsVersion,
@@ -125,6 +144,10 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     onOpenFile: openFile,
     onOpenColumn: openColumn,
     onRemoveColumn: columnRemove.removeColumn,
+    onReorderColumn: columnReorder.reorderColumn,
+    onBeforeColumnChange: onBeforeDelete,
+    dragChipRef,
+    dragChipLabelRef,
     onSelectionPresence: setCellsSelected,
     selectedRef: selection.selectedRef,
     selectAllState: selection.selectAllState,
@@ -234,6 +257,34 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     canvas.requestPaint();
   };
 
+  // The columns array just shuffled, so the editor's `col` — a display
+  // position — names a different column than it did. Remapping it keeps the
+  // selection on the cell the user was looking at. This is not the frontend
+  // recomputing the column order (the server's response already did that); it
+  // is moving a cursor the server knows nothing about. `selectCell` collapses
+  // any shift-range with it, because a rectangle over display positions means
+  // something else now.
+  afterColumnReorderRef.current = (columnId: string, from: number) => {
+    const columns = modelRef.current.columns;
+    const to = columns.findIndex((column) => column.id === columnId);
+    const active = canvas.editor.editorRef.current.active;
+    if (active && to >= 0) {
+      const inBand =
+        from < to
+          ? active.col > from && active.col <= to
+          : active.col >= to && active.col < from;
+      const next =
+        active.col === from
+          ? to
+          : inBand
+            ? active.col + (from < to ? -1 : 1)
+            : active.col;
+      canvas.editor.selectCell(active.row, Math.min(next, columns.length - 1));
+    }
+    canvas.resetHover();
+    canvas.requestPaint();
+  };
+
   const editedColumn =
     shown.kind === "column"
       ? columns.find((column) => column.id === shown.columnId)
@@ -288,10 +339,19 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
         addColumnLabel={t("addColumn")}
         canvasRef={canvas.headerCanvasRef}
         className="row-start-1"
+        gripAnchor={canvas.gripAnchor}
+        gripLabel={t("column.reorder")}
         onAddColumn={() => openColumn()}
+        onPointerCancel={canvas.handleHeaderPointerCancel}
         onPointerDown={canvas.handleHeaderPointerDown}
         onPointerLeave={canvas.handleHeaderPointerLeave}
         onPointerMove={canvas.handleHeaderPointerMove}
+        onPointerUp={canvas.handleHeaderPointerUp}
+      />
+
+      <AiSpreadsheetDragChip
+        chipRef={dragChipRef}
+        labelRef={dragChipLabelRef}
       />
 
       <div className="relative row-start-2 min-h-0 overflow-hidden">

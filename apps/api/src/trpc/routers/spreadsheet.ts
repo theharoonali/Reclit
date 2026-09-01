@@ -7,6 +7,7 @@ import {
   createRowInput,
   createSpreadsheetInput,
   removeRowsInput,
+  reorderColumnInput,
   rowRefInput,
   setCellInput,
   sheetRowsInput,
@@ -15,6 +16,7 @@ import {
 } from "../../modules/spreadsheet/spreadsheet.schema";
 import { spreadsheetService } from "../../modules/spreadsheet/spreadsheet.service";
 import { spreadsheetCellsService } from "../../modules/spreadsheet/spreadsheet-cells.service";
+import { spreadsheetColumnsService } from "../../modules/spreadsheet/spreadsheet-columns.service";
 import { createTRPCRouter, mapDomainError, publicProcedure } from "../init";
 
 // Routers validate input and delegate. All DB access lives in the services.
@@ -109,19 +111,25 @@ export const spreadsheetRouter = createTRPCRouter({
   createColumn: publicProcedure
     .input(createColumnInput)
     .mutation(({ input }) =>
-      spreadsheetCellsService.createColumn(input).catch(mapDomainError),
+      spreadsheetColumnsService.createColumn(input).catch(mapDomainError),
     ),
 
   updateColumn: publicProcedure
     .input(updateColumnInput)
     .mutation(({ input }) =>
-      spreadsheetCellsService.updateColumn(input).catch(mapDomainError),
+      spreadsheetColumnsService.updateColumn(input).catch(mapDomainError),
+    ),
+
+  reorderColumn: publicProcedure
+    .input(reorderColumnInput)
+    .mutation(({ input }) =>
+      spreadsheetColumnsService.reorderColumn(input).catch(mapDomainError),
     ),
 
   removeColumn: publicProcedure
     .input(columnRefInput)
     .mutation(({ input }) =>
-      spreadsheetCellsService
+      spreadsheetColumnsService
         .removeColumn(input.id, input.columnIndex)
         .catch(mapDomainError),
     ),

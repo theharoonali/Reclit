@@ -15,7 +15,8 @@ responses, and error codes live in its header. Do not duplicate them here.
 | `Spreadsheet.totalRows` | `Int` | default 5,000,000 (`DEFAULT_TOTAL_ROWS`) — the virtual grid height |
 | `Spreadsheet.workspaceId` | `String` | required, fk cascade → `Workspace`, indexed ([workspace.md](workspace.md)) |
 | `Column.id` | `String` | pk, scoped `"<sheetId>.col.<index>"` |
-| `Column.index` / `name` / `type` | `Int` / `String` / `ColumnType` | unique(spreadsheetId, index) |
+| `Column.index` / `name` / `type` | `Int` / `String` / `ColumnType` | unique(spreadsheetId, index). `index` is **identity** — the pk suffix and the address in `Cell.columnIndex` — and never changes |
+| `Column.sortOrder` | `Int` | **position**: display order, always dense `0..n-1` per sheet. Indexed, deliberately not unique — see below |
 | `Column.node` | `NodeType?` | automated-processing kind; null = plain column |
 | `Column.prompt` | `String?` | the node's instruction; null without a node |
 | `Row.id` | `String` | pk, scoped `"<sheetId>.row.<index>"`; rows are sparse |
@@ -30,9 +31,16 @@ deviation from the uuid rule
 (`row.0`, `col.1`, `cell.0.1`) and a cell write a single upsert by pk.
 
 Indexes: `unique(spreadsheetId, index)` on Column/Row,
+`(spreadsheetId, sortOrder)` on Column,
 `unique(spreadsheetId, rowIndex, columnIndex)` + `(spreadsheetId, rowIndex)` on
 Cell · Relations: all cascade from Spreadsheet · Migrations:
 `apps/api/prisma/migrations/`
+
+`sortOrder` is **not** unique on purpose. `reorderColumn` shifts a whole band of
+columns in one `updateMany`, and a Postgres unique index is checked per row
+mid-statement and cannot be deferred, so the shift would collide with itself.
+Density is a service invariant (`spreadsheet-columns.service.ts`), not a
+database one — tightening the index would break the reorder.
 
 ## Files
 
@@ -44,7 +52,8 @@ Cell · Relations: all cascade from Spreadsheet · Migrations:
 | `apps/api/src/modules/spreadsheet/spreadsheet.errors.ts` | schema | the domain errors |
 | `apps/api/src/modules/spreadsheet/spreadsheet.shape.ts` | schema | records → nested `SheetRow` assembly |
 | `apps/api/src/modules/spreadsheet/spreadsheet.service.ts` | service | reads + sheet lifecycle, `columnOrThrow` |
-| `apps/api/src/modules/spreadsheet/spreadsheet-cells.service.ts` | service | grid writes (cells, rows, columns) |
+| `apps/api/src/modules/spreadsheet/spreadsheet-cells.service.ts` | service | cell and row writes |
+| `apps/api/src/modules/spreadsheet/spreadsheet-columns.service.ts` | service | column writes: create, update, reorder, remove — and the `sortOrder` invariant they share |
 | `apps/api/src/modules/spreadsheet/spreadsheet-import.parse.ts` | schema | CSV/XLSX bytes → a raw grid of strings |
 | `apps/api/src/modules/spreadsheet/spreadsheet-import.infer.ts` | schema | grid → columns with inferred types and coerced values |
 | `apps/api/src/modules/spreadsheet/spreadsheet-import.service.ts` | service | parses an upload and replaces the whole grid in one transaction |
@@ -70,9 +79,10 @@ Cell · Relations: all cascade from Spreadsheet · Migrations:
 | `spreadsheet.appendRow` | mutation | `SpreadsheetCellsService.appendRow` | NOT_FOUND, BAD_REQUEST, CONFLICT |
 | `spreadsheet.removeRow` | mutation | `SpreadsheetCellsService.removeRow` | NOT_FOUND |
 | `spreadsheet.removeRows` | mutation | `SpreadsheetCellsService.removeRows` | NOT_FOUND, BAD_REQUEST |
-| `spreadsheet.createColumn` | mutation | `SpreadsheetCellsService.createColumn` | NOT_FOUND, BAD_REQUEST |
-| `spreadsheet.updateColumn` | mutation | `SpreadsheetCellsService.updateColumn` | NOT_FOUND, BAD_REQUEST |
-| `spreadsheet.removeColumn` | mutation | `SpreadsheetCellsService.removeColumn` | NOT_FOUND |
+| `spreadsheet.createColumn` | mutation | `SpreadsheetColumnsService.createColumn` | NOT_FOUND, BAD_REQUEST |
+| `spreadsheet.updateColumn` | mutation | `SpreadsheetColumnsService.updateColumn` | NOT_FOUND, BAD_REQUEST |
+| `spreadsheet.reorderColumn` | mutation | `SpreadsheetColumnsService.reorderColumn` | NOT_FOUND, BAD_REQUEST |
+| `spreadsheet.removeColumn` | mutation | `SpreadsheetColumnsService.removeColumn` | NOT_FOUND |
 
 | `POST /spreadsheets/:id/import` | REST only | `SpreadsheetImportService.import` | NOT_FOUND, BAD_REQUEST |
 
@@ -89,10 +99,24 @@ pull the parsers into `src/trpc/**`, which the dashboard transpiles.
   `spreadsheet.create` itself does not enforce one-sheet-per-workspace.
 - Rows are sparse; indexes are absolute grid positions. `removeRow` clears and
   never shifts. Never-written rows/cells read back blank, not 404.
-- Columns are append-only: a new column lands one past the highest stored
-  `index`. Any column can be deleted (`removeColumn` drops it and its cells in
-  one transaction); its index becomes a permanent gap that is never reused, so
-  index-derived ids never renumber.
+- A column carries two numbers and they are not interchangeable. **`index` is
+  identity**: it is the pk suffix, the wire id `col.<index>`, and the address of
+  every cell (`Cell.columnIndex` — and `Cell` has no fk to `Column`, so nothing
+  would cascade if it moved). It is append-only, a new column lands one past the
+  highest stored index, and a deleted column's index becomes a permanent gap
+  that is never reused — index-derived ids never renumber.
+- **`sortOrder` is position**, and it is always dense `0..n-1` per sheet.
+  `createColumn` appends at `max + 1`; `removeColumn` closes the gap it leaves
+  (unlike its index, which stays gapped); the import mints it in file order; and
+  `reorderColumn` shifts the columns between the old and new position by ±1 —
+  `+1` moving left, `-1` moving right — in a single `updateMany`. `columnsOf`
+  orders by it, and it is the only place the sheet's column order is decided.
+- `reorderColumn` writes **only** `sortOrder`. No id, no index and no
+  `Cell.columnIndex` moves, so every cell stays with its column and any
+  in-flight `setCell` stays correctly addressed. It returns the sheet's whole
+  column order; a same-position reorder is a no-op that still returns it. A
+  `newSortOrder` past the last position is BAD_REQUEST rather than clamped —
+  out of range means the caller's view of the order is stale.
 - `setCell` validates the value against the column type in the service
   (`cellValueMatchesType`) and upserts row + cell by pk in one transaction;
   `value: null` deletes the cell.
@@ -133,6 +157,8 @@ pull the parsers into `src/trpc/**`, which the dashboard transpiles.
 
 - `SpreadsheetImportService.replaceAll` is the only full-grid wipe-and-rebuild;
   `removeColumn` drops single columns, leaving index gaps.
+- `SpreadsheetService.columnsOf` is the single ordering point for columns —
+  anything that needs them in display order goes through it.
 - `src/common/multipart.ts` `MulterFile`/`MAX_UPLOAD_BYTES`, and
   `src/common/upload.ts` `@UploadFile()`/`requireFile()`, for any REST upload.
 - `isPlainObject` and `cellValueMatchesType` in `spreadsheet.schema.ts` — the

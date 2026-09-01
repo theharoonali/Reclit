@@ -82,8 +82,9 @@ export type ColumnDraft = {
  * means the loaded rows are an arbitrary subset anyway, so absence is the
  * normal case: a missing key is a blank, editable cell.
  *
- * Keys are `${rowIndex}:${columnId}` — column *id*, so inserting or reordering
- * a column later does not shift every value by one.
+ * Keys are `${rowIndex}:${columnId}` — column *id*, so reordering a column
+ * moves no value: `sortOrder` changes on the server and the model's `columns`
+ * array is re-ordered, while every key keeps pointing at the same cell.
  */
 export type SheetModel = {
   sheetId: string;
@@ -103,12 +104,40 @@ export const cellKey = (row: number, columnId: string) => `${row}:${columnId}`;
 
 export type CellAddress = { row: number; col: number };
 
+/**
+ * A column drag in flight. Lives in a ref and drives `requestPaint()` — it
+ * must never be React state, because a re-render remounts the canvas and a
+ * remounted canvas is a blank one.
+ *
+ * `col` and `slot` are different coordinates: `col` is the display position of
+ * the column being dragged (0..columnCount-1), `slot` is the *gap* it would
+ * drop into (0..columnCount, one more than there are columns). Nothing paints
+ * until `active` — a press that has not passed the movement threshold is still
+ * a click.
+ */
+export type ColumnDragState = {
+  col: number;
+  columnId: string;
+  pointerId: number;
+  /** Canvas-space x at pointerdown, for the movement threshold. */
+  startX: number;
+  /** Current canvas-space x, for the autoscroll edge check. */
+  x: number;
+  /** Viewport coordinates of the pointer, for the chip that rides it. */
+  clientX: number;
+  clientY: number;
+  slot: number;
+  active: boolean;
+};
+
 export type SheetHit =
   | { kind: "cell"; row: number; col: number }
   | { kind: "gutter"; row: number }
   | { kind: "header"; col: number }
   /** The delete affordance at the right edge of a hovered column header. */
   | { kind: "header-delete"; col: number }
+  /** The drag handle at the left edge of a column header. */
+  | { kind: "header-grip"; col: number }
   | { kind: "plus" }
   | { kind: "empty" };
 

@@ -82,6 +82,14 @@ model Column {
   id            String      @id
   spreadsheetId String
   index         Int
+  /// Display position, dense 0..n-1 per sheet. Unlike `index` — which is
+  /// identity, baked into the pk and into every cell address — this is free to
+  /// move; createColumn, removeColumn and reorderColumn are the only writers.
+  /// Deliberately NOT @@unique: a reorder shifts a whole band in one
+  /// updateMany, and Postgres checks uniqueness per row mid-statement, so a
+  /// unique constraint would collide transiently. Contiguity is a service
+  /// invariant (spreadsheet-columns.service.ts), not a database one.
+  sortOrder     Int
   name          String
   type          ColumnType  @default(STRING)
   node          NodeType?
@@ -91,6 +99,7 @@ model Column {
   spreadsheet   Spreadsheet @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
 
   @@unique([spreadsheetId, index])
+  @@index([spreadsheetId, sortOrder])
 }
 
 /// id is "<sheetId>.row.<index>". Rows are sparse: a record exists only where

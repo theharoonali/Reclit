@@ -13,6 +13,7 @@ import { paintCheckbox } from "./paint-checkbox";
 import { withAlpha } from "./theme-colors";
 import type {
   EditorState,
+  SheetColumn,
   SheetFonts,
   SheetFormatters,
   SheetLabels,
@@ -52,6 +53,15 @@ export type BodyPaintArgs = {
   playing?: { row: number; columnId: string } | null;
   /** Row indexes ticked for deletion — drives the gutter checkboxes. */
   selected: ReadonlySet<number>;
+  /**
+   * The columns in display order. Normally `model.columns`; during a drag it is
+   * the preview order, so the cells slide with their headers rather than
+   * staying put under them. `model` is still the source of every value —
+   * cells are keyed by column id, so no value moves.
+   */
+  columns: SheetColumn[];
+  /** The dragged column's landing slot, painted as an empty well. Null if idle. */
+  draggingCol: number | null;
 };
 
 /**
@@ -62,6 +72,7 @@ export type BodyPaintArgs = {
  */
 export function paintBody(args: BodyPaintArgs) {
   const { ctx, dpr, viewport, model, editor, palette, fonts } = args;
+  const { draggingCol } = args;
   const { width, height, scrollX, scrollY } = viewport;
 
   ctx.fillStyle = palette.background;
@@ -90,10 +101,16 @@ export function paintBody(args: BodyPaintArgs) {
 
   ctx.font = fonts.cell;
   ctx.textAlign = "left";
-  const columns = model.columns.slice(cols.first, cols.last + 1);
+  const columns = args.columns.slice(cols.first, cols.last + 1);
   for (let row = rows.first; row <= rows.last; row++) {
     let col = cols.first;
     for (const column of columns) {
+      // The dragged column rides the pointer; its slot stays empty so the gap
+      // the other columns opened is what shows where it lands.
+      if (col === draggingCol) {
+        col++;
+        continue;
+      }
       const playing = args.playing;
       paintCell({
         ctx,
@@ -148,6 +165,10 @@ export function paintBody(args: BodyPaintArgs) {
       rect.w - ring,
       rect.h - ring,
     );
+  }
+  if (draggingCol !== null) {
+    ctx.fillStyle = withAlpha(palette.ring, 0.06);
+    ctx.fillRect(draggingCol * COL_WIDTH, scrollY, COL_WIDTH, height);
   }
   ctx.restore();
 

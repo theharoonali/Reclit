@@ -1,6 +1,6 @@
 "use client";
 
-import type { MouseEvent } from "react";
+import type { MouseEvent, PointerEvent } from "react";
 import {
   fileLabel,
   isJsonObject,
@@ -15,6 +15,7 @@ import {
   hitTest,
   hitTestHeader,
   inflateRect,
+  isHeaderColumnHit,
 } from "@/lib/ai-spreadsheet/geometry";
 import { AUDIO_LEADING, capsuleRect } from "@/lib/ai-spreadsheet/paint-cell";
 import type {
@@ -26,6 +27,7 @@ import type {
   Viewport,
 } from "@/lib/ai-spreadsheet/types";
 import type { CellEditorApi } from "./use-cell-editor";
+import type { ColumnDragApi } from "./use-column-drag";
 
 export type SheetPointerArgs = {
   modelRef: React.RefObject<SheetModel>;
@@ -36,6 +38,10 @@ export type SheetPointerArgs = {
   hoverRef: React.RefObject<SheetHit>;
   labels: SheetLabels;
   editor: CellEditorApi;
+  /** The column-reorder drag; it gets first refusal on every header pointer event. */
+  drag: ColumnDragApi;
+  /** Which column's grip is under the pointer, for the "Drag and drop" tooltip. */
+  onGripHover: (col: number | null) => void;
   getCell: (row: number, columnId: string) => CellValue;
   requestPaint: () => void;
   onOpenJson: (row: number, columnId: string) => void;
@@ -58,7 +64,7 @@ const CHECKBOX_HIT_PAD = 5;
  */
 export function createSheetPointerHandlers(args: SheetPointerArgs) {
   const { modelRef, viewportRef, ctxRef, fontsRef, hoverRef } = args;
-  const { labels, editor, getCell, requestPaint } = args;
+  const { labels, editor, drag, onGripHover, getCell, requestPaint } = args;
   const { onOpenJson, onOpenColumn, onRemoveColumn, onToggleAudio } = args;
   const { onToggleRow, onToggleAllRows } = args;
 
@@ -180,7 +186,7 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     if (hit.kind === "cell") editor.beginEdit(hit.row, hit.col);
   };
 
-  const handleHeaderPointerDown = (event: MouseEvent<HTMLDivElement>) => {
+  const handleHeaderPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     const { x, y } = localPoint(event);
     // The corner block is left of every column, so the select-all checkbox is
     // checked before the column hit-test (which starts at GUTTER_WIDTH).
@@ -190,6 +196,13 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
       return;
     }
     const hit = hitTestHeader(x, y, viewportRef.current);
+    // Before the `header` branch: a press on the grip starts a drag and must
+    // never also open the column panel.
+    if (hit.kind === "header-grip" && drag.begin(event, hit.col)) {
+      // The tooltip would otherwise hang over the column for the whole drag.
+      onGripHover(null);
+      return;
+    }
     if (hit.kind === "plus") onOpenColumn();
     else if (hit.kind === "header-delete") {
       const columnId = modelRef.current?.columns[hit.col]?.id;
@@ -199,26 +212,39 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     }
   };
 
-  const handleHeaderPointerMove = (event: MouseEvent<HTMLDivElement>) => {
+  const handleHeaderPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    // A drag owns the pointer: the hover must stay on the column being moved.
+    if (drag.move(event)) return;
     const { x, y } = localPoint(event);
     const hit = hitTestHeader(x, y, viewportRef.current);
     const previous = hoverRef.current;
-    // `header` and `header-delete` are distinct kinds on purpose: crossing
-    // onto the delete glyph within one column must still repaint.
-    const same =
-      hit.kind === "header" || hit.kind === "header-delete"
-        ? previous.kind === hit.kind &&
-          "col" in previous &&
-          previous.col === hit.col
-        : hit.kind === previous.kind;
+    // The three column kinds are distinct on purpose: crossing onto the grip
+    // or the delete glyph within one column must still repaint.
+    const same = isHeaderColumnHit(hit)
+      ? previous.kind === hit.kind &&
+        "col" in previous &&
+        previous.col === hit.col
+      : hit.kind === previous.kind;
     if (same) return;
     hoverRef.current = hit;
+    onGripHover(hit.kind === "header-grip" ? hit.col : null);
     requestPaint();
   };
 
+  const handleHeaderPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    drag.end(event);
+  };
+
+  const handleHeaderPointerCancel = () => {
+    drag.cancel();
+  };
+
   const handleHeaderPointerLeave = () => {
-    if (hoverRef.current.kind === "empty") return;
+    // Pointer capture normally suppresses this mid-drag; the guard covers a
+    // capture that never took, which would otherwise blank the hover.
+    if (drag.isDragging() || hoverRef.current.kind === "empty") return;
     hoverRef.current = { kind: "empty" };
+    onGripHover(null);
     requestPaint();
   };
 
@@ -227,6 +253,8 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     handleBodyDoubleClick,
     handleHeaderPointerDown,
     handleHeaderPointerMove,
+    handleHeaderPointerUp,
+    handleHeaderPointerCancel,
     handleHeaderPointerLeave,
   };
 }

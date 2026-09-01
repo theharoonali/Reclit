@@ -103,7 +103,8 @@ export const spreadsheetMetaSchema = z.object({
 
 export const sheetColumnSchema = z.object({
   id: z.string(), // "col.<index>"
-  index: z.number().int(),
+  index: z.number().int(), // identity: the pk suffix and Cell.columnIndex
+  sortOrder: z.number().int(), // display position, dense 0..n-1 per sheet
   name: z.string(),
   type: columnTypeWire,
   node: nodeTypeWire.nullable(),
@@ -192,6 +193,15 @@ export const updateRowInput = rowRefInput.extend({
 });
 
 /**
+ * A column's new display position, 0..columnCount-1. The upper bound needs the
+ * column count, so it is a service check; zod only rules out negatives.
+ * `sortOrder` is the only field a reorder writes — never an id or an index.
+ */
+export const reorderColumnInput = columnRefInput.extend({
+  newSortOrder: gridIndex,
+});
+
+/**
  * Built from undefaulted fields on purpose: `createColumnInput.partial()` would
  * keep `type`'s `.default("string")` and silently retype the column on a
  * name-only update.
@@ -242,6 +252,7 @@ export type CellRefInput = z.infer<typeof cellRefInput>;
 export type SetCellInput = z.infer<typeof setCellInput>;
 export type UpdateRowInput = z.infer<typeof updateRowInput>;
 export type UpdateColumnInput = z.infer<typeof updateColumnInput>;
+export type ReorderColumnInput = z.infer<typeof reorderColumnInput>;
 export type CreateRowInput = z.infer<typeof createRowInput>;
 export type AppendRowInput = z.infer<typeof appendRowInput>;
 export type RemoveRowsInput = z.infer<typeof removeRowsInput>;

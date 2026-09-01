@@ -1,9 +1,4 @@
-import {
-  LayoutDashboard,
-  type LucideIcon,
-  Send,
-  Table2,
-} from "lucide-react";
+import { LayoutDashboard, type LucideIcon, Send, Table2 } from "lucide-react";
 
 /**
  * A single row in the sidebar. `disabled` marks a destination that has no route

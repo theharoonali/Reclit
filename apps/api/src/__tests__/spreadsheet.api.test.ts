@@ -7,8 +7,12 @@
  *                workspaceId (fk cascade → Workspace, indexed — see the
  *                workspace contract), createdAt (indexed), updatedAt
  *   Column       id (pk "<sheetId>.col.<index>"), spreadsheetId (fk cascade),
- *                index, name, type ColumnType, node NodeType? (null = plain
- *                column), prompt String?, unique(spreadsheetId, index)
+ *                index (identity: the pk suffix and Cell.columnIndex — never
+ *                changes), sortOrder (display position, dense 0..n-1 per
+ *                sheet), name, type ColumnType, node NodeType? (null = plain
+ *                column), prompt String?, unique(spreadsheetId, index),
+ *                index(spreadsheetId, sortOrder) — deliberately not unique,
+ *                a reorder shifts a band in one statement
  *   Row          id (pk "<sheetId>.row.<index>"), spreadsheetId (fk cascade),
  *                index, unique(spreadsheetId, index) — sparse: a record exists
  *                only where something was written
@@ -23,12 +27,13 @@
  * MODELS (wire — ids are always the short form)
  *   SpreadsheetMeta = { id, name, totalRows, totalColumns, createdAt: Date,
  *                       updatedAt: Date }           (dates via superjson)
- *   SheetColumn  = { id: "col.<i>", index, name, type,
+ *   SheetColumn  = { id: "col.<i>", index, sortOrder, name, type,
  *                    node: "ai" | "email" | null, prompt: string | null }
  *   SheetRow     = { id: "row.<i>", index,
  *                    columns: { id: "col.<i>", name, value }[] } — one entry
- *                    per stored cell, ordered by column index; blank cells are
- *                    absent entries, a blank row is columns: []
+ *                    per stored cell, in the sheet's column order (sortOrder,
+ *                    not index); blank cells are absent entries, a blank row
+ *                    is columns: []
  *   SheetCell    = { id: "cell.<r>.<c>", rowIndex, columnIndex, value }
  *   CellValue    = string | number | boolean | object | null — null clears
  *   SheetPayload = { spreadsheet: { id, name, totalRows, totalColumns },
@@ -54,6 +59,7 @@
  * | spreadsheet.removeRows   | mutation | { id; rowIndexes: number[] (1..10_000) }        | { ids: string[] } | NOT_FOUND (sheet), BAD_REQUEST|
  * | spreadsheet.createColumn | mutation | { id; name; type? (default "string"); node?; prompt? } | SheetColumn | NOT_FOUND, BAD_REQUEST  |
  * | spreadsheet.updateColumn | mutation | { id; columnIndex; name?; type?; node?; prompt? } | SheetColumn     | NOT_FOUND, BAD_REQUEST        |
+ * | spreadsheet.reorderColumn| mutation | { id; columnIndex; newSortOrder: 0..n-1 }       | SheetColumn[] (the whole order) | NOT_FOUND, BAD_REQUEST |
  * | spreadsheet.removeColumn | mutation | { id; columnIndex }                             | { id: "col.N" }   | NOT_FOUND                     |
  *
  * REST (same service, same shapes; errors as { statusCode, code, message })
@@ -71,6 +77,7 @@
  * | POST   /spreadsheets/:id/columns                   | 201 | createColumn |
  * | GET    /spreadsheets/:id/columns/:c                | 200 | column       |
  * | PATCH  /spreadsheets/:id/columns/:c                | 200 | updateColumn |
+ * | POST   /spreadsheets/:id/columns/:c/reorder  body {newSortOrder} | 200 | reorderColumn |
  * | DELETE /spreadsheets/:id/columns/:c                | 200 | removeColumn |
  * | GET    /spreadsheets/:id/cells/:r/:c               | 200 | cell         |
  * | PATCH  /spreadsheets/:id/cells/:r/:c  body {value} | 200 | setCell      |
@@ -89,10 +96,23 @@
  * - Rows are sparse; row indexes are absolute grid positions. removeRow clears
  *   the row and never shifts later rows; a never-written row/cell reads back
  *   blank (columns: [] / value: null), not 404.
- * - Columns are append-only: a new column lands one past the highest stored
- *   index. Any column can be deleted — its cells go with it and its index
- *   becomes a permanent gap that is never reused; index-derived ids never
- *   renumber. Deleting an index with no column is NOT_FOUND.
+ * - A column carries two numbers and they are not the same thing. `index` is
+ *   IDENTITY: the pk suffix, the wire id "col.<index>", and the address of
+ *   every cell (Cell.columnIndex). It is append-only — a new column lands one
+ *   past the highest stored index — and a deleted column's index becomes a
+ *   permanent gap that is never reused, so index-derived ids never renumber.
+ *   Deleting an index with no column is NOT_FOUND.
+ * - `sortOrder` is POSITION, and it is always dense 0..n-1 per sheet: create
+ *   appends at max+1, remove closes the gap it leaves (unlike its index),
+ *   import mints it in file order, and reorderColumn shifts the columns
+ *   between the old and new position by ±1 — left moves shift them +1, right
+ *   moves shift them -1. Every list orders by sortOrder.
+ * - reorderColumn writes ONLY sortOrder. No id, no index and no
+ *   Cell.columnIndex moves, so every cell stays with its column. It returns
+ *   the sheet's whole column order, and a same-position reorder is a no-op
+ *   that still returns it. A newSortOrder past the last position is
+ *   BAD_REQUEST rather than clamped — out of range means the caller's view of
+ *   the order is stale.
  * - setCell(value: null) deletes the cell record; `value` is never stored null.
  * - appendRow writes at one past the highest stored row index, row + cells in
  *   one transaction; the index race with concurrent appends is retried
@@ -308,6 +328,7 @@ describe.skipIf(!dbUp)("spreadsheet.createColumn", () => {
     expect(first).toEqual({
       id: "col.0",
       index: 0,
+      sortOrder: 0,
       name: "First",
       type: "string",
       node: null,
@@ -316,6 +337,7 @@ describe.skipIf(!dbUp)("spreadsheet.createColumn", () => {
     expect(second).toEqual({
       id: "col.1",
       index: 1,
+      sortOrder: 1,
       name: "Second",
       type: "number",
       node: null,
@@ -395,6 +417,7 @@ describe.skipIf(!dbUp)("spreadsheet.column", () => {
     expect(column).toEqual({
       id: "col.2",
       index: 2,
+      sortOrder: 2,
       name: "tune",
       type: "audio",
       node: null,
@@ -433,6 +456,7 @@ describe.skipIf(!dbUp)("spreadsheet.updateColumn", () => {
     expect(updated).toEqual({
       id: "col.0",
       index: 0,
+      sortOrder: 0,
       name: "renamed",
       type: "number",
       node: null,
@@ -517,6 +541,170 @@ describe.skipIf(!dbUp)("spreadsheet.updateColumn", () => {
   });
 });
 
+describe.skipIf(!dbUp)("spreadsheet.reorderColumn", () => {
+  it("moves a column left, shifting the columns in between right", async () => {
+    const sheet = await makeTypedSheet();
+    const fourth = await caller.spreadsheet.createColumn({
+      id: sheet.id,
+      name: "extra",
+    });
+    expect(fourth.sortOrder).toBe(3);
+
+    // The worked example: A(0) B(1) C(2) D(3) -> move D to 1 -> A D B C.
+    const order = await caller.spreadsheet.reorderColumn({
+      id: sheet.id,
+      columnIndex: 3,
+      newSortOrder: 1,
+    });
+    expect(order.map((c) => c.id)).toEqual([
+      "col.0",
+      "col.3",
+      "col.1",
+      "col.2",
+    ]);
+    expect(order.map((c) => c.sortOrder)).toEqual([0, 1, 2, 3]);
+    // Identity is untouched: only sortOrder moved.
+    expect(order.map((c) => c.index)).toEqual([0, 3, 1, 2]);
+    expect(order.map((c) => c.name)).toEqual(["text", "extra", "num", "tune"]);
+  });
+
+  it("moves a column right, shifting the columns in between left", async () => {
+    const sheet = await makeTypedSheet();
+    const order = await caller.spreadsheet.reorderColumn({
+      id: sheet.id,
+      columnIndex: 0,
+      newSortOrder: 2,
+    });
+    expect(order.map((c) => c.id)).toEqual(["col.1", "col.2", "col.0"]);
+    expect(order.map((c) => c.sortOrder)).toEqual([0, 1, 2]);
+  });
+
+  it("reorders to its own position as a no-op that still returns the order", async () => {
+    const sheet = await makeTypedSheet();
+    const order = await caller.spreadsheet.reorderColumn({
+      id: sheet.id,
+      columnIndex: 1,
+      newSortOrder: 1,
+    });
+    expect(order.map((c) => c.id)).toEqual(["col.0", "col.1", "col.2"]);
+    expect(order.map((c) => c.sortOrder)).toEqual([0, 1, 2]);
+  });
+
+  it("moves no cell: ids, indexes and values stay with their column", async () => {
+    const sheet = await makeTypedSheet();
+    await caller.spreadsheet.setCell({
+      id: sheet.id,
+      rowIndex: 0,
+      columnIndex: 0,
+      value: "keep",
+    });
+    await caller.spreadsheet.setCell({
+      id: sheet.id,
+      rowIndex: 0,
+      columnIndex: 1,
+      value: 7,
+    });
+    await caller.spreadsheet.reorderColumn({
+      id: sheet.id,
+      columnIndex: 0,
+      newSortOrder: 2,
+    });
+
+    // The cell is still addressed by the same (rowIndex, columnIndex).
+    const cell = await caller.spreadsheet.cell({
+      id: sheet.id,
+      rowIndex: 0,
+      columnIndex: 0,
+    });
+    expect(cell).toMatchObject({ id: "cell.0.0", value: "keep" });
+    const column = await caller.spreadsheet.column({
+      id: sheet.id,
+      columnIndex: 0,
+    });
+    expect(column).toMatchObject({ id: "col.0", index: 0, sortOrder: 2 });
+  });
+
+  it("orders the rows payload and each row's entries by the new order", async () => {
+    const sheet = await makeTypedSheet();
+    await caller.spreadsheet.updateRow({
+      id: sheet.id,
+      rowIndex: 0,
+      cells: [
+        { columnIndex: 0, value: "first" },
+        { columnIndex: 1, value: 7 },
+      ],
+    });
+    await caller.spreadsheet.reorderColumn({
+      id: sheet.id,
+      columnIndex: 1,
+      newSortOrder: 0,
+    });
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(payload.columns.map((c) => c.id)).toEqual([
+      "col.1",
+      "col.0",
+      "col.2",
+    ]);
+    expect(payload.rows[0]?.columns).toEqual([
+      { id: "col.1", name: "num", value: 7 },
+      { id: "col.0", name: "text", value: "first" },
+    ]);
+  });
+
+  it("rejects a sort order past the last position and a negative one", async () => {
+    const sheet = await makeTypedSheet();
+    await expectTRPCError(
+      caller.spreadsheet.reorderColumn({
+        id: sheet.id,
+        columnIndex: 0,
+        newSortOrder: 3,
+      }),
+      "BAD_REQUEST",
+    );
+    await expectTRPCError(
+      caller.spreadsheet.reorderColumn({
+        id: sheet.id,
+        columnIndex: 0,
+        newSortOrder: -1,
+      }),
+      "BAD_REQUEST",
+    );
+  });
+
+  it("returns NOT_FOUND for a missing column and a missing sheet", async () => {
+    const sheet = await makeTypedSheet();
+    await expectTRPCError(
+      caller.spreadsheet.reorderColumn({
+        id: sheet.id,
+        columnIndex: 9,
+        newSortOrder: 0,
+      }),
+      "NOT_FOUND",
+    );
+    await expectTRPCError(
+      caller.spreadsheet.reorderColumn({
+        id: "does-not-exist",
+        columnIndex: 0,
+        newSortOrder: 0,
+      }),
+      "NOT_FOUND",
+    );
+  });
+
+  it("keeps the order dense when a reordered column is then removed", async () => {
+    const sheet = await makeTypedSheet();
+    await caller.spreadsheet.reorderColumn({
+      id: sheet.id,
+      columnIndex: 2,
+      newSortOrder: 0,
+    });
+    await caller.spreadsheet.removeColumn({ id: sheet.id, columnIndex: 0 });
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(payload.columns.map((c) => c.id)).toEqual(["col.2", "col.1"]);
+    expect(payload.columns.map((c) => c.sortOrder)).toEqual([0, 1]);
+  });
+});
+
 describe.skipIf(!dbUp)("spreadsheet.removeColumn", () => {
   it("removes the last column and its cells", async () => {
     const sheet = await makeTypedSheet();
@@ -564,6 +752,9 @@ describe.skipIf(!dbUp)("spreadsheet.removeColumn", () => {
     expect(meta.totalColumns).toBe(2);
     const payload = await caller.spreadsheet.rows({ id: sheet.id });
     expect(payload.columns.map((c) => c.id)).toEqual(["col.0", "col.2"]);
+    // The index gap is permanent; the sort-order gap is not — col.2 closes up.
+    expect(payload.columns.map((c) => c.index)).toEqual([0, 2]);
+    expect(payload.columns.map((c) => c.sortOrder)).toEqual([0, 1]);
     const left = await caller.spreadsheet.cell({
       id: sheet.id,
       rowIndex: 0,
@@ -582,6 +773,8 @@ describe.skipIf(!dbUp)("spreadsheet.removeColumn", () => {
     });
     expect(created.id).toBe("col.3");
     expect(created.index).toBe(3);
+    // Its index appends past the max; its sort order appends past the count.
+    expect(created.sortOrder).toBe(2);
 
     // Deleting the same index again is NOT_FOUND, matching updateColumn.
     await expectTRPCError(
@@ -1072,6 +1265,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
     expect(await colRes.json()).toEqual({
       id: "col.0",
       index: 0,
+      sortOrder: 0,
       name: "Age",
       type: "number",
       node: null,
@@ -1112,6 +1306,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
     expect(await column.json()).toEqual({
       id: "col.0",
       index: 0,
+      sortOrder: 0,
       name: "Age",
       type: "number",
       node: null,
@@ -1129,6 +1324,24 @@ describe.skipIf(!dbUp)("REST surface", () => {
       json("PATCH", { name: "Years" }),
     );
     expect(await patchColumn.json()).toMatchObject({ name: "Years" });
+
+    // POST /columns/:c/reorder — 200 with the sheet's whole column order
+    const reorder = await fetch(
+      `${baseUrl}/spreadsheets/${sheet.id}/columns/0/reorder`,
+      json("POST", { newSortOrder: 0 }),
+    );
+    expect(reorder.status).toBe(200);
+    expect(await reorder.json()).toEqual([
+      {
+        id: "col.0",
+        index: 0,
+        sortOrder: 0,
+        name: "Years",
+        type: "number",
+        node: null,
+        prompt: null,
+      },
+    ]);
 
     // POST /rows, DELETE /rows/:r, DELETE /columns/:c, DELETE /spreadsheets/:id
     const postRow = await fetch(
@@ -1208,6 +1421,16 @@ describe.skipIf(!dbUp)("REST surface", () => {
     expect(badLimit.status).toBe(400);
     expect(await badLimit.json()).toMatchObject({ code: "VALIDATION_FAILED" });
 
+    // 400 a reorder past the last position
+    const outOfRange = await fetch(
+      `${baseUrl}/spreadsheets/${sheet.id}/columns/0/reorder`,
+      json("POST", { newSortOrder: 2 }),
+    );
+    expect(outOfRange.status).toBe(400);
+    expect(await outOfRange.json()).toMatchObject({
+      code: "SPREADSHEET_SORT_ORDER_OUT_OF_RANGE",
+    });
+
     // 409 creating a row at an already-stored index
     await caller.spreadsheet.createRow({ id: sheet.id, index: 0 });
     const exists = await fetch(
@@ -1271,6 +1494,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
       columns: {
         id: string;
         index: number;
+        sortOrder: number;
         name: string;
         type: string;
         node: string | null;
@@ -1292,6 +1516,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
     expect(body.columns[0]).toEqual({
       id: "col.0",
       index: 0,
+      sortOrder: 0,
       name: "Name",
       type: "string",
       node: null,

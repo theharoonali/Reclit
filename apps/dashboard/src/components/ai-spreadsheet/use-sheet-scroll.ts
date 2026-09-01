@@ -20,6 +20,8 @@ export type SheetScrollApi = {
   /** Re-size the spacer and re-derive the scroll ratio. */
   syncGeometry: () => void;
   scrollCellIntoView: (row: number, col: number) => void;
+  /** Nudge the viewport by a delta, clamped. Used by the column-drag edge scroll. */
+  scrollBy: (dx: number, dy: number) => void;
 };
 
 /**
@@ -148,6 +150,31 @@ export function useSheetScroll(args: {
     };
   }, [applyNative, extendTail, requestPaint, scrollerRef, viewportRef]);
 
+  /**
+   * The clamped, repainting sibling of `scrollCellIntoView` — it moves by a
+   * delta rather than to a cell, so a horizontal column drag near the edge
+   * does not also scroll the sheet vertically.
+   */
+  const scrollBy = useCallback(
+    (dx: number, dy: number) => {
+      const viewport = viewportRef.current;
+      if (!viewport || (dx === 0 && dy === 0)) return;
+      viewport.scrollX = clamp(
+        viewport.scrollX + dx,
+        0,
+        maxScrollX(viewport.columnCount, viewport.width),
+      );
+      viewport.scrollY = clamp(
+        viewport.scrollY + dy,
+        0,
+        maxScrollY(viewport.rowExtent, viewport.height),
+      );
+      if (!extendTail()) applyNative();
+      requestPaint();
+    },
+    [applyNative, extendTail, requestPaint, viewportRef],
+  );
+
   const scrollCellIntoView = useCallback(
     (row: number, col: number) => {
       const viewport = viewportRef.current;
@@ -172,5 +199,5 @@ export function useSheetScroll(args: {
     [applyNative, extendTail, requestPaint, viewportRef],
   );
 
-  return { syncGeometry, scrollCellIntoView };
+  return { syncGeometry, scrollCellIntoView, scrollBy };
 }

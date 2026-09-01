@@ -22,7 +22,7 @@ change.
 | `…/ai-spreadsheet-input-proxy.tsx` | client | the hidden textarea and the key bindings |
 | `…/ai-spreadsheet-side-panel.tsx` | client | the docked panel frame |
 | `…/ai-spreadsheet-column-form.tsx` | client | add **and** edit a column (name + type) |
-| `…/ai-spreadsheet-json-editor.tsx` | client | key/value table behind a JSON cell |
+| `…/ai-spreadsheet-json-editor.tsx` | client | the stacked key/value entries behind a JSON cell |
 | `…/ai-spreadsheet-date-editor.tsx` | client | UTC calendar behind a date cell |
 | `…/ai-spreadsheet-upload-editor.tsx` | client | upload panel behind file and audio cells (`POST /files`) |
 | `…/ai-spreadsheet-import-button.tsx` | client | the Import control, portalled into the app header |
@@ -31,11 +31,14 @@ change.
 | `…/ai-spreadsheet-selection-bar.tsx` | client | the "N rows selected" + Delete control, portalled into the app header |
 | `…/use-sheet-selection.ts` | hook | the gutter's tick set, select-all, and the batch delete mutation |
 | `…/use-column-remove.ts` | hook | the header's per-column delete mutation and local-model cleanup |
+| `…/ai-spreadsheet-drag-chip.tsx` | client | the card that rides the pointer during a column drag |
+| `…/use-column-drag.ts` | module | the reorder drag: pointer capture, threshold, drop slot, edge autoscroll |
+| `…/use-column-reorder.ts` | hook | the reorder mutation, and applying the order the API returns |
 | `…/use-sheet-import.ts` | hook | uploads a CSV/XLSX, then refreshes the grid without remounting it |
 | `…/use-sheet-canvas.ts` | hook | wires sizing, painting, pointer routing and the editor |
 | `…/use-sheet-audio.ts` | hook | one shared `Audio` element and which audio cell is playing |
 | `…/use-sheet-sync.ts` | hook | persists cell/column edits through tRPC without re-rendering the grid |
-| `…/use-sheet-model.ts` | hook | payload → `SheetModel`; `getCell`/`setCell`/`addColumn`/`updateColumn` |
+| `…/use-sheet-model.ts` | hook | payload → `SheetModel`; `getCell`/`setCell`/`addColumn`/`updateColumn`/`applyColumnOrder` |
 | `…/use-sheet-viewport.ts` | hook | viewport ref, rAF paint scheduler, palette/font refresh |
 | `…/use-sheet-scroll.ts` | hook | virtual↔native scroll mapping, wheel, blank-tail growth |
 | `…/use-cell-editor.ts` | hook | the edit state machine |
@@ -72,6 +75,16 @@ Feature: [spreadsheet](../features/spreadsheet.md) ·
   success the column and its cells are dropped from the local model (the wire
   index stays a permanent gap — nothing renumbers) and the grid re-renders via
   `columnsVersion`.
+- On column reorder: `spreadsheet.reorderColumn` with the column's wire index
+  and its new display position. **Optimistic**, unlike every other column
+  mutation: the columns move the instant the pointer is released and the
+  request follows, because waiting for the round trip snaps the grid back to
+  the old order until it lands and then jumps forward again. The response still
+  carries the whole order and is reconciled against what is on screen, but only
+  where the two disagree, so the normal case costs no second render; a failure
+  restores the pre-drop snapshot and the column springs back. Unlike a delete
+  this does **not** discard pending cell writes: a reorder moves no wire index,
+  so a debounced `setCell` still in flight remains addressed at the right cell.
 - Export calls no API: the CSV is serialised from the in-memory model
   (`lib/ai-spreadsheet/export-csv.ts`) — the loader already merged every stored
   page, and unsaved debounced edits are included — and downloaded as a Blob.
@@ -164,7 +177,16 @@ key gone, and blank a freshly imported cell.
   chip that would misrepresent it.
   - **JSON** — a neutral chip labelled with the key count; never editable
     inline. Clicking it, or a blank cell in a JSON column, opens an editable
-    key/value table that writes straight back to the cell.
+    list of entries that writes straight back to the cell. Each entry is a
+    stacked block laid out like the column form — a label above every field,
+    the key on a single-line `Input`, the value on a full-height `Textarea`,
+    and the entry's remove button on the key's label row. The two used to sit
+    side by side in a three-column grid, which left each of them half the
+    panel's width: too narrow to read a value of any length, and far too
+    narrow to edit a nested object. Nested objects and arrays seed the textarea
+    pretty-printed for the same reason; `JSON.parse` ignores the whitespace on
+    the way back, so `26` still returns as a number and `Germany` still falls
+    through to a raw string.
   - **File** — the cell holds the URL itself; the chip is labelled with the
     file name from its last path segment. Clicking the chip opens the file in
     a new tab; opening the cell (Enter, F2, double-click) opens the panel's
@@ -202,6 +224,38 @@ key gone, and blank a freshly imported cell.
   cell writes are discarded first so none can re-create a deleted cell, and on
   success the rows are dropped from the local model and repainted. A failure
   shows inline beside the button with the selection kept.
+- **Column reorder.** Hovering a column header reveals a six-dot grip at its
+  left edge, mirroring the delete `✕` at the right. Its lane is reserved on
+  every column whether hovered or not, so revealing the grip never shifts the
+  name. The cursor is left alone — the grid never overrides what the user's
+  system gives them — and a
+  "Drag and drop" tooltip (`@reclit/ui/tooltip`) hangs off an empty anchor box
+  parked over the painted glyph — the grip is pixels, so the tooltip needs
+  something real to point at. The anchor is `pointer-events-none` and its `open`
+  comes from the canvas hit-test: letting it take pointer events would break the
+  drag that starts on the same press.
+- **The drag itself.** Pressing the grip and moving more than 4px starts it — a
+  movement threshold rather than a hold timer, so there is no dead period where
+  the user has pressed and nothing has happened; a press that never passes it
+  does nothing at all (the grip's only job is dragging, so it does not open the
+  column panel a click on the header would). There is **no insertion line**.
+  Instead the grid previews the result: the dragged column lifts out onto a
+  card that rides the pointer showing its name, and the remaining columns —
+  headers and cells together — shift into the order the drop would produce,
+  leaving a tinted empty well where the column will land. The preview is paint
+  state only (`lib/ai-spreadsheet/column-order.ts`); the model is untouched and
+  the order the grid adopts still comes from the API's response. The pointer is
+  captured, so the drag survives leaving the 36px header strip, and holding
+  within 48px of either edge autoscrolls horizontally — a sheet is routinely
+  wider than the viewport. Dropping calls `spreadsheet.reorderColumn`; dropping
+  a column back where it started fires nothing, and the repaint is issued
+  *after* the drop has moved the columns, never before — painting first would
+  show the pre-drop order for a frame. All drag state lives in a ref and
+  repaints, and the chip is moved by writing `transform` onto its node —
+  never React state, which on this path would cost frames and risk remounting
+  the canvas. `touch-none` on the header strip is what makes any of this work on
+  a touch device — without it the browser claims the gesture as a pan before
+  `pointermove` ever fires.
 - **Import** is a button in the app header, not a bar of the sheet's own: it is
   portalled there with `<HeaderActions>`, so the grid keeps the whole content
   area and still owns the import state. Picking a `.csv`/`.xlsx` replaces the
@@ -221,14 +275,17 @@ key gone, and blank a freshly imported cell.
   black chip means a missing custom property, not a styling choice.
 - **Accessibility.** The scroll container is a `role="grid"` with
   `aria-rowcount`/`aria-colcount`, the hidden textarea is labelled, and the
-  painted `+` has a real screen-reader-only button behind it. Per-cell reading
-  by assistive tech is **not** supported — the cells are pixels.
+  painted `+` has a real screen-reader-only button behind it. The column-reorder
+  grip has no such fallback: it is a painted glyph driven by pointer events,
+  with no keyboard path to reordering. Per-cell reading by assistive tech is
+  **not** supported — the cells are pixels.
 - **Not implemented:** *windowed* paging tied to scroll position. The loader
   reads every **stored** row up front and merges the pages, which is bounded by
   what was actually written (rows are sparse, and import caps at 20,000) rather
   than by the 5,000,000-row virtual height — but a very large sheet is still one
   big payload on load. Rows past what is stored render blank, which is correct.
-  Also not implemented: TSV paste, column reorder, row insert in the UI (row
+  Also not implemented: TSV paste, keyboard-driven column reorder (the grip is
+  pointer-only — see Accessibility), row insert in the UI (row
   *delete* is implemented — see "Row selection & delete"), undo/redo, formulas
   (the `formula` column type is storage-only and edits as text), sorting, and
   filtering. Persistence **is** implemented — see "APIs called".

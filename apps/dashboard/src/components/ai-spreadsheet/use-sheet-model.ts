@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toColumnType, toNodeType } from "@/lib/ai-spreadsheet/cell-format";
 import type {
+  ApiColumn,
   CellValue,
   ColumnDraft,
   SheetColumn,
@@ -18,6 +19,11 @@ import { cellKey } from "@/lib/ai-spreadsheet/types";
  *
  * - `row.index` is the absolute row number. With pagination it is not the
  *   position in `payload.rows`, so nothing below indexes into that array.
+ * - A column carries two numbers: `index` is identity (it is what `col.<n>` is
+ *   built from, and what a cell is addressed by) and `sortOrder` is position.
+ *   Display order is `sortOrder`; the model keeps neither, because array order
+ *   is the display order and `parseShortColumnId` recovers the index from the
+ *   id.
  * - A row is nested — one `{ id, name, value }` entry per stored cell, keyed
  *   by column *id*, which is exactly how the model keys `cells`. An entry for
  *   a column the sheet does not know is stored but never painted (columns
@@ -28,16 +34,19 @@ import { cellKey } from "@/lib/ai-spreadsheet/types";
  * not been fetched; adding real paging means merging pages into `cells` and
  * tracking loaded ranges, and nothing else in the feature has to change.
  */
+/** Shared by the initial payload and the reorder response, so they cannot drift. */
+export const toModelColumn = (column: ApiColumn): SheetColumn => ({
+  id: column.id,
+  name: column.name,
+  type: toColumnType(column.type),
+  node: toNodeType(column.node),
+  prompt: column.prompt,
+});
+
 export function normalize(payload: SheetPayload): SheetModel {
   const columns: SheetColumn[] = [...payload.columns]
-    .sort((a, b) => a.index - b.index)
-    .map((column) => ({
-      id: column.id,
-      name: column.name,
-      type: toColumnType(column.type),
-      node: toNodeType(column.node),
-      prompt: column.prompt,
-    }));
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map(toModelColumn);
 
   let maxIndex = -1;
   for (const column of payload.columns) {
@@ -76,6 +85,8 @@ export type SheetModelApi = {
   setCell: (row: number, columnId: string, value: CellValue) => void;
   addColumn: (draft: ColumnDraft) => void;
   updateColumn: (id: string, draft: ColumnDraft) => void;
+  setColumnOrder: (columns: SheetColumn[]) => void;
+  applyColumnOrder: (columns: ApiColumn[]) => void;
   removeColumn: (id: string) => void;
   removeRows: (rows: ReadonlySet<number>) => void;
 };
@@ -133,6 +144,34 @@ export function useSheetModel(payload: SheetPayload): SheetModelApi {
     setColumnsVersion((version) => version + 1);
   }, []);
 
+  // Reorders in place. `cells` is untouched — keys are `${row}:${columnId}`, so
+  // moving a column moves no value. The columns array changed, so this one
+  // re-renders.
+  const setColumnOrder = useCallback((columns: SheetColumn[]) => {
+    const current = modelRef.current;
+    if (!current) return;
+    current.columns = columns;
+    setColumnsVersion((version) => version + 1);
+  }, []);
+
+  /**
+   * The server's order, applied only where it disagrees with what is already
+   * on screen. The usual case is that it agrees — the drop moved the column
+   * optimistically and the server did the same thing — and re-rendering to
+   * install an identical array would be a re-render, and a repaint, for
+   * nothing.
+   */
+  const applyColumnOrder = useCallback(
+    (columns: ApiColumn[]) => {
+      const current = modelRef.current;
+      if (!current) return;
+      const server = columns.map((column) => column.id).join();
+      if (server === current.columns.map((column) => column.id).join()) return;
+      setColumnOrder(columns.map(toModelColumn));
+    },
+    [setColumnOrder],
+  );
+
   // Mirrors the backend: the column's wire index becomes a permanent gap, so
   // `nextColumnIndex` is deliberately untouched — the next column still
   // appends past the highest index ever minted. The columns array just gets
@@ -167,6 +206,8 @@ export function useSheetModel(payload: SheetPayload): SheetModelApi {
     setCell,
     addColumn,
     updateColumn,
+    setColumnOrder,
+    applyColumnOrder,
     removeColumn,
     removeRows,
   };

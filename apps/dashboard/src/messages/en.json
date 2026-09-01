@@ -122,6 +122,7 @@
       "prompt": "Prompt",
       "promptPlaceholder": "What should this node do?",
       "add": "Add column",
+      "reorder": "Drag and drop",
       "save": "Save",
       "cancel": "Cancel"
     },

@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useCanvasSurface } from "@/hooks/use-canvas-surface";
+import { dropTarget, previewOrder } from "@/lib/ai-spreadsheet/column-order";
 import {
   COL_WIDTH,
   clamp,
   GUTTER_WIDTH,
+  headerGripRect,
   ROW_HEIGHT,
 } from "@/lib/ai-spreadsheet/geometry";
 import { paintBody } from "@/lib/ai-spreadsheet/paint-body";
@@ -14,12 +16,14 @@ import { paintEditor } from "@/lib/ai-spreadsheet/paint-editor";
 import { paintHeader } from "@/lib/ai-spreadsheet/paint-header";
 import type {
   CellValue,
+  ColumnDragState,
   SheetFormatters,
   SheetHit,
   SheetLabels,
   SheetModel,
 } from "@/lib/ai-spreadsheet/types";
 import { useCellEditor } from "./use-cell-editor";
+import { createColumnDragHandlers } from "./use-column-drag";
 import { useSheetAudio } from "./use-sheet-audio";
 import { createSheetPointerHandlers } from "./use-sheet-pointer";
 import { useSheetScroll } from "./use-sheet-scroll";
@@ -39,6 +43,13 @@ export type SheetCanvasArgs = {
   onOpenFile: (row: number, columnId: string) => void;
   onOpenColumn: (columnId?: string) => void;
   onRemoveColumn: (columnId: string) => void;
+  /** A dropped header grip: the moved column and its new display position. */
+  onReorderColumn: (columnId: string, newSortOrder: number) => void;
+  /** Runs when a drag or a delete starts: cancel the edit, drop pending writes. */
+  onBeforeColumnChange: () => void;
+  /** The chip that rides the pointer, and the label written into it. */
+  dragChipRef: React.RefObject<HTMLDivElement | null>;
+  dragChipLabelRef: React.RefObject<HTMLSpanElement | null>;
   /** Flips when the cell selection goes empty ↔ non-empty. See use-cell-editor. */
   onSelectionPresence?: (has: boolean) => void;
   /** Row selection: the ticked set, its header state, and the toggles. */
@@ -61,12 +72,20 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   const { getCell, setCell } = args;
   const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile, onOpenColumn } =
     args;
-  const { onRemoveColumn, onSelectionPresence } = args;
+  const { onRemoveColumn, onReorderColumn, onSelectionPresence } = args;
+  const { onBeforeColumnChange, dragChipRef, dragChipLabelRef } = args;
   const { selectedRef, selectAllState, onToggleRow, onToggleAllRows } = args;
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const spacerRef = useRef<HTMLDivElement | null>(null);
   const hoverRef = useRef<SheetHit>({ kind: "empty" });
+  // A ref, never state: a drag repaints on every pointer move, and a
+  // re-render would remount the canvas and blank it.
+  const dragRef = useRef<ColumnDragState | null>(null);
+  // The one piece of drag-adjacent React state. It flips only when the pointer
+  // crosses onto or off a grip — not on the paint path — because a tooltip
+  // needs a real DOM anchor and a real `open` prop.
+  const [gripCol, setGripCol] = useState<number | null>(null);
 
   const view = useSheetViewport(
     rowCount,
@@ -74,7 +93,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   );
   const { viewportRef, paletteRef, fontsRef, paintRef, requestPaint } = view;
 
-  const { syncGeometry, scrollCellIntoView } = useSheetScroll({
+  const { syncGeometry, scrollCellIntoView, scrollBy } = useSheetScroll({
     scrollerRef,
     spacerRef,
     viewportRef,
@@ -117,6 +136,42 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   });
   const { editorRef, proxyRef } = editor;
 
+  /**
+   * Moves the drag chip. Written straight onto the node: this runs on every
+   * pointer move, and a re-render there would remount-risk the canvas and
+   * throw away frames for a card that is one `transform` away from correct.
+   */
+  const setDragVisual = useCallback(
+    (drag: ColumnDragState | null) => {
+      const chip = dragChipRef.current;
+      if (!chip) return;
+      if (drag === null || !drag.active) {
+        chip.classList.add("hidden");
+        return;
+      }
+      const label = dragChipLabelRef.current;
+      const name = modelRef.current?.columns[drag.col]?.name;
+      if (label && name !== undefined && label.textContent !== name) {
+        label.textContent = name;
+      }
+      chip.classList.remove("hidden");
+      // Offset so the card sits below-right of the cursor rather than under it.
+      chip.style.transform = `translate3d(${drag.clientX + 12}px, ${drag.clientY + 14}px, 0)`;
+    },
+    [dragChipLabelRef, dragChipRef, modelRef],
+  );
+
+  const columnDrag = createColumnDragHandlers({
+    modelRef,
+    viewportRef,
+    dragRef,
+    requestPaint,
+    scrollBy,
+    onDragStart: onBeforeColumnChange,
+    onDrop: onReorderColumn,
+    onDragVisual: setDragVisual,
+  });
+
   /** For post-delete cleanup: a stale hover would paint a ghost affordance. */
   const resetHover = useCallback(() => {
     hoverRef.current = { kind: "empty" };
@@ -140,6 +195,18 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     if (!model) return;
     viewport.columnCount = model.columns.length;
 
+    // Nothing previews until the press has passed the threshold — a click on
+    // the grip must not shuffle the grid.
+    const drag = dragRef.current?.active === true ? dragRef.current : null;
+    // Paint-only: the columns shown in the order the drop would produce, which
+    // is what shows where the column lands. The model is untouched, and the
+    // order the grid actually adopts still comes from the API's response.
+    const draggingCol = drag === null ? null : dropTarget(drag.col, drag.slot);
+    const columns =
+      drag === null || draggingCol === null
+        ? model.columns
+        : previewOrder(model.columns, drag.col, draggingCol);
+
     const bodyCtx = bodyCtxRef.current;
     if (bodyCtx) {
       const shared = {
@@ -157,6 +224,8 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         formatters,
         playing: audio.playingRef.current,
         selected: selectedRef.current,
+        columns,
+        draggingCol,
       });
       paintEditor({ ...shared, editor: editorRef.current });
       positionProxy();
@@ -169,11 +238,12 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         dpr: headerSizeRef.current.dpr,
         viewport,
         stripWidth: headerSizeRef.current.width,
-        columns: model.columns,
+        columns,
         palette: paletteRef.current,
         labels,
         fonts: fontsRef.current,
         hover: hoverRef.current,
+        draggingCol,
         selectAll: selectAllState(),
       });
     }
@@ -216,6 +286,8 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     hoverRef,
     labels,
     editor,
+    drag: columnDrag,
+    onGripHover: setGripCol,
     getCell,
     requestPaint,
     onOpenJson,
@@ -226,6 +298,20 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     onToggleAllRows,
   });
 
+  // Canvas space, for the tooltip's anchor. Read from the viewport ref at
+  // render time: the hover that set `gripCol` was resolved against this same
+  // scroll position, and any change to it arrives as another pointer move.
+  const gripAnchor =
+    gripCol === null
+      ? null
+      : {
+          x:
+            GUTTER_WIDTH +
+            headerGripRect(gripCol).x -
+            viewportRef.current.scrollX,
+          y: headerGripRect(gripCol).y,
+        };
+
   return {
     bodyCanvasRef: body.canvasRef,
     headerCanvasRef: header.canvasRef,
@@ -234,6 +320,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     editor,
     requestPaint,
     resetHover,
+    gripAnchor,
     ...pointer,
   };
 }

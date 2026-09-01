@@ -3,10 +3,14 @@ import {
   COL_WIDTH,
   GUTTER_WIDTH,
   HEADER_DELETE_HIT_PAD,
+  HEADER_GRIP_GAP,
+  HEADER_GRIP_WIDTH,
   HEADER_HEIGHT,
   headerCheckboxRect,
   headerDeleteRect,
+  headerGripRect,
   inflateRect,
+  isHeaderColumnHit,
   plusButtonRect,
   visibleCols,
 } from "./geometry";
@@ -31,6 +35,36 @@ import type {
 const NODE_GLYPHS: Partial<Record<NodeType, string>> = { ai: "✨" };
 const GLYPH_GAP = 4;
 
+/** The grip's dots: two columns of three, each this many CSS pixels square. */
+const GRIP_DOT = 2;
+const GRIP_DOT_GAP = 3;
+
+/**
+ * Six dots in the grip's rect. Filled rather than stroked, like every other
+ * crisp mark in the header.
+ */
+function paintGrip(
+  ctx: CanvasRenderingContext2D,
+  col: number,
+  palette: SheetPalette,
+) {
+  const rect = headerGripRect(col);
+  const pitch = GRIP_DOT + GRIP_DOT_GAP;
+  const left = rect.x + (rect.w - (GRIP_DOT * 2 + GRIP_DOT_GAP)) / 2;
+  const top = rect.y + (rect.h - (GRIP_DOT * 3 + GRIP_DOT_GAP * 2)) / 2;
+  ctx.fillStyle = palette.mutedText;
+  for (let column = 0; column < 2; column++) {
+    for (let row = 0; row < 3; row++) {
+      ctx.fillRect(
+        left + column * pitch,
+        top + row * pitch,
+        GRIP_DOT,
+        GRIP_DOT,
+      );
+    }
+  }
+}
+
 export type HeaderPaintArgs = {
   ctx: CanvasRenderingContext2D;
   dpr: number;
@@ -40,6 +74,13 @@ export type HeaderPaintArgs = {
   labels: SheetLabels;
   fonts: SheetFonts;
   hover: SheetHit;
+  /**
+   * Where the dragged column currently sits in `columns` — which is already
+   * the preview order, so this is the slot it would land in. Null when nothing
+   * is being dragged. The column paints as an empty tinted well: it is riding
+   * the pointer, so showing its name in two places at once would be a lie.
+   */
+  draggingCol: number | null;
   /** Select-all state: none, some stored rows selected, or all of them. */
   selectAll: CheckboxPaintState;
   /**
@@ -58,6 +99,7 @@ export type HeaderPaintArgs = {
  */
 export function paintHeader(args: HeaderPaintArgs) {
   const { ctx, dpr, viewport, columns, palette, labels, fonts, hover } = args;
+  const { draggingCol } = args;
   const { width, scrollX } = viewport;
   const strip = Math.max(width, args.stripWidth);
   const lineW = 1 / dpr;
@@ -78,13 +120,27 @@ export function paintHeader(args: HeaderPaintArgs) {
   for (const column of visible) {
     const x = col * COL_WIDTH;
 
-    const hovered =
-      (hover.kind === "header" || hover.kind === "header-delete") &&
-      hover.col === col;
+    const dragging = draggingCol === col;
+    const hovered = !dragging && isHeaderColumnHit(hover) && hover.col === col;
+
+    // The dragged column's landing slot: a tinted well with nothing in it. The
+    // column itself is on the pointer, and every other column has already
+    // shifted around this gap, which is what shows where the drop lands.
+    if (dragging) {
+      ctx.fillStyle = withAlpha(palette.ring, 0.1);
+      ctx.fillRect(x, 0, COL_WIDTH, HEADER_HEIGHT);
+      ctx.fillStyle = palette.gridline;
+      ctx.fillRect(x, 0, lineW, HEADER_HEIGHT);
+      col++;
+      continue;
+    }
     if (hovered) {
       ctx.fillStyle = withAlpha(palette.ring, 0.08);
       ctx.fillRect(x, 0, COL_WIDTH, HEADER_HEIGHT);
     }
+    // The grip's lane is reserved on every column but only inked on the one
+    // under the pointer, so revealing it does not shove the name sideways.
+    if (hovered) paintGrip(ctx, col, palette);
 
     // The right edge holds the type name — swapped for the delete affordance
     // while the column is hovered; the column name gets what is left.
@@ -119,16 +175,21 @@ export function paintHeader(args: HeaderPaintArgs) {
     ctx.font = fonts.header;
     ctx.fillStyle = palette.headerText;
     ctx.textAlign = "left";
+    // Everything after the grip starts here, and `room` subtracts the same
+    // inset. Reserve it in one and not the other and names run under the type
+    // label; reserve it only while hovered and they jitter as the grip fades in.
+    const leftInset = CELL_PAD_X + HEADER_GRIP_WIDTH + HEADER_GRIP_GAP;
     const glyph = column.node === null ? undefined : NODE_GLYPHS[column.node];
     let glyphSpace = 0;
     if (glyph !== undefined) {
-      ctx.fillText(glyph, x + CELL_PAD_X, HEADER_HEIGHT / 2);
+      ctx.fillText(glyph, x + leftInset, HEADER_HEIGHT / 2);
       glyphSpace = measureWidth(ctx, glyph) + GLYPH_GAP;
     }
-    const room = COL_WIDTH - CELL_PAD_X * 3 - rightWidth - glyphSpace;
+    const room =
+      COL_WIDTH - leftInset - CELL_PAD_X * 2 - rightWidth - glyphSpace;
     ctx.fillText(
       truncateToWidth(ctx, column.name, room),
-      x + CELL_PAD_X + glyphSpace,
+      x + leftInset + glyphSpace,
       HEADER_HEIGHT / 2,
     );
 

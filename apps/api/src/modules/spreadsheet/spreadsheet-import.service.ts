@@ -36,10 +36,13 @@ function chunk<T>(items: T[]): T[][] {
  * upserts — the whole rebuild is one write pass.
  */
 function buildRecords(id: string, plan: InferredSheet) {
+  // File order is already dense, so `index` and `sortOrder` start out equal —
+  // they only diverge once a column is removed or reordered.
   const columnData = plan.columns.map((column, index) => ({
     id: columnId(id, index),
     spreadsheetId: id,
     index,
+    sortOrder: index,
     name: column.name,
     type: toDbColumnType(column.type),
   }));
@@ -110,6 +113,7 @@ export class SpreadsheetImportService {
       columns: plan.columns.map((column, index) => ({
         id: shortColumnId(index),
         index,
+        sortOrder: index,
         name: column.name,
         type: column.type,
         node: null,

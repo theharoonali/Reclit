@@ -20,6 +20,7 @@ import {
   createRowInput,
   createSpreadsheetInput,
   removeRowsInput,
+  reorderColumnInput,
   rowRefInput,
   setCellInput,
   sheetRowsInput,
@@ -28,6 +29,7 @@ import {
 } from "./spreadsheet.schema";
 import { spreadsheetService } from "./spreadsheet.service";
 import { spreadsheetCellsService } from "./spreadsheet-cells.service";
+import { spreadsheetColumnsService } from "./spreadsheet-columns.service";
 import { spreadsheetImportService } from "./spreadsheet-import.service";
 
 // The REST face of the spreadsheet feature — same services, same zod inputs
@@ -124,7 +126,7 @@ export class SpreadsheetController {
   @Post(":id/columns")
   createColumn(@Param("id") id: string, @Body() body: unknown) {
     const input = createColumnInput.parse({ ...(body as object), id });
-    return spreadsheetCellsService.createColumn(input);
+    return spreadsheetColumnsService.createColumn(input);
   }
 
   @Get(":id/columns/:columnIndex")
@@ -144,7 +146,27 @@ export class SpreadsheetController {
       id,
       columnIndex,
     });
-    return spreadsheetCellsService.updateColumn(input);
+    return spreadsheetColumnsService.updateColumn(input);
+  }
+
+  /**
+   * Moves a column. POST, not PATCH: it writes several rows rather than
+   * patching fields on one — the same reason `POST :id/rows/remove` is a POST.
+   * More path segments than `:id/columns/:columnIndex`, so no route shadowing.
+   */
+  @Post(":id/columns/:columnIndex/reorder")
+  @HttpCode(200)
+  reorderColumn(
+    @Param("id") id: string,
+    @Param("columnIndex") columnIndex: string,
+    @Body() body: unknown,
+  ) {
+    const input = reorderColumnInput.parse({
+      ...(body as object),
+      id,
+      columnIndex,
+    });
+    return spreadsheetColumnsService.reorderColumn(input);
   }
 
   @Delete(":id/columns/:columnIndex")
@@ -153,7 +175,7 @@ export class SpreadsheetController {
     @Param("columnIndex") columnIndex: string,
   ) {
     const input = columnRefInput.parse({ id, columnIndex });
-    return spreadsheetCellsService.removeColumn(input.id, input.columnIndex);
+    return spreadsheetColumnsService.removeColumn(input.id, input.columnIndex);
   }
 
   @Get(":id/cells/:rowIndex/:columnIndex")

@@ -29,6 +29,15 @@ export const PLUS_COLUMN_WIDTH = 44;
 export const HEADER_DELETE_SIZE = 14;
 /** Extra slack around the delete glyph so it is comfortably clickable. */
 export const HEADER_DELETE_HIT_PAD = 3;
+/** The drag handle at the left edge of a column header. */
+export const HEADER_GRIP_WIDTH = 8;
+export const HEADER_GRIP_HEIGHT = 12;
+/** Its inset from the column's left edge — snugger than `CELL_PAD_X`. */
+export const HEADER_GRIP_PAD_X = 4;
+/** Extra slack around the grip, like the delete glyph's. */
+export const HEADER_GRIP_HIT_PAD = 4;
+/** Between the grip and whatever the column paints next. */
+export const HEADER_GRIP_GAP = 4;
 export const OVERSCAN = 2;
 
 /** Type-scale sizes, mirrored on the canvas: text-body, text-label, caption. */
@@ -143,6 +152,22 @@ export const headerDeleteRect = (col: number): Rect => ({
   h: HEADER_DELETE_SIZE,
 });
 
+/** Content-space rect of a column header's drag handle. */
+export const headerGripRect = (col: number): Rect => ({
+  x: col * COL_WIDTH + HEADER_GRIP_PAD_X,
+  y: (HEADER_HEIGHT - HEADER_GRIP_HEIGHT) / 2,
+  w: HEADER_GRIP_WIDTH,
+  h: HEADER_GRIP_HEIGHT,
+});
+
+/**
+ * The gap a drop at `contentX` lands in: the nearest column boundary. `slot`
+ * runs 0..columnCount — one more than there are columns, because a column can
+ * be dropped after the last one.
+ */
+export const dropSlotAt = (contentX: number, columnCount: number) =>
+  clamp(Math.round(contentX / COL_WIDTH), 0, columnCount);
+
 /** Content-space rect of the "+ column" affordance in the header. */
 export const plusButtonRect = (columnCount: number): Rect => ({
   x: columnCount * COL_WIDTH,
@@ -183,6 +208,21 @@ export const containsPoint = (rect: Rect, x: number, y: number) =>
   x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
 
 /**
+ * True for every header hit that names a column. The three kinds are distinct
+ * so that crossing between them repaints, but the painter's hover wash and the
+ * pointer handler's "same hit?" check both want them treated alike.
+ */
+export const isHeaderColumnHit = (
+  hit: SheetHit,
+): hit is Extract<
+  SheetHit,
+  { kind: "header" | "header-delete" | "header-grip" }
+> =>
+  hit.kind === "header" ||
+  hit.kind === "header-delete" ||
+  hit.kind === "header-grip";
+
+/**
  * Maps a pointer position on the *body* canvas to a cell. `x` and `y` are CSS
  * pixels relative to the canvas, i.e. `clientX - getBoundingClientRect().left`.
  */
@@ -206,6 +246,10 @@ export function hitTestHeader(
   const contentX = x - GUTTER_WIDTH + viewport.scrollX;
   const col = Math.floor(contentX / COL_WIDTH);
   if (col >= 0 && col < viewport.columnCount) {
+    // Left edge, then right edge, then the rest — the two zones are disjoint,
+    // so this reads in x order rather than expressing a precedence.
+    const grip = inflateRect(headerGripRect(col), HEADER_GRIP_HIT_PAD);
+    if (containsPoint(grip, contentX, y)) return { kind: "header-grip", col };
     const zone = inflateRect(headerDeleteRect(col), HEADER_DELETE_HIT_PAD);
     if (containsPoint(zone, contentX, y)) return { kind: "header-delete", col };
     return { kind: "header", col };

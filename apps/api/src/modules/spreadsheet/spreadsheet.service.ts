@@ -37,6 +37,7 @@ const metaSelect = {
 
 export const columnSelect = {
   index: true,
+  sortOrder: true,
   name: true,
   type: true,
   node: true,
@@ -199,10 +200,15 @@ export class SpreadsheetService {
     return record;
   }
 
+  /**
+   * The one place the sheet's column order is decided. `sortOrder` is position;
+   * `index` only breaks a tie deterministically, and a dense range never has
+   * one.
+   */
   async columnsOf(sheetId: string): Promise<ColumnRecord[]> {
     return prisma.column.findMany({
       where: { spreadsheetId: sheetId },
-      orderBy: { index: "asc" },
+      orderBy: [{ sortOrder: "asc" }, { index: "asc" }],
       select: columnSelect,
     });
   }

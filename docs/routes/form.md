@@ -41,6 +41,8 @@ procedure and the form needs just the sheet name and columns.
 
 ## Behaviour
 
+- Fields follow the sheet's own column order (`sortOrder`), which the API
+  already applies — reordering a column in `/ai-spreadsheet` reorders the form.
 - Field per column type: string→text, number→number, date→native date input,
   email→email, url→url, json→textarea (must parse to a plain object),
   boolean→checkbox, audio/file→picked file behind a button. `formula` columns

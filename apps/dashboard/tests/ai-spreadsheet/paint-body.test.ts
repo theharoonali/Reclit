@@ -78,6 +78,8 @@ function ringFor(editor: EditorState, dpr: number) {
     formatters: FORMATTERS,
     fonts: FONTS,
     selected: new Set<number>(),
+    columns: MODEL.columns,
+    draggingCol: null,
   });
   const stroke = calls.find(
     (call) => call.op === "strokeRect" && call.style === "ring",

@@ -42,6 +42,20 @@ export class SpreadsheetPromptWithoutNodeError extends DomainError {
   }
 }
 
+/**
+ * A reorder target outside the sheet's 0..n-1 range. Rejected rather than
+ * clamped: an out-of-range position means the client's view of the column
+ * order is stale, and clamping would hide that.
+ */
+export class SpreadsheetSortOrderOutOfRangeError extends DomainError {
+  readonly kind = "bad_request";
+  readonly code = "SPREADSHEET_SORT_ORDER_OUT_OF_RANGE";
+  constructor(sortOrder: number, max: number) {
+    super(`Sort order ${sortOrder} is outside 0..${max}`);
+    this.name = "SpreadsheetSortOrderOutOfRangeError";
+  }
+}
+
 export class SpreadsheetRowExistsError extends DomainError {
   readonly kind = "conflict";
   readonly code = "SPREADSHEET_ROW_EXISTS";

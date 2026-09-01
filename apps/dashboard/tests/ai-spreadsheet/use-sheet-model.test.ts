@@ -23,9 +23,30 @@ const payload = (overrides: Partial<SheetPayload> = {}): SheetPayload => ({
     totalColumns: 3,
   },
   columns: [
-    { id: "col.0", index: 0, name: "Name", type: "string", ...plain },
-    { id: "col.1", index: 1, name: "Age", type: "number", ...plain },
-    { id: "col.2", index: 2, name: "Active", type: "boolean", ...plain },
+    {
+      id: "col.0",
+      index: 0,
+      sortOrder: 0,
+      name: "Name",
+      type: "string",
+      ...plain,
+    },
+    {
+      id: "col.1",
+      index: 1,
+      sortOrder: 1,
+      name: "Age",
+      type: "number",
+      ...plain,
+    },
+    {
+      id: "col.2",
+      index: 2,
+      sortOrder: 2,
+      name: "Active",
+      type: "boolean",
+      ...plain,
+    },
   ],
   rows: [row(0)],
   pagination: { startRow: 0, limit: 100, hasMore: true, nextCursor: "row.100" },
@@ -108,13 +129,34 @@ describe("normalize", () => {
     expect(model.rowIds.get(400)).toBe("row.400");
   });
 
-  test("columns are ordered by index, whatever order they arrive in", () => {
+  test("columns are ordered by sortOrder, whatever order they arrive in", () => {
     const model = normalize(
       payload({
         columns: [
-          { id: "col.2", index: 2, name: "Active", type: "boolean", ...plain },
-          { id: "col.0", index: 0, name: "Name", type: "string", ...plain },
-          { id: "col.1", index: 1, name: "Age", type: "number", ...plain },
+          {
+            id: "col.2",
+            index: 2,
+            sortOrder: 2,
+            name: "Active",
+            type: "boolean",
+            ...plain,
+          },
+          {
+            id: "col.0",
+            index: 0,
+            sortOrder: 0,
+            name: "Name",
+            type: "string",
+            ...plain,
+          },
+          {
+            id: "col.1",
+            index: 1,
+            sortOrder: 1,
+            name: "Age",
+            type: "number",
+            ...plain,
+          },
         ],
       }),
     );
@@ -125,6 +167,84 @@ describe("normalize", () => {
     ]);
   });
 
+  // A reordered sheet is exactly the case where the two numbers disagree, and
+  // `sortOrder` is the one that decides what the user sees.
+  test("sortOrder decides the order, not index", () => {
+    const model = normalize(
+      payload({
+        columns: [
+          {
+            id: "col.0",
+            index: 0,
+            sortOrder: 2,
+            name: "Name",
+            type: "string",
+            ...plain,
+          },
+          {
+            id: "col.1",
+            index: 1,
+            sortOrder: 0,
+            name: "Age",
+            type: "number",
+            ...plain,
+          },
+          {
+            id: "col.2",
+            index: 2,
+            sortOrder: 1,
+            name: "Active",
+            type: "boolean",
+            ...plain,
+          },
+        ],
+      }),
+    );
+    expect(model.columns.map((column) => column.id)).toEqual([
+      "col.1",
+      "col.2",
+      "col.0",
+    ]);
+    // Identity is untouched: the ids still mint past the highest index.
+    expect(model.nextColumnIndex).toBe(3);
+  });
+
+  // The cell keys are column ids, so a reorder moves no value.
+  test("a reorder leaves every cell with its own column", () => {
+    const model = normalize(
+      payload({
+        columns: [
+          {
+            id: "col.0",
+            index: 0,
+            sortOrder: 2,
+            name: "Name",
+            type: "string",
+            ...plain,
+          },
+          {
+            id: "col.1",
+            index: 1,
+            sortOrder: 0,
+            name: "Age",
+            type: "number",
+            ...plain,
+          },
+          {
+            id: "col.2",
+            index: 2,
+            sortOrder: 1,
+            name: "Active",
+            type: "boolean",
+            ...plain,
+          },
+        ],
+      }),
+    );
+    expect(model.cells.get(cellKey(0, "col.0"))).toBe("Muhammad");
+    expect(model.cells.get(cellKey(0, "col.1"))).toBe(26);
+  });
+
   test("maps a column's node and prompt through", () => {
     const model = normalize(
       payload({
@@ -132,6 +252,7 @@ describe("normalize", () => {
           {
             id: "col.0",
             index: 0,
+            sortOrder: 0,
             name: "Summary",
             type: "string",
             node: "ai",
@@ -151,6 +272,7 @@ describe("normalize", () => {
           {
             id: "col.0",
             index: 0,
+            sortOrder: 0,
             name: "Name",
             type: "string",
             node: "robot" as never,
@@ -168,8 +290,24 @@ describe("normalize", () => {
     const model = normalize(
       payload({
         columns: [
-          { id: "col.0", index: 0, name: "Name", type: "string", ...plain },
-          { id: "col.2", index: 2, name: "Active", type: "boolean", ...plain },
+          {
+            id: "col.0",
+            index: 0,
+            sortOrder: 0,
+            name: "Name",
+            type: "string",
+            ...plain,
+          },
+          // The backend closes the sort-order gap a delete leaves; only the
+          // index gap is permanent.
+          {
+            id: "col.2",
+            index: 2,
+            sortOrder: 1,
+            name: "Active",
+            type: "boolean",
+            ...plain,
+          },
         ],
       }),
     );
@@ -186,7 +324,14 @@ describe("normalize", () => {
     const model = normalize(
       payload({
         columns: [
-          { id: "col.0", index: 0, name: "Total", type: "formula", ...plain },
+          {
+            id: "col.0",
+            index: 0,
+            sortOrder: 0,
+            name: "Total",
+            type: "formula",
+            ...plain,
+          },
         ],
       }),
     );
