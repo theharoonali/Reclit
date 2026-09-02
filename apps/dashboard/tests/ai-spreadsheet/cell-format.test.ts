@@ -17,6 +17,7 @@ const LABELS = {
   jsonCapsule: (count: number) => `${count} keys`,
   jsonEmpty: "empty",
   typeNames: {} as SheetLabels["typeNames"],
+  runStatus: (status: string) => status,
 } satisfies SheetLabels;
 
 const FORMATTERS = createFormatters("en-US");

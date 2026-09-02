@@ -1,5 +1,5 @@
 import { expect } from "bun:test";
-import { TRPCError } from "@trpc/server";
+import { isTrackedEnvelope, TRPCError } from "@trpc/server";
 import { createCallerFactory } from "../../trpc/init";
 import { appRouter } from "../../trpc/routers/_app";
 
@@ -9,6 +9,44 @@ import { appRouter } from "../../trpc/routers/_app";
 
 /** A direct tRPC caller with an empty context — the transport-free API surface. */
 export const caller = createCallerFactory(appRouter)({});
+
+/**
+ * A caller whose subscriptions end when `signal` aborts. The signal is per
+ * caller, not per call, so each open stream gets its own.
+ */
+export const callerWithSignal = (signal: AbortSignal) =>
+  createCallerFactory(appRouter)({}, { signal });
+
+/** One item of a `tracked()` subscription, as the client sees it. */
+export type TrackedItem<T> = { id: string; data: T };
+
+/**
+ * The next event of a subscription reached through the caller. The caller
+ * skips the SSE layer, so items arrive as raw `tracked()` envelopes
+ * (`[id, data, symbol]`) rather than the `{ id, data }` the link delivers;
+ * this normalises them. Fails rather than hangs when nothing arrives.
+ */
+export async function nextTracked<T>(
+  iterator: AsyncIterator<unknown>,
+  timeoutMs = 10_000,
+): Promise<TrackedItem<T>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`no event within ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  try {
+    const result = await Promise.race([iterator.next(), timeout]);
+    if (result.done) throw new Error("the stream ended");
+    const value: unknown = result.value;
+    if (isTrackedEnvelope(value)) return { id: value[0], data: value[1] as T };
+    return value as TrackedItem<T>;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Asserts a procedure rejects with a given tRPC code.

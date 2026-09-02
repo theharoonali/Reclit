@@ -19,11 +19,13 @@ import { AiSpreadsheetHeader } from "./ai-spreadsheet-header";
 import { AiSpreadsheetImportButton } from "./ai-spreadsheet-import-button";
 import { AiSpreadsheetInputProxy } from "./ai-spreadsheet-input-proxy";
 import { AiSpreadsheetJsonEditor } from "./ai-spreadsheet-json-editor";
+import { AiSpreadsheetRunButton } from "./ai-spreadsheet-run-button";
 import { AiSpreadsheetSelectionBar } from "./ai-spreadsheet-selection-bar";
 import { AiSpreadsheetSidePanel } from "./ai-spreadsheet-side-panel";
 import { AiSpreadsheetUploadEditor } from "./ai-spreadsheet-upload-editor";
 import { useColumnRemove } from "./use-column-remove";
 import { useColumnReorder } from "./use-column-reorder";
+import { useRunListening } from "./use-run-listening";
 import { useSheetCanvas } from "./use-sheet-canvas";
 import { useSheetImport } from "./use-sheet-import";
 import { useSheetLabels } from "./use-sheet-labels";
@@ -56,6 +58,10 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
 
   const model = useSheetModel(payload);
   const { modelRef, columnsVersion, getCell } = model;
+
+  // Whether the sheet streams run changes: derived from its working runs, so
+  // a reload resumes a sheet mid-run; the Run button opens it ahead of them.
+  const runListening = useRunListening(payload.spreadsheet.id);
 
   // The canvas is created below, but the sync hook needs a paint trigger now;
   // the indirection breaks the cycle without a re-render.
@@ -138,6 +144,9 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     formatters,
     getCell,
     setCell,
+    setCellLocal: model.setCell,
+    runListening: runListening.listening,
+    onRunEnded: runListening.ended,
     onOpenJson: openJson,
     onOpenDate: openDate,
     onOpenAudio: openAudio,
@@ -315,6 +324,13 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
       <AiSpreadsheetExportButton
         label={t("export.label")}
         onExport={exportCsv}
+      />
+
+      <AiSpreadsheetRunButton
+        disabled={runListening.isResolving}
+        labels={{ start: t("listen.start"), live: t("listen.live") }}
+        live={runListening.listening}
+        onRun={runListening.start}
       />
 
       <AiSpreadsheetCellClearButton

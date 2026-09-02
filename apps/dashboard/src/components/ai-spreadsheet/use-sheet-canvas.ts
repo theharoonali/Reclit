@@ -26,6 +26,7 @@ import { useCellEditor } from "./use-cell-editor";
 import { createColumnDragHandlers } from "./use-column-drag";
 import { useSheetAudio } from "./use-sheet-audio";
 import { createSheetPointerHandlers } from "./use-sheet-pointer";
+import { useSheetRuns } from "./use-sheet-runs";
 import { useSheetScroll } from "./use-sheet-scroll";
 import { useSheetViewport } from "./use-sheet-viewport";
 
@@ -37,6 +38,12 @@ export type SheetCanvasArgs = {
   formatters: SheetFormatters;
   getCell: (row: number, columnId: string) => CellValue;
   setCell: (row: number, columnId: string, value: CellValue) => void;
+  /** Model-only write, for values the server already holds (a finished AI run). */
+  setCellLocal: (row: number, columnId: string, value: CellValue) => void;
+  /** Whether the run stream should be open; its capsules exist only while it is. */
+  runListening: boolean;
+  /** The server ended the run stream: the last working run finished. */
+  onRunEnded: () => void;
   onOpenJson: (row: number, columnId: string) => void;
   onOpenDate: (row: number, columnId: string) => void;
   onOpenAudio: (row: number, columnId: string) => void;
@@ -69,7 +76,8 @@ export type SheetCanvasArgs = {
  */
 export function useSheetCanvas(args: SheetCanvasArgs) {
   const { modelRef, columnsVersion, rowCount, labels, formatters } = args;
-  const { getCell, setCell } = args;
+  const { getCell, setCell, setCellLocal } = args;
+  const { runListening, onRunEnded } = args;
   const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile, onOpenColumn } =
     args;
   const { onRemoveColumn, onReorderColumn, onSelectionPresence } = args;
@@ -118,6 +126,13 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   const headerSizeRef = header.sizeRef;
 
   const audio = useSheetAudio(requestPaint);
+  const runs = useSheetRuns({
+    modelRef,
+    listening: runListening,
+    setCellLocal,
+    requestPaint,
+    onEnded: onRunEnded,
+  });
 
   const editor = useCellEditor({
     modelRef,
@@ -223,6 +238,8 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         labels,
         formatters,
         playing: audio.playingRef.current,
+        runs: runs.runsRef.current,
+        runPhase: runs.phaseRef.current,
         selected: selectedRef.current,
         columns,
         draggingCol,
@@ -260,6 +277,8 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     modelRef,
     paletteRef,
     positionProxy,
+    runs.phaseRef,
+    runs.runsRef,
     selectAllState,
     selectedRef,
     viewportRef,

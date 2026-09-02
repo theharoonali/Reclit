@@ -93,6 +93,12 @@
       "true": "True",
       "false": "False"
     },
+    "run": {
+      "pending": "Pending",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
     "types": {
       "string": "Text",
       "number": "Number",
@@ -168,6 +174,10 @@
     },
     "export": {
       "label": "Export"
+    },
+    "listen": {
+      "start": "Run",
+      "live": "Live"
     },
     "cells": {
       "delete": "Delete"

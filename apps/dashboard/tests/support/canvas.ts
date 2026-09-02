@@ -126,6 +126,7 @@ export const TEST_LABELS: SheetLabels = {
   jsonCapsule: (count: number) => `${count} keys`,
   jsonEmpty: "empty",
   typeNames: {} as SheetLabels["typeNames"],
+  runStatus: (status: string) => `run:${status}`,
 };
 
 export const findCall = (calls: DrawCall[], op: string) =>

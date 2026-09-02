@@ -132,29 +132,34 @@ model Cell {
   @@index([spreadsheetId, rowIndex])
 }
 
-/// Lifecycle of one AI run against one cell.
-enum RunAiStatus {
-  PENDING
-  RUNNING
-  COMPLETED
-  FAILED
-}
-
 /// One AI run for one cell. `cellId` is the scoped Cell pk
 /// "<sheetId>.cell.<row>.<col>" kept as a plain string, NOT a relation: Cell
 /// rows are deleted on clear and wiped on import, and the run record must
-/// outlive them. `batchId` groups every run one user action enqueued.
+/// outlive them. `spreadsheetId` is the sheet half of that key, denormalised
+/// so the live feed and the snapshot query filter by sheet through an index.
+/// `batchId` groups every run one user action enqueued.
+///
+/// `status` is free text, uppercase: PENDING | RUNNING | COMPLETED | FAILED
+/// or any custom working stage (ANALYZING, ...). COMPLETED and FAILED are the
+/// terminal values. Two things the schema cannot express live in the
+/// migration `run_ai_status_text_and_feed`: a partial unique index that
+/// allows one non-terminal run per cell, and an AFTER INSERT OR UPDATE
+/// trigger that `pg_notify`s the row id on channel `run_ai_changed`
+/// (modules/run-ai/run-ai.feed.ts listens).
 model RunAi {
-  id        String      @id @default(uuid())
-  cellId    String
-  batchId   String
-  status    RunAiStatus @default(PENDING)
-  credit    Int         @default(0)
-  result    Json?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id            String   @id @default(uuid())
+  cellId        String
+  spreadsheetId String
+  batchId       String
+  status        String   @default("PENDING")
+  credit        Int      @default(0)
+  result        Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([cellId])
+  @@index([spreadsheetId, updatedAt])
   @@index([batchId])
   @@index([createdAt])
 }
+

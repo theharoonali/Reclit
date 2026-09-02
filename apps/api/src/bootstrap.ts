@@ -22,6 +22,8 @@ export async function createApp(opts?: { logger?: false }) {
       "Content-Type",
       "x-trpc-source",
       "trpc-accept",
+      // Sent by the browser's own EventSource reconnect (tRPC subscriptions).
+      "Last-Event-ID",
     ],
     exposedHeaders: ["Content-Length", "Content-Type", "Cache-Control"],
     maxAge: 86400,

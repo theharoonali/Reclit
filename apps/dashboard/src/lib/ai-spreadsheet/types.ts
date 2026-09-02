@@ -100,6 +100,27 @@ export type SheetModel = {
 
 export const cellKey = (row: number, columnId: string) => `${row}:${columnId}`;
 
+/* ------------------------------------------------------------------ runs */
+
+/**
+ * One item of the `runAi.onChange` stream, derived from the router so it
+ * cannot drift (COMMON.md §3): the subscription yields tracked `{ id, data }`
+ * envelopes and this is the `data` half.
+ */
+export type RunAiChange =
+  RouterOutputs["runAi"]["onChange"] extends AsyncIterable<{
+    data: infer D;
+  }>
+    ? D
+    : never;
+export type RunAi = Extract<RunAiChange, { type: "run" }>["run"];
+
+/**
+ * A run the sheet is showing as working, keyed like `cells` (`row:columnId`).
+ * `createdAt` decides which of two runs for one cell is the newer.
+ */
+export type ActiveRun = { runId: string; status: string; createdAt: Date };
+
 /* -------------------------------------------------------------------- ui */
 
 export type CellAddress = { row: number; col: number };
@@ -207,6 +228,8 @@ export type SheetLabels = {
   jsonCapsule: (count: number) => string;
   jsonEmpty: string;
   typeNames: Record<ColumnType, string>;
+  /** The label of a working run's capsule; known statuses are copy, a custom stage is data. */
+  runStatus: (status: string) => string;
 };
 
 /** Canvas fonts are resolved from the element's computed style, once. */

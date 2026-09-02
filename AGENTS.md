@@ -86,6 +86,11 @@ Filter to one workspace: `bunx turbo typecheck --filter=@reclit/api`.
 - **Background jobs / AI**: Trigger.dev tasks in `apps/api/src/trigger/`, AI SDK
   providers in `apps/api/src/ai/`. Both stay outside the `src/trpc/**` and
   `src/modules/**` import graph — see [ARCHITECTURE.md](ARCHITECTURE.md).
+- **Live updates** are tRPC subscriptions over SSE (`runAi.onChange`), fed by
+  a Postgres trigger + `LISTEN` (`apps/api/src/modules/run-ai/run-ai.feed.ts`,
+  the only user of the direct `pg` dependency). The dashboard consumes them
+  with `useSubscription(trpc.<name>.<proc>.subscriptionOptions(...))` — see
+  [ARCHITECTURE.md](ARCHITECTURE.md) "Live updates".
 
 ## Hard invariants (breaking these causes confusing failures)
 

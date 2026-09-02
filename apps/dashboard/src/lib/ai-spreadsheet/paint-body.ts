@@ -12,6 +12,7 @@ import { paintCell } from "./paint-cell";
 import { paintCheckbox } from "./paint-checkbox";
 import { withAlpha } from "./theme-colors";
 import type {
+  ActiveRun,
   EditorState,
   SheetColumn,
   SheetFonts,
@@ -51,6 +52,10 @@ export type BodyPaintArgs = {
   fonts: SheetFonts;
   /** The audio cell currently sounding, if any. */
   playing?: { row: number; columnId: string } | null;
+  /** The working runs, keyed like `model.cells`; painted over the value. */
+  runs?: ReadonlyMap<string, ActiveRun> | null;
+  /** Where the run capsules are in their breath, 0..1. */
+  runPhase?: number;
   /** Row indexes ticked for deletion — drives the gutter checkboxes. */
   selected: ReadonlySet<number>;
   /**
@@ -112,16 +117,25 @@ export function paintBody(args: BodyPaintArgs) {
         continue;
       }
       const playing = args.playing;
+      const key = cellKey(row, column.id);
+      const run = args.runs?.get(key);
       paintCell({
         ctx,
         rect: cellRect(row, col),
-        value: model.cells.get(cellKey(row, column.id)) ?? null,
+        value: model.cells.get(key) ?? null,
         type: column.type,
         palette,
         labels: args.labels,
         formatters: args.formatters,
         dpr,
         playing: playing?.row === row && playing.columnId === column.id,
+        run: run
+          ? {
+              status: run.status,
+              label: args.labels.runStatus(run.status),
+              phase: args.runPhase ?? 0,
+            }
+          : undefined,
       });
       col++;
     }

@@ -4,6 +4,7 @@ import {
   CAPSULE_DOT,
   CAPSULE_HEIGHT,
   CAPSULE_PAD_X,
+  CAPSULE_PULSE_MAX,
   CELL_PAD_X,
   ROW_HEIGHT,
 } from "@/lib/ai-spreadsheet/geometry";
@@ -191,5 +192,64 @@ describe("plain cells", () => {
   test("a date is painted formatted, in UTC", () => {
     const calls = paint("2026-08-27T23:30:00.000Z", "date");
     expect(textCalls(calls)[0]?.text).toBe("Aug 27, 2026");
+  });
+});
+
+describe("working runs", () => {
+  function paintRun(status: string, phase = 0, value: CellValue = null) {
+    const { ctx, calls } = createRecordingContext();
+    paintCell({
+      ctx,
+      rect: RECT,
+      value,
+      type: "string",
+      palette: TEST_PALETTE,
+      labels: TEST_LABELS,
+      formatters: FORMATTERS,
+      dpr: 1,
+      run: { status, label: TEST_LABELS.runStatus(status), phase },
+    });
+    return calls;
+  }
+
+  test("pending paints a grey borderless chip with a grey dot and its label, on an empty cell", () => {
+    const calls = paintRun("pending");
+    expect(findCall(calls, "roundRect")).toBeDefined();
+    // The run chip is the one capsule without an outline.
+    expect(findCall(calls, "stroke")).toBeUndefined();
+    expect(findCall(calls, "fill")?.style).toBe("mutedText");
+    expect(textCalls(calls)[0]).toMatchObject({
+      text: "run:pending",
+      style: "mutedText",
+    });
+    const arcs = calls.filter((call) => call.op === "arc");
+    expect(arcs).toHaveLength(2);
+    expect(arcs[1]?.style).toBe("mutedText");
+  });
+
+  test("running is green and a custom stage is the primary orange", () => {
+    const dotOf = (status: string) =>
+      paintRun(status).filter((call) => call.op === "arc")[1]?.style;
+    expect(dotOf("running")).toBe("boolTrue");
+    expect(dotOf("analyzing")).toBe("ring");
+    expect(dotOf("web_search")).toBe("ring");
+  });
+
+  test("the halo breathes with the phase while the dot stays the same size", () => {
+    const at = (phase: number) =>
+      paintRun("running", phase).filter((call) => call.op === "arc");
+    const [haloLow, dotLow] = at(0.75); // trough of the sine
+    const [haloHigh, dotHigh] = at(0.25); // crest
+    expect(dotLow?.args[2]).toBe(CAPSULE_DOT / 2);
+    expect(dotHigh?.args[2]).toBe(CAPSULE_DOT / 2);
+    expect(haloHigh?.args[2]).toBe(CAPSULE_PULSE_MAX);
+    expect(haloLow?.args[2]).toBeCloseTo(CAPSULE_DOT / 2);
+    // Same centre for both, so the halo is behind the dot rather than beside it.
+    expect(haloHigh?.args[0]).toBe(dotHigh?.args[0]);
+  });
+
+  test("a run is painted instead of the cell's value", () => {
+    const calls = paintRun("running", 0, "old value");
+    expect(textCalls(calls).map((call) => call.text)).toEqual(["run:running"]);
   });
 });

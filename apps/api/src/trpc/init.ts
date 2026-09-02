@@ -11,6 +11,14 @@ export const createTRPCContext = (): TRPCContext => ({});
 
 const t = initTRPC.context<TRPCContext>().create({
   transformer: superjson,
+  // Subscriptions ride SSE. The ping keeps proxies and load balancers from
+  // idling the connection out; a client that hears nothing for longer than
+  // `reconnectAfterInactivityMs` reconnects with its last event id. tRPC
+  // refuses to start if the ping interval is the longer of the two.
+  sse: {
+    ping: { enabled: true, intervalMs: 15_000 },
+    client: { reconnectAfterInactivityMs: 45_000 },
+  },
 });
 
 export const createTRPCRouter = t.router;

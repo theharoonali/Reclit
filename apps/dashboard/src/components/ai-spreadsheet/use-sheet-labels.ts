@@ -3,6 +3,10 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { createFormatters } from "@/lib/ai-spreadsheet/cell-format";
+import {
+  formatRunStatus,
+  isKnownRunStatus,
+} from "@/lib/ai-spreadsheet/run-status";
 import type { SheetFormatters, SheetLabels } from "@/lib/ai-spreadsheet/types";
 
 /**
@@ -29,6 +33,11 @@ export function useSheetLabels(): {
       boolFalse: t("boolean.false"),
       jsonCapsule: (count: number) => t("capsule", { count }),
       jsonEmpty: t("json.empty"),
+      // The four statuses the system assigns are copy; a custom stage the
+      // backend reports ("analyzing") is data, shown tidied rather than
+      // translated.
+      runStatus: (status: string) =>
+        isKnownRunStatus(status) ? t(`run.${status}`) : formatRunStatus(status),
       typeNames: {
         string: t("types.string"),
         number: t("types.number"),

@@ -37,13 +37,16 @@ change.
 | `…/use-sheet-import.ts` | hook | uploads a CSV/XLSX, then refreshes the grid without remounting it |
 | `…/use-sheet-canvas.ts` | hook | wires sizing, painting, pointer routing and the editor |
 | `…/use-sheet-audio.ts` | hook | one shared `Audio` element and which audio cell is playing |
+| `…/ai-spreadsheet-run-button.tsx` | client | the Run control, portalled into the app header; "Live" and inert while the sheet streams |
+| `…/use-run-listening.ts` | hook | whether the sheet streams: `listActive` on load (a reload resumes a sheet mid-run), Run opens the stream ahead of the first run, `closed` ends it |
+| `…/use-sheet-runs.ts` | hook | the `runAi.onChange` subscription while listening: the working run per cell, the pulse interval, and writing a finished run's output into the model |
 | `…/use-sheet-sync.ts` | hook | persists cell/column edits through tRPC without re-rendering the grid |
 | `…/use-sheet-model.ts` | hook | payload → `SheetModel`; `getCell`/`setCell`/`addColumn`/`updateColumn`/`applyColumnOrder` |
 | `…/use-sheet-viewport.ts` | hook | viewport ref, rAF paint scheduler, palette/font refresh |
 | `…/use-sheet-scroll.ts` | hook | virtual↔native scroll mapping, wheel, blank-tail growth |
 | `…/use-cell-editor.ts` | hook | the edit state machine |
 | `…/sample-payload.ts` | data | a payload fixture for the dashboard tests |
-| `apps/dashboard/src/lib/ai-spreadsheet/*.ts` | pure | types, geometry, palette, formatting, text metrics, four painters |
+| `apps/dashboard/src/lib/ai-spreadsheet/*.ts` | pure | types, geometry, palette, formatting, text metrics, four painters; `run-state.ts` (folds the run stream into the per-cell map), `run-status.ts` (known statuses, `formatRunStatus`), `short-ids.ts` (`parseScopedCellId`) |
 | `apps/dashboard/src/hooks/use-canvas-surface.ts` | hook | generic DPR-correct canvas sized from another element |
 
 Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`,
@@ -55,7 +58,22 @@ Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`,
 ## APIs called
 
 Feature: [spreadsheet](../features/spreadsheet.md) ·
-[file](../features/file.md).
+[file](../features/file.md) · [run-ai](../features/run-ai.md).
+
+- Live, only while the sheet has working runs: `runAi.listActive` on load
+  (non-empty → subscribe, so a reload resumes a sheet mid-run), the Run
+  button to subscribe ahead of the first run (`use-run-listening.ts`), and
+  `runAi.onChange` (tRPC subscription over SSE) for the open sheet, from
+  `use-sheet-runs.ts`. An idle sheet holds no connection. The first event is
+  a snapshot of every working run; each later event is one run after a
+  change; `closed` is the last — the last working run finished — and the
+  sheet stops listening and drops every capsule. A working run paints a
+  capsule in its cell; a `completed` run's `result.output` is written into the
+  model with the model-only `setCell` — the API wrote the Cell row before it
+  sent the event, so there is nothing to refetch and `spreadsheet.rows` is
+  not invalidated. tRPC reconnects a dropped stream itself with the last event
+  id, so a blip replays what was missed; a reload gets the persisted values
+  from `spreadsheet.rows` and the working runs from a fresh snapshot.
 
 - On load: `workspace.list` (prefetched in the RSC, consumed through
   `components/workspace/workspace-provider.tsx`), then `spreadsheet.rows` for
@@ -146,6 +164,28 @@ key gone, and blank a freshly imported cell.
   `prompt: null`. A column whose node has a glyph (`ai` → ✨, see
   `NODE_GLYPHS` in `paint-header.ts`) paints it left of its header name.
   Nothing executes prompts yet.
+- **Run / Live.** The header's Run button opens the run stream ahead of the
+  first run (one day it will also enqueue the sheet's AI columns); while the
+  sheet streams the button reads "Live", filled and inert. Whether to stream
+  is derived, not stored: a sheet with a run that is not completed or failed
+  is live — on load too, so a reload resumes — and the stream ends by itself
+  when the last working run finishes, like a chat generation ending.
+- **Working runs.** While listening, a cell an AI run is working on paints a
+  capsule instead of its value — even when the cell is empty — labelled with
+  the run's status:
+  `pending` grey (`muted-foreground`), `running` green (`success`), and any
+  custom stage the backend reports (`analyzing`, …) in the primary orange.
+  The chip has no outline — the only borderless capsule — just a 15 %-alpha
+  fill, with the dot and the label in the status colour; the dot is solid and constant
+  while a 30 %-alpha halo behind it breathes (radius `CAPSULE_DOT / 2` →
+  `CAPSULE_PULSE_MAX`, one breath per 1.2 s, repainted every 40 ms only while
+  a run is working). The four system statuses are message keys
+  (`aiSpreadsheet.run.*`); a custom stage is data, shown tidied
+  (`formatRunStatus`: `web_search` → "Web search"). `completed` and `failed`
+  are never painted: the capsule goes, and a completed run's output becomes
+  the cell's value. One cell has at most one working run (the database
+  enforces it); a newer run for a cell replaces an older one, and an older
+  event can never displace a newer run (`run-state.ts`).
 - **Editing.** One click selects a cell, a second opens it — Enter and F2 do
   the same from the keyboard. Editing is fully canvas-drawn: the text, the
   selection and the blinking caret are painted, and a 1×1 hidden textarea holds

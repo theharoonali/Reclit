@@ -55,6 +55,12 @@ export const CAPSULE_DOT = 6;
 export const CAPSULE_GLYPH = 8;
 /** Between either mark and the label that follows it. */
 export const CAPSULE_DOT_GAP = 6;
+/**
+ * The largest radius of the halo that breathes behind a working run's dot.
+ * Its centre sits `CAPSULE_PAD_X + CAPSULE_DOT / 2` in from the chip's edge,
+ * so this stays inside the chip and never clips.
+ */
+export const CAPSULE_PULSE_MAX = 6;
 
 /**
  * The scroll spacer is clamped, and this is the load-bearing number in the

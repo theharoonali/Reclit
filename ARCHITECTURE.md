@@ -9,17 +9,20 @@ apps/dashboard (Next.js 16, port 4000)
   │  imports type AppRouter from "@reclit/api/trpc/routers/_app"   ← types only
   │
   │  HTTP: httpBatchStreamLink → http://localhost:4001/trpc
+  │  SSE:  httpSubscriptionLink → the same URL, for subscriptions
   ▼
 apps/api (NestJS on Bun, port 4001)
   ├── /trpc/*   tRPC 11 express adapter, mounted in src/bootstrap.ts
-  │             └── appRouter → spreadsheet.{list,byId,rows,setCell,…}
+  │             └── appRouter → spreadsheet.{list,byId,rows,setCell,…},
+  │                             runAi.{byId,listByBatch,onChange (SSE)}
+  ├── /run-ai/test   RunAiController (creates / transitions a run, for testing)
   └── /health   AppController (reports database reachability)
         │
         ▼  services in src/modules/<feature>/ — the only DB callers
   src/db/prisma.ts (Prisma 7 + @prisma/adapter-pg)
-        │
-        ▼
-  PostgreSQL  (DATABASE_URL)
+        │                       ▲ LISTEN run_ai_changed (modules/run-ai/run-ai.feed.ts,
+        ▼                       │ one dedicated pg connection per process)
+  PostgreSQL  (DATABASE_URL)  ──┘ trigger run_ai_notify on "RunAi"
 
 packages/ui  → Button + cn + Tailwind preset, consumed by dashboard
 ```
@@ -54,7 +57,29 @@ packages/ui  → Button + cn + Tailwind preset, consumed by dashboard
   `src/trpc/**` or `src/modules/**` — that graph is transpiled by the
   dashboard. Tasks call services, never the other way round.
 - Runs are recorded in the `RunAi` table
-  ([docs/features/run-ai.md](docs/features/run-ai.md)).
+  ([docs/features/run-ai.md](docs/features/run-ai.md)). Every insert or
+  update fires a Postgres trigger that `NOTIFY`s the row id; the api's
+  `run-ai.feed.ts` listens on one dedicated `pg` connection and the
+  `runAi.onChange` tRPC subscription streams the resolved rows to the
+  dashboard over SSE. Because the signal comes from the database, a run
+  written by the Trigger.dev worker — or by any other process or replica —
+  reaches the sheet the same way as one written by the api itself.
+
+## Live updates (tRPC subscriptions over SSE)
+
+- `src/trpc/init.ts` sets the `sse` options (ping every 15 s; a client that
+  hears nothing for 45 s reconnects with its last event id). Subscriptions
+  are async generators that `yield tracked(id, data)`; tRPC injects
+  `lastEventId` into the input on reconnect.
+- The dashboard's `src/trpc/client.tsx` routes `op.type === "subscription"`
+  to `httpSubscriptionLink` (the browser's `EventSource`) and everything else
+  to `httpBatchStreamLink`. Consume with
+  `useSubscription(trpc.<name>.<proc>.subscriptionOptions(input, { onData }))`.
+- Only `runAi.onChange` exists today. It is open exactly while the sheet has
+  a working run (the sheet asks `runAi.listActive` on load and the Run button
+  opens it ahead of the first run) and ends itself with a `closed` event when
+  the last run finishes: an idle sheet holds no connection. The feed +
+  generator pair in `modules/run-ai/` is the pattern for the next live table.
 
 ## Type flow (why the dashboard gets full type safety)
 
@@ -104,4 +129,5 @@ Build-time pass-through vars live in `turbo.json`; add new ones there too.
 ## What is intentionally absent
 
 No auth, no logger package, no Docker files, no i18n, no pagination, no CI
-pipeline, and no REST beyond `GET /health`. Add them when a feature needs them.
+pipeline, and no REST beyond `GET /health`, the spreadsheet mirror, `POST /files`
+and `POST /run-ai/test`. Add them when a feature needs them.
