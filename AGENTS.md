@@ -49,6 +49,7 @@ bun run start:api           # run the api in production mode (bun runs TS direct
 bunx turbo test             # run tests (bun test; api smoke + feature contracts)
 bun run --filter=@reclit/api db:generate   # regenerate the Prisma client
 bun run --filter=@reclit/api db:migrate    # create + apply a migration
+bun run --filter=@reclit/api trigger:dev   # Trigger.dev dev worker (Node CLI; loads apps/api/.env)
 ```
 
 Filter to one workspace: `bunx turbo typecheck --filter=@reclit/api`.
@@ -82,6 +83,9 @@ Filter to one workspace: `bunx turbo typecheck --filter=@reclit/api`.
 - **Each workspace carries its own `tsconfig.json`** — there is no shared tsconfig package.
 - **Database**: Prisma, schema at `apps/api/prisma/schema.prisma`, single client
   at `apps/api/src/db/prisma.ts`. `DATABASE_URL` lives in `apps/api/.env`.
+- **Background jobs / AI**: Trigger.dev tasks in `apps/api/src/trigger/`, AI SDK
+  providers in `apps/api/src/ai/`. Both stay outside the `src/trpc/**` and
+  `src/modules/**` import graph — see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Hard invariants (breaking these causes confusing failures)
 

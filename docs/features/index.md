@@ -9,6 +9,7 @@ the doc is insufficient, then fix the doc.
 | spreadsheet | [spreadsheet.md](spreadsheet.md) | `Spreadsheet`, `Column`, `Row`, `Cell` | `spreadsheet` | `apps/api/src/__tests__/spreadsheet.api.test.ts` |
 | workspace | [workspace.md](workspace.md) | `Workspace` | `workspace` | `apps/api/src/__tests__/workspace.api.test.ts` |
 | user | [user.md](user.md) | `User` | `user` | `apps/api/src/__tests__/user.api.test.ts` |
+| run-ai | [run-ai.md](run-ai.md) | `RunAi` | `runAi` | `apps/api/src/__tests__/run-ai.api.test.ts` |
 | file | [file.md](file.md) | — | — (REST `POST /files`) | `apps/api/src/__tests__/file.api.test.ts` |
 
 New feature? Copy [`_template.md`](_template.md), fill it in, add a row here.

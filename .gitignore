@@ -41,6 +41,9 @@ yarn-error.log*
 # turbo
 .turbo
 
+# trigger.dev
+.trigger
+
 # prisma generated client
 apps/api/generated
 

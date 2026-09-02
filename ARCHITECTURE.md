@@ -43,6 +43,19 @@ packages/ui  → Button + cn + Tailwind preset, consumed by dashboard
   `publicProcedure` only), `routers/_app.ts` assembles `appRouter` and exports
   the types.
 
+## Background jobs (Trigger.dev) and AI
+
+- `apps/api/trigger.config.ts` — project ref, `runtime: "bun"`,
+  `dirs: ["./src/trigger"]`. Tasks live in `src/trigger/`, one exported
+  `task()` per file, and are bundled by the Trigger CLI, which runs under Node:
+  `bun run --filter=@reclit/api trigger:dev` (loads `apps/api/.env`).
+- `src/ai/` holds the model providers for the Vercel AI SDK (`gemini.ts`).
+- Neither `src/trigger/` nor `@trigger.dev/sdk` may be imported from
+  `src/trpc/**` or `src/modules/**` — that graph is transpiled by the
+  dashboard. Tasks call services, never the other way round.
+- Runs are recorded in the `RunAi` table
+  ([docs/features/run-ai.md](docs/features/run-ai.md)).
+
 ## Type flow (why the dashboard gets full type safety)
 
 `apps/api/package.json` exports `"./trpc/routers/_app"` pointing at the raw
@@ -81,6 +94,8 @@ no Prisma code; `bunx turbo build` is the check.
 | `DATABASE_URL` | api | Postgres connection string, read by `prisma.config.ts` |
 | `PORT` | api | listen port (dev script sets 4001) |
 | `ALLOWED_API_ORIGINS` | api | CORS allowlist (default `http://localhost:4000`) |
+| `TRIGGER_SECRET_KEY` | api | Trigger.dev environment key, read by the Trigger CLI / worker |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | api | Gemini key for the Vercel AI SDK (`src/ai/gemini.ts`) |
 | `NEXT_PUBLIC_API_URL` | dashboard | browser tRPC target (default `http://localhost:4001`) |
 | `API_INTERNAL_URL` | dashboard | optional SSR-side override |
 

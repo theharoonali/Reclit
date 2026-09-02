@@ -14,7 +14,8 @@
       "!**/node_modules",
       "!**/.turbo",
       "!**/.next",
-      "!**/generated"
+      "!**/generated",
+      "!**/.trigger"
     ]
   },
   "css": {

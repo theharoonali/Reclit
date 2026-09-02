@@ -7,7 +7,9 @@
     "ALLOWED_API_ORIGINS",
     "API_INTERNAL_URL",
     "SUPABASE_URL",
-    "SUPABASE_KEY"
+    "SUPABASE_KEY",
+    "TRIGGER_SECRET_KEY",
+    "GOOGLE_GENERATIVE_AI_API_KEY"
   ],
   "ui": "stream",
   "tasks": {

@@ -13,19 +13,23 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:seed": "bun prisma/seed.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "trigger:dev": "npx trigger.dev@latest dev"
   },
   "exports": {
     "./trpc/routers/_app": "./src/trpc/routers/_app.ts"
   },
   "dependencies": {
+    "@ai-sdk/google": "^4.0.61",
     "@nestjs/common": "^11.1.6",
     "@nestjs/core": "^11.1.6",
     "@nestjs/platform-express": "^11.1.6",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "@supabase/supabase-js": "^2.112.4",
+    "@trigger.dev/sdk": "4.5.15",
     "@trpc/server": "^11.16.0",
+    "ai": "^7.0.89",
     "exceljs": "^4.4.0",
     "multer": "^2.2.0",
     "papaparse": "^5.7.0",
@@ -35,6 +39,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@trigger.dev/build": "4.5.15",
     "@types/bun": "latest",
     "@types/express": "^5.0.1",
     "@types/papaparse": "^5.5.2",

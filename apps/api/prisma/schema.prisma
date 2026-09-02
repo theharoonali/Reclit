@@ -131,3 +131,30 @@ model Cell {
   @@unique([spreadsheetId, rowIndex, columnIndex])
   @@index([spreadsheetId, rowIndex])
 }
+
+/// Lifecycle of one AI run against one cell.
+enum RunAiStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+/// One AI run for one cell. `cellId` is the scoped Cell pk
+/// "<sheetId>.cell.<row>.<col>" kept as a plain string, NOT a relation: Cell
+/// rows are deleted on clear and wiped on import, and the run record must
+/// outlive them. `batchId` groups every run one user action enqueued.
+model RunAi {
+  id        String      @id @default(uuid())
+  cellId    String
+  batchId   String
+  status    RunAiStatus @default(PENDING)
+  credit    Int         @default(0)
+  result    Json?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([cellId])
+  @@index([batchId])
+  @@index([createdAt])
+}
