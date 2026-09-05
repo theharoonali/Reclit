@@ -60,7 +60,7 @@ Filter to one workspace: `bunx turbo typecheck --filter=@reclit/api`.
 - **Dependency versions**: shared deps are pinned in the root `package.json` `"catalog"`
   field; workspace packages reference them as `"react": "catalog:"`. Workspace-internal
   deps use `"@reclit/x": "workspace:*"`.
-- **Path aliases**: `@api/*` → `apps/api/src/*` (inside the api), `@/*` → `src/*` (inside dashboard).
+- **Path alias**: `@/*` → `src/*` inside the dashboard. The api uses relative imports.
 - **Every dashboard string is a message key** in `apps/dashboard/src/messages/en.json`,
   and every text size is a named step in the `fontSize` scale in
   `packages/ui/tailwind.config.ts`. Literal copy and raw `text-sm`/`text-2xl` in
@@ -83,22 +83,21 @@ Filter to one workspace: `bunx turbo typecheck --filter=@reclit/api`.
 - **Each workspace carries its own `tsconfig.json`** — there is no shared tsconfig package.
 - **Database**: Prisma, schema at `apps/api/prisma/schema.prisma`, single client
   at `apps/api/src/db/prisma.ts`. `DATABASE_URL` lives in `apps/api/.env`.
-- **Background jobs / AI**: Trigger.dev tasks in `apps/api/src/trigger/`, AI SDK
-  providers in `apps/api/src/ai/`. Both stay outside the `src/trpc/**` and
-  `src/modules/**` import graph — see [ARCHITECTURE.md](ARCHITECTURE.md).
-- **Live updates** are tRPC subscriptions over SSE (`runAi.onChange`), fed by
-  a Postgres trigger + `LISTEN` (`apps/api/src/modules/run-ai/run-ai.feed.ts`,
-  the only user of the direct `pg` dependency). The dashboard consumes them
-  with `useSubscription(trpc.<name>.<proc>.subscriptionOptions(...))` — see
-  [ARCHITECTURE.md](ARCHITECTURE.md) "Live updates".
+- **Background jobs / AI** (`src/trigger/`, `src/ai/`, `src/jobs/`) and
+  **live updates** (tRPC subscriptions over SSE fed by Postgres `LISTEN`) are
+  described once, in [ARCHITECTURE.md](ARCHITECTURE.md); the rules for adding
+  one are in [docs/rules/BACKEND.md](docs/rules/BACKEND.md) "Background jobs
+  and AI".
 
 ## Hard invariants (breaking these causes confusing failures)
 
 1. `apps/api/package.json` must keep exporting `"./trpc/routers/_app"` — it is the
    only type bridge to the dashboard.
-2. Nothing under `apps/api/src/trpc/` may import `@nestjs/*` or any decorated class.
-   The dashboard transpiles `@reclit/api` (Next `transpilePackages`), and decorator code
-   breaks the Next build.
+2. Nothing under `apps/api/src/trpc/` or `src/modules/` may import `@nestjs/*`,
+   `@trigger.dev/sdk` or any decorated class. The dashboard transpiles
+   `@reclit/api` (Next `transpilePackages`), and decorator code breaks the Next
+   build. Controllers and `*.module.ts` files are the only Nest code in a
+   feature folder, and nothing in `src/trpc/` imports them.
 3. `apps/api/src/trpc/routers/_app.ts` must keep exporting `AppRouter`, `RouterInputs`,
    `RouterOutputs`.
 4. In `apps/api`, never `import type` a class that NestJS constructor-injects —

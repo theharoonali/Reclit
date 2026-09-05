@@ -177,7 +177,9 @@
     },
     "listen": {
       "start": "Run",
-      "live": "Live"
+      "running": "Starting...",
+      "errorBusy": "That cell already has a run in progress.",
+      "error": "The run could not be started. Try again."
     },
     "cells": {
       "delete": "Delete"

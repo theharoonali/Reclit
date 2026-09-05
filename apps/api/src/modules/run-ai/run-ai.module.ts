@@ -4,11 +4,12 @@ import {
   type OnApplicationShutdown,
   type OnModuleInit,
 } from "@nestjs/common";
-import { RunAiController } from "./run-ai.controller";
+import { describeError } from "../../common/errors";
 import { runAiFeed } from "./run-ai.feed";
 
-// Kept separate from run-ai.feed.ts: that file must stay decorator-free
-// because src/trpc/** reaches it through the service (AGENTS.md invariant 2).
+// The feed's Nest lifecycle, kept apart from run-ai.feed.ts so that file stays
+// decorator-free (docs/rules/BACKEND.md hard rule 1). No controller: runs are
+// created by `runAi.runCell` and transitioned by the Trigger.dev task.
 
 @Injectable()
 class RunAiFeedLifecycle implements OnModuleInit, OnApplicationShutdown {
@@ -19,7 +20,7 @@ class RunAiFeedLifecycle implements OnModuleInit, OnApplicationShutdown {
     await runAiFeed.ensureStarted().catch((error: unknown) => {
       console.error(
         "[run-ai feed] not listening:",
-        error instanceof Error ? error.message : error,
+        describeError(error).message,
       );
     });
   }
@@ -30,7 +31,6 @@ class RunAiFeedLifecycle implements OnModuleInit, OnApplicationShutdown {
 }
 
 @Module({
-  controllers: [RunAiController],
   providers: [RunAiFeedLifecycle],
 })
 export class RunAiModule {}

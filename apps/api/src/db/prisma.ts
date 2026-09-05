@@ -1,8 +1,9 @@
 import { PrismaPg } from "@prisma/adapter-pg";
+import type { Prisma } from "../../generated/prisma/client";
 import { PrismaClient } from "../../generated/prisma/client";
 
-// Framework-free on purpose: src/trpc/** imports the services that import this
-// file, and that graph must stay free of @nestjs/* (see AGENTS.md invariant 2).
+// The ONLY Prisma client. Framework-free (docs/rules/BACKEND.md hard rule 1);
+// the Nest shutdown hook lives in prisma.module.ts.
 
 function logLevels(): ("error" | "warn")[] {
   if (process.env.NODE_ENV === "test") return [];
@@ -42,6 +43,13 @@ export async function disconnectPrisma(): Promise<void> {
   await prisma.$disconnect();
   globalForPrisma.__prisma = undefined;
 }
+
+/**
+ * A validated wire value as a Prisma JSON write. Zod cannot express
+ * `Prisma.InputJsonValue` exactly; the runtime shapes match.
+ */
+export const toJsonInput = (value: unknown): Prisma.InputJsonValue =>
+  value as Prisma.InputJsonValue;
 
 /** Cheap liveness probe used by GET /health. */
 export async function pingDatabase(): Promise<boolean> {

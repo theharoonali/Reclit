@@ -4,7 +4,9 @@
 sparse rows, and JSON-valued cells addressed by predictable index-derived ids.
 
 **Contract:** `apps/api/src/__tests__/spreadsheet.api.test.ts` — payloads,
-responses, and error codes live in its header. Do not duplicate them here.
+responses, REST routes, error codes and every client-visible behaviour
+(ordering, defaults, limits, import rules) live in its header. Do not duplicate
+them here.
 
 ## Tables `Spreadsheet`, `Column`, `Row`, `Cell`
 
@@ -26,9 +28,9 @@ responses, and error codes live in its header. Do not duplicate them here.
 
 `ColumnType`: `STRING NUMBER BOOLEAN DATE JSON FORMULA AUDIO FILE EMAIL URL` ·
 `NodeType`: `AI EMAIL` (both lowercase on the wire). Scoped pks are a recorded
-deviation from the uuid rule
-(docs/plans/005-spreadsheet-backend.md): they make the wire ids predictable
-(`row.0`, `col.1`, `cell.0.1`) and a cell write a single upsert by pk.
+deviation from the uuid rule (docs/plans/005-spreadsheet-backend.md): they make
+the wire ids predictable (`row.0`, `col.1`, `cell.0.1`) and a cell write a
+single upsert by pk.
 
 Indexes: `unique(spreadsheetId, index)` on Column/Row,
 `(spreadsheetId, sortOrder)` on Column,
@@ -46,19 +48,19 @@ database one — tightening the index would break the reorder.
 
 | Path | Layer | Responsibility |
 | --- | --- | --- |
-| `apps/api/prisma/schema.prisma` | model | the four tables + `ColumnType` |
-| `apps/api/src/modules/spreadsheet/spreadsheet.ids.ts` | schema | scoped/short id builders |
-| `apps/api/src/modules/spreadsheet/spreadsheet.schema.ts` | schema | zod shapes, wire↔db type case, `cellValueMatchesType` |
-| `apps/api/src/modules/spreadsheet/spreadsheet.errors.ts` | schema | the domain errors |
-| `apps/api/src/modules/spreadsheet/spreadsheet.shape.ts` | schema | records → nested `SheetRow` assembly |
-| `apps/api/src/modules/spreadsheet/spreadsheet.service.ts` | service | reads + sheet lifecycle, `columnOrThrow` |
-| `apps/api/src/modules/spreadsheet/spreadsheet-cells.service.ts` | service | cell and row writes |
+| `apps/api/prisma/schema.prisma` | model | the four tables + `ColumnType` + `NodeType` |
+| `apps/api/src/modules/spreadsheet/spreadsheet.ids.ts` | ids | scoped/short id builders, `parseCellId` |
+| `apps/api/src/modules/spreadsheet/spreadsheet.schema.ts` | schema | zod shapes, wire↔db type case, `cellValueMatchesType`, `isPlainObject` |
+| `apps/api/src/modules/spreadsheet/spreadsheet.errors.ts` | errors | the domain errors |
+| `apps/api/src/modules/spreadsheet/spreadsheet.shape.ts` | shape | records → wire: `toSheetColumn`, `toSheetCell`, `buildRow` (stored cells, sorted), `buildRowCells` (every column, blanks null — the AI run input) |
+| `apps/api/src/modules/spreadsheet/spreadsheet.service.ts` | service | reads + sheet lifecycle, `columnOrThrow`, `columnsOf`, `rowCells` |
+| `apps/api/src/modules/spreadsheet/spreadsheet-cells.service.ts` | service | row and cell writes |
 | `apps/api/src/modules/spreadsheet/spreadsheet-columns.service.ts` | service | column writes: create, update, reorder, remove — and the `sortOrder` invariant they share |
-| `apps/api/src/modules/spreadsheet/spreadsheet-import.parse.ts` | schema | CSV/XLSX bytes → a raw grid of strings |
-| `apps/api/src/modules/spreadsheet/spreadsheet-import.infer.ts` | schema | grid → columns with inferred types and coerced values |
+| `apps/api/src/modules/spreadsheet/spreadsheet-import.parse.ts` | pure | CSV/XLSX bytes → a raw grid of strings |
+| `apps/api/src/modules/spreadsheet/spreadsheet-import.infer.ts` | pure | grid → columns with inferred types and coerced values |
 | `apps/api/src/modules/spreadsheet/spreadsheet-import.service.ts` | service | parses an upload and replaces the whole grid in one transaction |
-| `apps/api/src/modules/spreadsheet/spreadsheet.controller.ts` | controller | the predictable REST paths |
-| `apps/api/src/trpc/routers/spreadsheet.ts` | router | the 17 procedures |
+| `apps/api/src/modules/spreadsheet/spreadsheet.controller.ts` | controller | the REST routes (table in the contract header) |
+| `apps/api/src/trpc/routers/spreadsheet.ts` | router | one procedure per row of the table below |
 | `apps/api/prisma/seed.ts` | — | seeds the default user + "Customers" workspace/sheet via the services |
 
 ## Procedures
@@ -83,95 +85,72 @@ database one — tightening the index would break the reorder.
 | `spreadsheet.updateColumn` | mutation | `SpreadsheetColumnsService.updateColumn` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.reorderColumn` | mutation | `SpreadsheetColumnsService.reorderColumn` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.removeColumn` | mutation | `SpreadsheetColumnsService.removeColumn` | NOT_FOUND |
-
 | `POST /spreadsheets/:id/import` | REST only | `SpreadsheetImportService.import` | NOT_FOUND, BAD_REQUEST |
 
-Every operation also exists as a REST route under `/spreadsheets` (same
-services, same shapes) — the route table lives in the contract header. Import is
-REST only: multipart does not belong on the tRPC link, and a procedure would
-pull the parsers into `src/trpc/**`, which the dashboard transpiles.
+Every procedure also exists as a REST route under `/spreadsheets` (same
+services, same zod inputs — the controller parses `{ ...body, ...params }`).
+Import is REST only: multipart does not belong on the tRPC link, and a
+procedure would pull the parsers into `src/trpc/**`, which the dashboard
+transpiles.
 
 ## Behaviour
 
-- Every sheet belongs to a workspace (`workspaceId` required on `create`; a
-  missing workspace is NOT_FOUND). The app creates sheets through
-  `workspace.create`, which names the sheet after the workspace;
-  `spreadsheet.create` itself does not enforce one-sheet-per-workspace.
-- Rows are sparse; indexes are absolute grid positions. `removeRow` clears and
-  never shifts. Never-written rows/cells read back blank, not 404.
-- A column carries two numbers and they are not interchangeable. **`index` is
-  identity**: it is the pk suffix, the wire id `col.<index>`, and the address of
-  every cell (`Cell.columnIndex` — and `Cell` has no fk to `Column`, so nothing
-  would cascade if it moved). It is append-only, a new column lands one past the
-  highest stored index, and a deleted column's index becomes a permanent gap
-  that is never reused — index-derived ids never renumber.
-- **`sortOrder` is position**, and it is always dense `0..n-1` per sheet.
-  `createColumn` appends at `max + 1`; `removeColumn` closes the gap it leaves
-  (unlike its index, which stays gapped); the import mints it in file order; and
-  `reorderColumn` shifts the columns between the old and new position by ±1 —
-  `+1` moving left, `-1` moving right — in a single `updateMany`. `columnsOf`
-  orders by it, and it is the only place the sheet's column order is decided.
-- `reorderColumn` writes **only** `sortOrder`. No id, no index and no
-  `Cell.columnIndex` moves, so every cell stays with its column and any
-  in-flight `setCell` stays correctly addressed. It returns the sheet's whole
-  column order; a same-position reorder is a no-op that still returns it. A
-  `newSortOrder` past the last position is BAD_REQUEST rather than clamped —
-  out of range means the caller's view of the order is stale.
-- `setCell` validates the value against the column type in the service
-  (`cellValueMatchesType`) and upserts row + cell by pk in one transaction;
-  `value: null` deletes the cell.
-- `appendRow` writes a new row at one past the highest stored index, row +
-  cells in one transaction. The index race with concurrent appends is retried
-  internally (CONFLICT only after retries are exhausted); `value: null` entries
-  write no cell. Its REST twin is `POST /spreadsheets/:id/rows/append`.
-- `removeRows` is `removeRow` for a batch (1..10,000 indexes): one transaction,
-  duplicates collapsed, never-stored indexes are no-ops, nothing shifts. Its
-  REST twin is `POST /spreadsheets/:id/rows/remove` (200 — a delete creates
-  nothing).
-- `updateColumn` changing `type` does not convert or revalidate stored cells.
-- `node`/`prompt` default to null; a prompt without a node is BAD_REQUEST
-  (create checks the payload, update the effective stored+incoming pair). On
-  `updateColumn`, `undefined` leaves a field unchanged, `null` clears it, and
-  `node: null` also clears `prompt`. Imported columns never carry a node.
-  Nothing executes prompts yet (docs/plans/011-column-node.md).
-- `FORMULA` is storage-only; nothing evaluates formulas.
-- `rows` pages *stored* rows (`startRow`/`limit` capped at 500, take limit+1 →
-  `hasMore`, `nextCursor`). The dashboard walks every page and merges them, so
-  the cap bounds one response rather than what a sheet can show.
-- **Import is a full replace.** `POST /spreadsheets/:id/import` deletes every
-  Column, Row and Cell and rebuilds them from the file in one transaction, so a
-  failure leaves the sheet untouched and re-importing the same file is a no-op.
-  It is the only operation that rebuilds the grid wholesale.
-- Row 0 of the file names the columns. A column's type is inferred only if
-  *every* non-empty value fits it, tried boolean → number → date → json →
-  email → url → string; a `url` column of audio extensions becomes `audio`,
-  of known file extensions `file`. `formula` is never inferred. Values are
-  coerced before storage, so an imported value always satisfies the same check
-  `setCell` applies. Only `true`/`false`/`yes`/`no` infer boolean (never
-  `1`/`0`), a leading zero is never a number, and a bare number is never a date.
-- An import does **not** change `totalRows` — that is the virtual grid height,
-  not a row count. A blank cell writes no record; a blank row still writes a Row.
-  XLSX reads the first worksheet only; `.xls` is rejected.
+- **Lookups live in one place.** `SpreadsheetService.byId`, `columnOrThrow`
+  (distinguishes a missing sheet from a missing column) and `columnsOf` (the
+  only place column order is decided: `sortOrder`, then `index` as a
+  deterministic tie-break) are called by the write services, never
+  re-implemented. `rowCells` reads columns and a row's cells in parallel for
+  in-process consumers (`run-ai`).
+- **Scoped pks make every write one statement.** A cell write is an upsert by
+  pk with no prior lookup; the cells service's module-level builders
+  (`upsertRow`, `writeCell`, `rowData`, `cellData`) return un-awaited
+  `PrismaPromise`s so `setCell`, `updateRow` and `appendRow` batch them in one
+  `$transaction([...])`. Validation (`assertWritable`: sheet exists, every
+  entry fits its column's type via `cellValueMatchesType`) runs before any
+  write, so a refused batch writes nothing.
+- **`appendRow` retries the index race.** It reads `max(index) + 1`, creates
+  row + cells in one transaction, and on a unique violation re-reads and
+  retries (three attempts) before surfacing `SpreadsheetRowExistsError`.
+- **`index` is identity, `sortOrder` is position.** Column writes keep
+  `sortOrder` dense: `createColumn` appends at `max + 1`, `removeColumn`
+  decrements everything to its right, `reorderColumn` shifts the band between
+  old and new position by ±1 in one `updateMany`. `index` is append-only and
+  its gaps are permanent, so index-derived ids never renumber and
+  `Cell.columnIndex` never moves.
+- **`updateColumn` enforces prompt-requires-node on the effective pair**
+  (stored + incoming); `createColumn` gets it from the zod `.refine`. Neither
+  converts stored cells on a type change.
+- **Import is the only full-grid rebuild.** `replaceAll` deletes every Cell,
+  Row and Column and `createMany`s the new grid (chunked for the 65535
+  bind-parameter cap) inside one transaction, so a failure leaves the sheet
+  untouched. Type inference (`spreadsheet-import.infer.ts`) accepts a type
+  only when every coerced value passes the same `cellValueMatchesType` the
+  cells service applies, so an imported value can never be one `setCell`
+  would refuse.
+- Cell values are validated in the service, not the schema: the rule needs
+  the column row, which only a service may read.
 
 ## Reusable pieces
 
-- `SpreadsheetImportService.replaceAll` is the only full-grid wipe-and-rebuild;
-  `removeColumn` drops single columns, leaving index gaps.
-- `SpreadsheetService.columnsOf` is the single ordering point for columns —
-  anything that needs them in display order goes through it.
-- `src/common/multipart.ts` `MulterFile`/`MAX_UPLOAD_BYTES`, and
-  `src/common/upload.ts` `@UploadFile()`/`requireFile()`, for any REST upload.
-- `isPlainObject` and `cellValueMatchesType` in `spreadsheet.schema.ts` — the
-  import inference reuses both rather than re-implementing the type rules.
-- `src/common/schema.ts` `idInput`/`paginationInput`; `src/common/errors.ts`
-  `DomainError`; `src/common/prisma-errors.ts`; `mapDomainError` in
-  `src/trpc/init.ts`; `DomainErrorFilter` for any future REST controller.
+- `SpreadsheetService.columnsOf` — the single ordering point for columns.
+- `SpreadsheetService.rowCells` + `buildRowCells` — "the row as the user sees
+  it", one entry per column; `run-ai` builds its input from it.
+- `toSheetCell` / `toSheetColumn` / `buildRow` (`spreadsheet.shape.ts`) for
+  any other producer of the wire shapes.
+- `SpreadsheetImportService.replaceAll` — the only wipe-and-rebuild.
+- `isPlainObject` and `cellValueMatchesType` (`spreadsheet.schema.ts`) for
+  anything that produces or checks cell values; `parseCellId`
+  (`spreadsheet.ids.ts`) for anything holding a scoped cell id.
+- `src/common/multipart.ts` + `src/common/upload.ts` for any REST upload.
 
 ## Used by
 
 - `/ai-spreadsheet` ([route doc](../routes/ai-spreadsheet.md)) — `rows` for the
   active workspace's sheet on load; `setCell`, `createColumn`, `updateColumn`,
-  `removeColumn`, `removeRows` from the grid.
+  `reorderColumn`, `removeColumn`, `removeRows` from the grid; `POST
+  /spreadsheets/:id/import`.
+- [`run-ai`](run-ai.md) — `columnOrThrow` + `rowCells` to build a run's
+  input; `setCell` (through `complete`) to write its output.
 - `workspace.create`/`rename` write sheets directly inside their transactions
   ([workspace.md](workspace.md)).
 - `/form/[spreadsheetId]` ([route doc](../routes/form.md)) — `rows` (limit 1,

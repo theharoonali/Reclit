@@ -7,7 +7,8 @@
 **Purpose:** one line.
 
 **Contract:** `apps/api/src/__tests__/<feature>.api.test.ts` — payloads,
-responses, and error codes live in its header. Do not duplicate them here.
+responses, error codes and every client-visible behaviour live in its header.
+Do not duplicate them here.
 
 ## Table `<Model>`
 
@@ -19,6 +20,8 @@ responses, and error codes live in its header. Do not duplicate them here.
 | `updatedAt` | `DateTime` | `@updatedAt` |
 
 Indexes: … · Relations: … · Migrations: `apps/api/prisma/migrations/`
+Anything the Prisma schema cannot express (partial index, trigger) and the
+migration that holds it.
 
 ## Files
 
@@ -26,6 +29,7 @@ Indexes: … · Relations: … · Migrations: `apps/api/prisma/migrations/`
 | --- | --- | --- |
 | `apps/api/prisma/schema.prisma` | model | … |
 | `apps/api/src/modules/<feature>/<feature>.schema.ts` | schema | … |
+| `apps/api/src/modules/<feature>/<feature>.errors.ts` | errors | … |
 | `apps/api/src/modules/<feature>/<feature>.service.ts` | service | … |
 | `apps/api/src/trpc/routers/<feature>.ts` | router | … |
 
@@ -37,8 +41,10 @@ Indexes: … · Relations: … · Migrations: `apps/api/prisma/migrations/`
 
 ## Behaviour
 
-- Business rules, defaults, ordering, and the limits of what the procedures
-  accept. Describe the code as it is — no checklists, no history.
+- **Internal invariants only**: transaction boundaries, hooks, what a service
+  enforces and how, why a table is shaped the way it is. What a client can
+  observe — ordering, defaults, limits, error codes — is in the contract NOTES;
+  link, never repeat. Describe the code as it is — no checklists, no history.
 
 ## Reusable pieces
 

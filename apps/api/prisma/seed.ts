@@ -1,6 +1,7 @@
 import { prisma } from "../src/db/prisma";
 import type { CellValue } from "../src/modules/spreadsheet/spreadsheet.schema";
 import { spreadsheetCellsService } from "../src/modules/spreadsheet/spreadsheet-cells.service";
+import { spreadsheetColumnsService } from "../src/modules/spreadsheet/spreadsheet-columns.service";
 import { userService } from "../src/modules/user/user.service";
 import { workspaceService } from "../src/modules/workspace/workspace.service";
 
@@ -103,7 +104,7 @@ if (existingWorkspace || existingSheet) {
   // Explicit node/prompt: this calls the service beneath the zod layer, so
   // the schema defaults do not apply.
   for (const { name, type } of COLUMNS) {
-    await spreadsheetCellsService.createColumn({
+    await spreadsheetColumnsService.createColumn({
       id: sheetId,
       name,
       type,

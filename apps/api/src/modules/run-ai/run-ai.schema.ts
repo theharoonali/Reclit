@@ -1,21 +1,20 @@
 import { z } from "zod";
-import { cellValueSchema } from "../spreadsheet/spreadsheet.schema";
+import {
+  cellRefInput,
+  cellValueSchema,
+  columnTypeWire,
+  sheetRowCellSchema,
+} from "../spreadsheet/spreadsheet.schema";
 
 // Single source of truth for the run-ai shapes. Status is free text: the
 // wire vocabulary is lowercase ("pending", "analyzing", ...); the database
 // stores its uppercase mirror. The 1:1 case mapping lives here and nowhere
 // else (same rule as spreadsheet.schema.ts).
 
-/** The statuses the system itself assigns; anything else is a custom stage. */
-export const RUN_AI_STATUSES_WIRE = [
-  "pending",
-  "running",
-  "completed",
-  "failed",
-] as const;
-export type RunAiKnownStatus = (typeof RUN_AI_STATUSES_WIRE)[number];
-
-/** The only statuses that end a run. Every other value means "working". */
+/**
+ * The system assigns `pending`, `running`, `completed`, `failed`; anything
+ * else is a custom working stage. Only these two end a run.
+ */
 export const RUN_AI_TERMINAL_STATUSES = ["completed", "failed"] as const;
 export const RUN_AI_TERMINAL_STATUSES_DB = ["COMPLETED", "FAILED"] as const;
 
@@ -32,19 +31,53 @@ export const runAiStatusWire = z
   .max(50)
   .regex(/^[A-Za-z][A-Za-z0-9_-]*$/, "status must be a single word")
   .transform((status) => status.toLowerCase());
-export type RunAiStatusWire = z.infer<typeof runAiStatusWire>;
 export const toDbRunAiStatus = (status: string): string => status.toUpperCase();
 export const toWireRunAiStatus = (status: string): string =>
   status.toLowerCase();
 
 /**
- * Free-form JSON object written by `complete` / `fail`. `output`, when
- * present, is the value the run produced for its cell — a plain cell value —
- * and `complete` writes it into the Cell row. Everything else (model text,
- * usage, an error description) is kept as-is.
+ * What a run is given: the column's prompt (the instruction), the target
+ * column, and the whole row in the sheet's column sort order — every column,
+ * blank cells as `null`, the target included with its current value. Audio
+ * and file cells carry their URL as text. Built by `runCell`, stored as
+ * `result.input`, and sent to the worker as the job payload.
+ */
+export const runAiInputSchema = z.object({
+  prompt: z.string(),
+  target: z.object({
+    id: z.string(), // "col.<index>"
+    index: z.number().int(),
+    name: z.string(),
+    type: columnTypeWire,
+  }),
+  row: z.object({
+    id: z.string(), // "row.<index>"
+    index: z.number().int(),
+    cells: z.array(sheetRowCellSchema),
+  }),
+});
+export type RunAiInput = z.infer<typeof runAiInputSchema>;
+export type RunAiInputCell = RunAiInput["row"]["cells"][number];
+
+/** The Trigger.dev `run-ai-cell` payload: which run, and what it was given. */
+export const runAiJobPayloadSchema = z.object({
+  runId: z.string().min(1),
+  input: runAiInputSchema,
+});
+export type RunAiJobPayload = z.infer<typeof runAiJobPayloadSchema>;
+
+/**
+ * Free-form JSON object on the run. `input` is what the run was given
+ * (written on create); `output`, when present, is the value the run produced
+ * for its cell — a plain cell value — and `complete` writes it into the Cell
+ * row. Everything else (`model`, `usage`, `error: { name, message }`) is
+ * kept as-is.
  */
 export const runAiResultSchema = z
-  .object({ output: cellValueSchema.optional() })
+  .object({
+    input: runAiInputSchema.optional(),
+    output: cellValueSchema.optional(),
+  })
   .catchall(z.unknown());
 export type RunAiResult = z.infer<typeof runAiResultSchema>;
 
@@ -101,8 +134,11 @@ export const runAiChangesInput = runAiSheetInput.extend({
   lastEventId: z.string().nullish(),
 });
 
-// Service inputs. In-process callers (the spreadsheet service, a Trigger.dev
-// task) and the REST test endpoint create and transition runs.
+/** Router input for `runCell`: the sheet id plus the cell's grid address. */
+export const runAiCellInput = cellRefInput;
+
+// Service inputs. In-process callers (`runCell`, the Trigger.dev task)
+// create and transition runs.
 export const createRunAiInput = z.object({
   cellId,
   batchId,
@@ -113,6 +149,8 @@ export const createRunAiInput = z.object({
       message: "a new run cannot start in a terminal status",
     })
     .optional(),
+  /** What the run starts with — `runCell` stores `{ input }` here. */
+  result: runAiResultSchema.optional(),
 });
 export const setRunAiStatusInput = z.object({
   status: runAiStatusWire,
@@ -127,35 +165,10 @@ export const failRunAiInput = z.object({
   result: runAiResultSchema.optional(),
 });
 
-/**
- * `POST /run-ai/test`: with `id` transitions that run (`status` required);
- * with `cellId` transitions the cell's working run when there is one and a
- * `status` is given, or creates one (`batchId` minted when absent).
- */
-export const upsertRunAiTestInput = z
-  .object({
-    id: z.string().trim().min(1).max(200).optional(),
-    cellId: cellId.optional(),
-    batchId: batchId.optional(),
-    status: runAiStatusWire.optional(),
-    result: runAiResultSchema.optional(),
-    credit: credit.optional(),
-  })
-  .refine((input) => input.id !== undefined || input.cellId !== undefined, {
-    message: "cellId is required when id is absent",
-    path: ["cellId"],
-  })
-  .refine((input) => input.id === undefined || input.status !== undefined, {
-    message: "status is required when id is present",
-    path: ["status"],
-  });
-
-export type RunAiBatchInput = z.infer<typeof runAiBatchInput>;
-export type RunAiSheetInput = z.infer<typeof runAiSheetInput>;
 export type RunAiChangesInput = z.infer<typeof runAiChangesInput>;
+export type RunAiCellInput = z.infer<typeof runAiCellInput>;
 /** `z.input`: `credit` is optional for callers and defaults in the service. */
 export type CreateRunAiInput = z.input<typeof createRunAiInput>;
 export type SetRunAiStatusInput = z.infer<typeof setRunAiStatusInput>;
 export type CompleteRunAiInput = z.infer<typeof completeRunAiInput>;
 export type FailRunAiInput = z.infer<typeof failRunAiInput>;
-export type UpsertRunAiTestInput = z.infer<typeof upsertRunAiTestInput>;

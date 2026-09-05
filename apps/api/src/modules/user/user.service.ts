@@ -6,9 +6,9 @@ import type {
   UserProfile,
 } from "./user.schema";
 
-// Framework-free: no @nestjs/* imports, no decorators — src/trpc/** imports
-// the singleton below. There is no auth, so "the current user" is the first
-// (and only) user by createdAt; `me()` is the single place that resolves it.
+// Framework-free (docs/rules/BACKEND.md hard rule 1). There is no auth, so
+// "the current user" is the first (and only) user by createdAt; `me()` is the
+// single place that resolves it.
 
 const userSelect = {
   id: true,

@@ -37,6 +37,13 @@ export type SheetSyncApi = {
    * snapshot into a *post*-import model.
    */
   discardPending: () => void;
+  /**
+   * Sends every pending cell write now and resolves once the server has
+   * answered each (a failure snaps its cell back, as usual, and still
+   * resolves). Running an AI cell needs the row *persisted* first: the API
+   * reads the row from the database, not from this model.
+   */
+  flushPending: () => Promise<void>;
 };
 
 /**
@@ -87,29 +94,31 @@ export function useSheetSync(args: {
 
   // The debounce closes over these refs, not the mutation objects, so the
   // callbacks stay referentially stable for the canvas wiring.
-  const mutateCellRef = useRef(setCellMutation.mutate);
-  mutateCellRef.current = setCellMutation.mutate;
+  const mutateCellRef = useRef(setCellMutation.mutateAsync);
+  mutateCellRef.current = setCellMutation.mutateAsync;
   const mutateCreateRef = useRef(createColumnMutation.mutate);
   mutateCreateRef.current = createColumnMutation.mutate;
   const mutateUpdateRef = useRef(updateColumnMutation.mutate);
   mutateUpdateRef.current = updateColumnMutation.mutate;
 
+  /** Sends one dirty cell; resolves either way (a failure is handled here). */
   const flushCell = useCallback(
-    (row: number, columnId: string) => {
+    (row: number, columnId: string): Promise<void> => {
       const model = modelRef.current;
       const key = cellKey(row, columnId);
       const dirty = dirtyRef.current.get(key);
       const columnIndex = parseShortColumnId(columnId);
-      if (!model || !dirty || columnIndex === null) return;
+      if (!model || !dirty || columnIndex === null) return Promise.resolve();
       dirtyRef.current.delete(key);
       const value = model.cells.get(key) ?? null;
       // Captured at send time: `discardPending` cannot cancel a request that is
       // already out, so the generation is how a superseded response is ignored.
       const generation = generationRef.current;
-      mutateCellRef.current(
-        { id: model.sheetId, rowIndex: row, columnIndex, value },
-        {
-          onError: () => {
+      return mutateCellRef
+        .current({ id: model.sheetId, rowIndex: row, columnIndex, value })
+        .then(
+          () => undefined,
+          () => {
             // An import replaced the model out from under this write; its
             // snapshot belongs to a sheet that no longer exists.
             if (generationRef.current !== generation) return;
@@ -117,11 +126,27 @@ export function useSheetSync(args: {
             setCellLocal(row, columnId, dirty.snapshot);
             requestPaint();
           },
-        },
-      );
+        );
     },
     [modelRef, requestPaint, setCellLocal],
   );
+
+  /** Every dirty cell, sent now rather than on its debounce. */
+  const flushAll = useCallback((): Promise<void>[] => {
+    const sends: Promise<void>[] = [];
+    for (const key of [...dirtyRef.current.keys()]) {
+      clearTimeout(dirtyRef.current.get(key)?.timer);
+      const [row, columnId] = key.split(/:(.*)/s);
+      if (row !== undefined && columnId) {
+        sends.push(flushCell(Number.parseInt(row, 10), columnId));
+      }
+    }
+    return sends;
+  }, [flushCell]);
+
+  const flushPending = useCallback(async () => {
+    await Promise.all(flushAll());
+  }, [flushAll]);
 
   const setCell = useCallback(
     (row: number, columnId: string, value: CellValue) => {
@@ -176,15 +201,9 @@ export function useSheetSync(args: {
   // Flush pending edits when the sheet unmounts.
   useEffect(() => {
     return () => {
-      for (const key of [...dirtyRef.current.keys()]) {
-        clearTimeout(dirtyRef.current.get(key)?.timer);
-        const [row, columnId] = key.split(/:(.*)/s);
-        if (row !== undefined && columnId) {
-          flushCell(Number.parseInt(row, 10), columnId);
-        }
-      }
+      flushAll();
     };
-  }, [flushCell]);
+  }, [flushAll]);
 
   const discardPending = useCallback(() => {
     for (const dirty of dirtyRef.current.values()) clearTimeout(dirty.timer);
@@ -192,5 +211,11 @@ export function useSheetSync(args: {
     generationRef.current += 1;
   }, []);
 
-  return { setCell, syncColumnCreate, syncColumnUpdate, discardPending };
+  return {
+    setCell,
+    syncColumnCreate,
+    syncColumnUpdate,
+    discardPending,
+    flushPending,
+  };
 }

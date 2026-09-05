@@ -14,12 +14,9 @@ import { toDbColumnType, toDbNodeType } from "./spreadsheet.schema";
 import { columnSelect, spreadsheetService } from "./spreadsheet.service";
 import { toSheetColumn } from "./spreadsheet.shape";
 
-// Framework-free (see spreadsheet.service.ts). Every write to the Column table
-// lives here; the split off spreadsheet-cells.service.ts keeps both inside the
-// size cap (docs/rules/COMMON.md §5) and puts the multi-row reorder next to the
-// two operations whose job is to keep its arithmetic valid.
-//
-// A column carries two numbers and confusing them is the expensive mistake:
+// Framework-free (docs/rules/BACKEND.md hard rule 1). Every write to the
+// Column table. A column carries two numbers and confusing them is the
+// expensive mistake:
 //
 // - `index` is IDENTITY. It is the pk suffix ("<sheetId>.col.<index>"), the
 //   wire id ("col.<index>") and the address of every cell (Cell.columnIndex).

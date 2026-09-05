@@ -5,8 +5,9 @@ import {
 } from "./file.errors";
 import type { UploadedFile } from "./file.schema";
 
-// Framework-free pass-through to Supabase Storage. The client is created
-// lazily so a checkout without SUPABASE_* env vars still boots and tests.
+// Framework-free (docs/rules/BACKEND.md hard rule 1). Pass-through to Supabase
+// Storage; the client is created lazily so a checkout without SUPABASE_* env
+// vars still boots and tests.
 
 const BUCKET = "reclit";
 
@@ -34,7 +35,8 @@ export class FileService {
     mimeType: string,
   ): Promise<UploadedFile> {
     const storage = getClient().storage.from(BUCKET);
-    const path = `uploads/${crypto.randomUUID()}/${sanitizeName(name)}`;
+    const safeName = sanitizeName(name);
+    const path = `uploads/${crypto.randomUUID()}/${safeName}`;
     const { error } = await storage.upload(path, buffer, {
       contentType: mimeType,
     });
@@ -42,7 +44,7 @@ export class FileService {
     const { data } = storage.getPublicUrl(path);
     return {
       url: data.publicUrl,
-      name: sanitizeName(name),
+      name: safeName,
       mimeType,
       size: buffer.byteLength,
     };

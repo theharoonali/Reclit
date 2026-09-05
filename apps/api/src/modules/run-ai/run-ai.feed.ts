@@ -1,16 +1,13 @@
 import { EventEmitter } from "node:events";
 import pg from "pg";
+import { describeError } from "../../common/errors";
 
-// Framework-free: no @nestjs/* imports. The service subscribes to this feed
-// and src/trpc/** imports the service, so this file is in the dashboard's
-// type-only import graph — like @prisma/adapter-pg (which imports `pg` too).
-//
-// One dedicated Postgres connection per API process LISTENs on the channel
-// the `run_ai_notify` trigger publishes to (migration
-// `run_ai_status_text_and_feed`). Every writer — this API, the Trigger.dev
-// worker, psql — goes through the same trigger, so this is the one signal
-// for "a RunAi row changed", and it works across several API replicas. Only
-// the row id travels; the service re-reads the row.
+// Framework-free (docs/rules/BACKEND.md hard rule 1). One dedicated Postgres
+// connection per API process LISTENs on the channel the `run_ai_notify`
+// trigger publishes to (migration `run_ai_status_text_and_feed`). Every
+// writer — this API, the Trigger.dev worker, psql — fires the same trigger,
+// so this is the one signal for "a RunAi row changed" across every replica.
+// Only the row id travels; run-ai-changes.service.ts re-reads the row.
 
 export const RUN_AI_CHANNEL = "run_ai_changed";
 
@@ -118,7 +115,7 @@ export class RunAiFeed {
       this.ensureStarted().catch((error: unknown) => {
         console.error(
           "[run-ai feed] reconnect failed:",
-          error instanceof Error ? error.message : error,
+          describeError(error).message,
         );
         this.scheduleReconnect();
       });

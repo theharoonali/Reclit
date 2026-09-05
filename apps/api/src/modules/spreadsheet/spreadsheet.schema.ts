@@ -124,6 +124,19 @@ export const sheetRowSchema = z.object({
   columns: z.array(sheetRowEntrySchema),
 });
 
+/**
+ * One cell of a row *with its column*, blank or not — what an AI run reads.
+ * Unlike `sheetRowEntrySchema` (stored cells only) every column of the sheet
+ * gets an entry, in display order, so a consumer sees the whole row.
+ */
+export const sheetRowCellSchema = z.object({
+  id: z.string(), // "col.<index>"
+  index: z.number().int(),
+  name: z.string(),
+  type: columnTypeWire,
+  value: cellValueSchema,
+});
+
 export const sheetCellSchema = z.object({
   id: z.string(), // "cell.<rowIndex>.<columnIndex>"
   rowIndex: z.number().int(),
@@ -152,8 +165,8 @@ export const sheetPayloadSchema = z.object({
 
 export type SpreadsheetMeta = z.infer<typeof spreadsheetMetaSchema>;
 export type SheetColumn = z.infer<typeof sheetColumnSchema>;
-export type SheetRowEntry = z.infer<typeof sheetRowEntrySchema>;
 export type SheetRow = z.infer<typeof sheetRowSchema>;
+export type SheetRowCell = z.infer<typeof sheetRowCellSchema>;
 export type SheetCell = z.infer<typeof sheetCellSchema>;
 export type SheetPayload = z.infer<typeof sheetPayloadSchema>;
 
@@ -246,9 +259,6 @@ export const createColumnInput = idInput
 
 export type CreateSpreadsheetInput = z.infer<typeof createSpreadsheetInput>;
 export type SheetRowsInput = z.infer<typeof sheetRowsInput>;
-export type RowRefInput = z.infer<typeof rowRefInput>;
-export type ColumnRefInput = z.infer<typeof columnRefInput>;
-export type CellRefInput = z.infer<typeof cellRefInput>;
 export type SetCellInput = z.infer<typeof setCellInput>;
 export type UpdateRowInput = z.infer<typeof updateRowInput>;
 export type UpdateColumnInput = z.infer<typeof updateColumnInput>;

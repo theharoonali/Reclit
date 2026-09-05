@@ -1,3 +1,4 @@
+import type { Prisma } from "../../../generated/prisma/client";
 import { isRecordNotFound } from "../../common/prisma-errors";
 import { prisma } from "../../db/prisma";
 import { DEFAULT_TOTAL_ROWS } from "../spreadsheet/spreadsheet.schema";
@@ -9,12 +10,11 @@ import type {
   WorkspaceSummary,
 } from "./workspace.schema";
 
-// Framework-free: no @nestjs/* imports, no decorators — src/trpc/** imports
-// the singleton below. Creating a workspace also creates its sheet, and
-// renaming renames it: the sheet's name *is* the workspace's name
-// (docs/plans/013-workspaces.md). Sheets are written through tx.spreadsheet
-// directly, never through spreadsheetService, so the two services stay
-// dependency-free of each other.
+// Framework-free (docs/rules/BACKEND.md hard rule 1). Creating a workspace
+// also creates its sheet, and renaming renames it: the sheet's name *is* the
+// workspace's name (docs/plans/013-workspaces.md). Sheets are written through
+// tx.spreadsheet directly, never through spreadsheetService, so the two
+// services stay dependency-free of each other.
 
 const summarySelect = {
   id: true,
@@ -28,13 +28,9 @@ const summarySelect = {
   },
 } as const;
 
-type SummaryRecord = {
-  id: string;
-  name: string;
-  createdAt: Date;
-  updatedAt: Date;
-  spreadsheets: { id: string }[];
-};
+type SummaryRecord = Prisma.WorkspaceGetPayload<{
+  select: typeof summarySelect;
+}>;
 
 function toSummary(record: SummaryRecord): WorkspaceSummary {
   const { spreadsheets, ...rest } = record;

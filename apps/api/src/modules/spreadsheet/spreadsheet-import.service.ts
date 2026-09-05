@@ -1,24 +1,25 @@
 import type { Prisma } from "../../../generated/prisma/client";
-import { prisma } from "../../db/prisma";
+import { prisma, toJsonInput } from "../../db/prisma";
 import {
   SpreadsheetImportTooLargeError,
   SpreadsheetImportUnsupportedTypeError,
 } from "./spreadsheet.errors";
-import { cellId, columnId, rowId, shortColumnId } from "./spreadsheet.ids";
-import type { SheetImportResult } from "./spreadsheet.schema";
+import { cellId, columnId, rowId } from "./spreadsheet.ids";
+import type { SheetColumn, SheetImportResult } from "./spreadsheet.schema";
 import {
   MAX_IMPORT_COLUMNS,
   MAX_IMPORT_ROWS,
   toDbColumnType,
 } from "./spreadsheet.schema";
 import { spreadsheetService } from "./spreadsheet.service";
+import { toSheetColumn } from "./spreadsheet.shape";
 import type { InferredSheet } from "./spreadsheet-import.infer";
 import { inferSheet } from "./spreadsheet-import.infer";
 import { detectFormat, readTable } from "./spreadsheet-import.parse";
 
-// Framework-free (see spreadsheet.service.ts). Its own service rather than a
-// method on SpreadsheetCellsService: that file is already at the size cap, and
-// this is the one grid write that is neither per-cell, per-row nor per-column.
+// Framework-free (docs/rules/BACKEND.md hard rule 1). The one grid write that
+// is neither per-cell, per-row nor per-column: parse an upload, replace the
+// whole grid.
 
 /** Postgres caps a statement at 65535 bind parameters; a Cell costs ~6. */
 const CREATE_CHUNK = 2_000;
@@ -37,7 +38,8 @@ function chunk<T>(items: T[]): T[][] {
  */
 function buildRecords(id: string, plan: InferredSheet) {
   // File order is already dense, so `index` and `sortOrder` start out equal —
-  // they only diverge once a column is removed or reordered.
+  // they only diverge once a column is removed or reordered. Imported columns
+  // never carry a node.
   const columnData = plan.columns.map((column, index) => ({
     id: columnId(id, index),
     spreadsheetId: id,
@@ -45,6 +47,8 @@ function buildRecords(id: string, plan: InferredSheet) {
     sortOrder: index,
     name: column.name,
     type: toDbColumnType(column.type),
+    node: null,
+    prompt: null,
   }));
 
   // A Row record for every data row index, blank ones included: the row existed
@@ -64,7 +68,7 @@ function buildRecords(id: string, plan: InferredSheet) {
         spreadsheetId: id,
         rowIndex,
         columnIndex,
-        value: value as Prisma.InputJsonValue,
+        value: toJsonInput(value),
       });
     }
   }
@@ -100,25 +104,17 @@ export class SpreadsheetImportService {
       );
     }
 
-    const { rowCount, cellCount } = await this.replaceAll(id, plan);
+    const { rowCount, cellCount, columns } = await this.replaceAll(id, plan);
     return {
       id: meta.id,
       name: meta.name,
       // The sheet's virtual height is not a row count and an import does not
       // change it; `rowCount` is what the file held.
       totalRows: meta.totalRows,
-      totalColumns: plan.columns.length,
+      totalColumns: columns.length,
       rowCount,
       cellCount,
-      columns: plan.columns.map((column, index) => ({
-        id: shortColumnId(index),
-        index,
-        sortOrder: index,
-        name: column.name,
-        type: column.type,
-        node: null,
-        prompt: null,
-      })),
+      columns,
     };
   }
 
@@ -131,7 +127,7 @@ export class SpreadsheetImportService {
   async replaceAll(
     id: string,
     plan: InferredSheet,
-  ): Promise<{ rowCount: number; cellCount: number }> {
+  ): Promise<{ rowCount: number; cellCount: number; columns: SheetColumn[] }> {
     const { columnData, rowData, cellData } = buildRecords(id, plan);
     // The array form runs every operation sequentially inside one transaction,
     // so chunking for the bind-parameter limit does not weaken atomicity.
@@ -143,7 +139,11 @@ export class SpreadsheetImportService {
       ...chunk(rowData).map((data) => prisma.row.createMany({ data })),
       ...chunk(cellData).map((data) => prisma.cell.createMany({ data })),
     ]);
-    return { rowCount: rowData.length, cellCount: cellData.length };
+    return {
+      rowCount: rowData.length,
+      cellCount: cellData.length,
+      columns: columnData.map(toSheetColumn),
+    };
   }
 }
 

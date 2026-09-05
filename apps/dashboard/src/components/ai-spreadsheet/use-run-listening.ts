@@ -11,6 +11,12 @@ export type RunListeningApi = {
   isResolving: boolean;
   /** The Run button: opens the stream ahead of the first run. */
   start: () => void;
+  /**
+   * The run the button opened the stream for was refused: no run exists,
+   * so no `closed` will ever come. Undoes `start` and nothing else — a run
+   * already working elsewhere on the sheet keeps the stream open.
+   */
+  cancel: () => void;
   /** The stream said `closed`: the last working run finished. */
   ended: () => void;
 };
@@ -41,6 +47,7 @@ export function useRunListening(sheetId: string): RunListeningApi {
   const [started, setStarted] = useState(false);
 
   const start = useCallback(() => setStarted(true), []);
+  const cancel = useCallback(() => setStarted(false), []);
   const ended = useCallback(() => {
     setStarted(false);
     queryClient.setQueryData(queryKey, []);
@@ -50,6 +57,7 @@ export function useRunListening(sheetId: string): RunListeningApi {
     listening: started || (active.data?.length ?? 0) > 0,
     isResolving: sheetId !== "" && active.isPending,
     start,
+    cancel,
     ended,
   };
 }

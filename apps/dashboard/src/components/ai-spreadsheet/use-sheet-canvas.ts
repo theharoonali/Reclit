@@ -44,6 +44,10 @@ export type SheetCanvasArgs = {
   runListening: boolean;
   /** The server ended the run stream: the last working run finished. */
   onRunEnded: () => void;
+  /** The set of working runs changed. See use-sheet-runs. */
+  onRunsChange?: () => void;
+  /** The active cell's display column changed. See use-cell-editor. */
+  onActiveColumnChange?: (col: number | null) => void;
   onOpenJson: (row: number, columnId: string) => void;
   onOpenDate: (row: number, columnId: string) => void;
   onOpenAudio: (row: number, columnId: string) => void;
@@ -77,7 +81,7 @@ export type SheetCanvasArgs = {
 export function useSheetCanvas(args: SheetCanvasArgs) {
   const { modelRef, columnsVersion, rowCount, labels, formatters } = args;
   const { getCell, setCell, setCellLocal } = args;
-  const { runListening, onRunEnded } = args;
+  const { runListening, onRunEnded, onRunsChange, onActiveColumnChange } = args;
   const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile, onOpenColumn } =
     args;
   const { onRemoveColumn, onReorderColumn, onSelectionPresence } = args;
@@ -132,6 +136,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     setCellLocal,
     requestPaint,
     onEnded: onRunEnded,
+    onRunsChange,
   });
 
   const editor = useCellEditor({
@@ -148,6 +153,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     onOpenAudio,
     onOpenFile,
     onSelectionPresence,
+    onActiveColumnChange,
   });
   const { editorRef, proxyRef } = editor;
 
@@ -337,6 +343,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     scrollerRef,
     spacerRef,
     editor,
+    runs,
     requestPaint,
     resetHover,
     gripAnchor,

@@ -14,7 +14,7 @@
     "db:studio": "prisma studio",
     "db:seed": "bun prisma/seed.ts",
     "postinstall": "prisma generate",
-    "trigger:dev": "npx trigger.dev@latest dev"
+    "trigger:dev": "npx trigger.dev@4.5.15 dev"
   },
   "exports": {
     "./trpc/routers/_app": "./src/trpc/routers/_app.ts"

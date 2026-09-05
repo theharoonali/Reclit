@@ -37,10 +37,11 @@ change.
 | `…/use-sheet-import.ts` | hook | uploads a CSV/XLSX, then refreshes the grid without remounting it |
 | `…/use-sheet-canvas.ts` | hook | wires sizing, painting, pointer routing and the editor |
 | `…/use-sheet-audio.ts` | hook | one shared `Audio` element and which audio cell is playing |
-| `…/ai-spreadsheet-run-button.tsx` | client | the Run control, portalled into the app header; "Live" and inert while the sheet streams |
-| `…/use-run-listening.ts` | hook | whether the sheet streams: `listActive` on load (a reload resumes a sheet mid-run), Run opens the stream ahead of the first run, `closed` ends it |
-| `…/use-sheet-runs.ts` | hook | the `runAi.onChange` subscription while listening: the working run per cell, the pulse interval, and writing a finished run's output into the model |
-| `…/use-sheet-sync.ts` | hook | persists cell/column edits through tRPC without re-rendering the grid |
+| `…/ai-spreadsheet-run-button.tsx` | client | the Run control, portalled into the app header; enabled only for a runnable cell, filled with the live glyph while the sheet streams |
+| `…/use-run-cell.ts` | hook | whether the selected cell can run (AI column with a prompt, no working run), and the `runAi.runCell` call: flush pending edits, open the stream, seed the pending run, map a refusal to an error code |
+| `…/use-run-listening.ts` | hook | whether the sheet streams: `listActive` on load (a reload resumes a sheet mid-run), Run opens the stream ahead of the first run (`cancel` undoes that when the run is refused), `closed` ends it |
+| `…/use-sheet-runs.ts` | hook | the `runAi.onChange` subscription while listening: the working run per cell, the pulse interval, writing a finished run's output into the model, `seed` for a run created by this page, `onRunsChange` for the Run button |
+| `…/use-sheet-sync.ts` | hook | persists cell/column edits through tRPC without re-rendering the grid; `flushPending` sends them all now (before a run) |
 | `…/use-sheet-model.ts` | hook | payload → `SheetModel`; `getCell`/`setCell`/`addColumn`/`updateColumn`/`applyColumnOrder` |
 | `…/use-sheet-viewport.ts` | hook | viewport ref, rAF paint scheduler, palette/font refresh |
 | `…/use-sheet-scroll.ts` | hook | virtual↔native scroll mapping, wheel, blank-tail growth |
@@ -60,6 +61,15 @@ Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`,
 Feature: [spreadsheet](../features/spreadsheet.md) ·
 [file](../features/file.md) · [run-ai](../features/run-ai.md).
 
+- Run: `runAi.runCell({ id, rowIndex, columnIndex })` for the selected cell
+  (`use-run-cell.ts`). Before the call every pending debounced cell write is
+  flushed and awaited (`flushPending`) — the API builds the run's input from
+  the database, so the row must be persisted — and the stream is opened
+  (`use-run-listening.ts`). The returned `pending` run is seeded straight
+  into the capsules, so the cell shows it before the stream's first event.
+  A refusal (`CONFLICT` = the cell is busy, anything else) shows inline
+  beside the button and closes the stream the click opened; no query is
+  invalidated.
 - Live, only while the sheet has working runs: `runAi.listActive` on load
   (non-empty → subscribe, so a reload resumes a sheet mid-run), the Run
   button to subscribe ahead of the first run (`use-run-listening.ts`), and
@@ -163,12 +173,20 @@ key gone, and blank a freshly imported cell.
   Prompt textarea; setting it back to None hides the field and submits
   `prompt: null`. A column whose node has a glyph (`ai` → ✨, see
   `NODE_GLYPHS` in `paint-header.ts`) paints it left of its header name.
-  Nothing executes prompts yet.
-- **Run / Live.** The header's Run button opens the run stream ahead of the
-  first run (one day it will also enqueue the sheet's AI columns); while the
-  sheet streams the button reads "Live", filled and inert. Whether to stream
-  is derived, not stored: a sheet with a run that is not completed or failed
-  is live — on load too, so a reload resumes — and the stream ends by itself
+  An `ai` column's prompt is what Run executes.
+- **Run.** The header's Run button runs the selected cell. It is enabled
+  only while the selected cell's column is an AI node with a prompt and the
+  cell has no working run — selecting a plain cell, a cell in an AI column
+  without a prompt, or a cell that is already `pending` / `running` disables
+  it, and it re-enables the moment that run completes or fails, so a cell can
+  be run again as often as wanted. Clicking it flushes pending edits, opens
+  the stream, creates the run, and seeds its `pending` capsule; the button
+  reads "Starting..." until the API answers. While the sheet streams the
+  button is filled with the live glyph but stays usable: another AI cell can
+  be run meanwhile (the database refuses a second run on the same cell, which
+  shows inline as "already has a run in progress"). Whether to stream is
+  derived, not stored: a sheet with a run that is not completed or failed is
+  live — on load too, so a reload resumes — and the stream ends by itself
   when the last working run finishes, like a chat generation ending.
 - **Working runs.** While listening, a cell an AI run is working on paints a
   capsule instead of its value — even when the cell is empty — labelled with

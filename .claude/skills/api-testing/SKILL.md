@@ -69,8 +69,11 @@ afterAll(async () => {
 });
 ```
 
-Never re-declare `caller` or `expectTRPCError` in a test file — add to
-`src/__tests__/support/` if a helper is missing.
+Never re-declare a helper in a test file — `caller`, `expectError`,
+`expectTRPCError`, `nextTracked` (`support/trpc.ts`), `startTestServer` +
+`jsonInit` for REST routes (`support/http.ts`) and the workspace fixtures
+(`support/fixtures.ts`) already exist; add to `src/__tests__/support/` if one
+is missing.
 
 ## 3. One describe per procedure
 

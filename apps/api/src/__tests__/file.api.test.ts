@@ -23,28 +23,22 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { createApp } from "../bootstrap";
+import type { TestServer } from "./support/http";
+import { startTestServer } from "./support/http";
 
 const storageConfigured = Boolean(
   process.env.SUPABASE_URL && process.env.SUPABASE_KEY,
 );
 
-let app: Awaited<ReturnType<typeof createApp>>;
-let baseUrl: string;
+let server: TestServer;
+let baseUrl = "";
 
 beforeAll(async () => {
-  app = await createApp({ logger: false });
-  await app.listen(0, "127.0.0.1");
-  const address = app.getHttpServer().address();
-  if (typeof address === "string" || address === null) {
-    throw new Error("Expected the test server to bind a TCP port");
-  }
-  baseUrl = `http://127.0.0.1:${address.port}`;
+  server = await startTestServer();
+  baseUrl = server.baseUrl;
 });
 
-afterAll(async () => {
-  await app.close();
-});
+afterAll(() => server.close());
 
 describe.skipIf(!storageConfigured)("POST /files", () => {
   it("uploads a file and returns its public bucket URL", async () => {

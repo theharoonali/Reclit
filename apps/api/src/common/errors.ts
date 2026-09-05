@@ -15,3 +15,13 @@ export abstract class DomainError extends Error {
   /** Stable machine-readable code, e.g. "SPREADSHEET_NOT_FOUND". */
   abstract readonly code: string;
 }
+
+/** A thrown value reduced to what is safe to store or send: its name and message. */
+export function describeError(error: unknown): {
+  name: string;
+  message: string;
+} {
+  if (error instanceof Error)
+    return { name: error.name, message: error.message };
+  return { name: "Error", message: String(error) };
+}

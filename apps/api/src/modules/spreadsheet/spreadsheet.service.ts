@@ -1,3 +1,4 @@
+import type { Prisma } from "../../../generated/prisma/client";
 import {
   isForeignKeyViolation,
   isRecordNotFound,
@@ -8,7 +9,7 @@ import {
   SpreadsheetColumnNotFoundError,
   SpreadsheetNotFoundError,
 } from "./spreadsheet.errors";
-import { cellId, columnId, shortCellId, shortRowId } from "./spreadsheet.ids";
+import { cellId, columnId, shortRowId } from "./spreadsheet.ids";
 import type {
   CellValue,
   CreateSpreadsheetInput,
@@ -19,12 +20,12 @@ import type {
   SheetRowsInput,
   SpreadsheetMeta,
 } from "./spreadsheet.schema";
-import type { ColumnRecord } from "./spreadsheet.shape";
-import { assembleRows, buildRow, toSheetColumn } from "./spreadsheet.shape";
+import type { CellRecord, ColumnRecord } from "./spreadsheet.shape";
+import { buildRow, toSheetCell, toSheetColumn } from "./spreadsheet.shape";
 
-// Framework-free: no @nestjs/* imports, no decorators — src/trpc/** imports
-// the singleton below, and that graph must stay decorator-free. Reads and
-// sheet lifecycle live here; grid writes live in spreadsheet-cells.service.ts.
+// Framework-free (docs/rules/BACKEND.md hard rule 1). Reads and the sheet
+// lifecycle; writes are split by kind into spreadsheet-cells.service.ts,
+// spreadsheet-columns.service.ts and spreadsheet-import.service.ts.
 
 const metaSelect = {
   id: true,
@@ -50,14 +51,7 @@ export const cellSelect = {
   value: true,
 } as const;
 
-type MetaRecord = {
-  id: string;
-  name: string;
-  totalRows: number;
-  createdAt: Date;
-  updatedAt: Date;
-  _count: { columns: number };
-};
+type MetaRecord = Prisma.SpreadsheetGetPayload<{ select: typeof metaSelect }>;
 
 function toMeta(record: MetaRecord): SpreadsheetMeta {
   const { _count, ...rest } = record;
@@ -137,7 +131,7 @@ export class SpreadsheetService {
         totalColumns: meta.totalColumns,
       },
       columns: columns.map(toSheetColumn),
-      rows: assembleRows(columns, indexes, cells),
+      rows: indexes.map((index) => buildRow(index, columns, cells)),
       pagination: {
         startRow,
         limit,
@@ -161,6 +155,28 @@ export class SpreadsheetService {
     return buildRow(rowIndex, columns, cells);
   }
 
+  /**
+   * A row's raw records for an in-process consumer (an AI run's input): the
+   * sheet's columns in display order plus the row's stored cells. Two indexed
+   * reads — `(spreadsheetId, sortOrder)` and `(spreadsheetId, rowIndex)` — in
+   * parallel; `buildRowCells` (spreadsheet.shape.ts) turns them into one
+   * entry per column. Callers resolve the sheet first: an unknown sheet has
+   * no columns rather than an error here.
+   */
+  async rowCells(
+    id: string,
+    rowIndex: number,
+  ): Promise<{ columns: ColumnRecord[]; cells: CellRecord[] }> {
+    const [columns, cells] = await Promise.all([
+      this.columnsOf(id),
+      prisma.cell.findMany({
+        where: { spreadsheetId: id, rowIndex },
+        select: cellSelect,
+      }),
+    ]);
+    return { columns, cells };
+  }
+
   async column(id: string, columnIndex: number): Promise<SheetColumn> {
     return toSheetColumn(await this.columnOrThrow(id, columnIndex));
   }
@@ -176,12 +192,11 @@ export class SpreadsheetService {
       where: { id: cellId(id, rowIndex, columnIndex) },
       select: { value: true },
     });
-    return {
-      id: shortCellId(rowIndex, columnIndex),
+    return toSheetCell(
       rowIndex,
       columnIndex,
-      value: (record?.value ?? null) as CellValue,
-    };
+      (record?.value ?? null) as CellValue,
+    );
   }
 
   /** Shared with the cells service: resolve a column by its scoped pk. */

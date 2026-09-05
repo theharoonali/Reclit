@@ -55,6 +55,13 @@ export type CellEditorArgs = {
    * never per shift-click or arrow key.
    */
   onSelectionPresence?: (has: boolean) => void;
+  /**
+   * Fired only when the active cell's *display column* changes (or the
+   * selection goes away), so a control that depends on which column is
+   * selected — the Run button — re-renders per column, never per row move
+   * or keystroke.
+   */
+  onActiveColumnChange?: (col: number | null) => void;
 };
 
 /**
@@ -74,15 +81,22 @@ export function useCellEditor(args: CellEditorArgs) {
   const { modelRef, viewportRef, ctxRef, fontsRef, requestPaint } = args;
   const { getCell, setCell, scrollCellIntoView } = args;
   const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile } = args;
-  const { onSelectionPresence } = args;
+  const { onSelectionPresence, onActiveColumnChange } = args;
 
   const presenceRef = useRef(false);
+  const activeColRef = useRef<number | null>(null);
   const notifyPresence = useCallback(() => {
     const has = editorRef.current.active !== null;
-    if (has === presenceRef.current) return;
-    presenceRef.current = has;
-    onSelectionPresence?.(has);
-  }, [onSelectionPresence]);
+    if (has !== presenceRef.current) {
+      presenceRef.current = has;
+      onSelectionPresence?.(has);
+    }
+    const col = editorRef.current.active?.col ?? null;
+    if (col !== activeColRef.current) {
+      activeColRef.current = col;
+      onActiveColumnChange?.(col);
+    }
+  }, [onActiveColumnChange, onSelectionPresence]);
 
   const stopBlink = useCallback(() => {
     if (blinkRef.current !== 0) window.clearInterval(blinkRef.current);
@@ -292,11 +306,13 @@ export function useCellEditor(args: CellEditorArgs) {
       refreshCaretMetrics();
       restartBlink();
       requestPaint();
+      notifyPresence();
     },
     [
       columnAt,
       focusProxy,
       getCell,
+      notifyPresence,
       onOpenAudio,
       onOpenDate,
       onOpenFile,

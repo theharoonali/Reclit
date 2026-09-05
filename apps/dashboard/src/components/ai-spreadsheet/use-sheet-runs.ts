@@ -6,6 +6,7 @@ import { applyRunChange } from "@/lib/ai-spreadsheet/run-state";
 import type {
   ActiveRun,
   CellValue,
+  RunAi,
   RunAiChange,
   SheetModel,
 } from "@/lib/ai-spreadsheet/types";
@@ -20,6 +21,12 @@ export type SheetRunsApi = {
   runsRef: React.RefObject<ReadonlyMap<string, ActiveRun>>;
   /** Where the pulse is in its breath, 0..1. */
   phaseRef: React.RefObject<number>;
+  /**
+   * A run the sheet just created, applied before the stream reports it: the
+   * capsule paints at once, and a run so quick it finishes before the stream
+   * connects still had its moment on screen.
+   */
+  seed: (run: RunAi) => void;
 };
 
 type SheetRunsArgs = {
@@ -31,6 +38,8 @@ type SheetRunsArgs = {
   requestPaint: () => void;
   /** The server ended the stream: the last working run finished. */
   onEnded: () => void;
+  /** The set of working runs changed — a run started, moved, or finished. */
+  onRunsChange?: () => void;
 };
 
 /**
@@ -38,10 +47,12 @@ type SheetRunsArgs = {
  * capsules the canvas paints — open only while `listening`.
  *
  * Like every other piece of sheet state the runs live in a ref and repaint
- * the canvas; React never hears about a run starting or finishing. A
- * `completed` run's `result.output` is written straight into the model —
- * the API wrote the Cell row before it sent the event, so the model and the
- * database already agree and there is nothing to refetch.
+ * the canvas; React never hears about a run starting or finishing, except
+ * through `onRunsChange`, which the Run button uses to learn whether the
+ * selected cell is busy. A `completed` run's `result.output` is written
+ * straight into the model — the API wrote the Cell row before it sent the
+ * event, so the model and the database already agree and there is nothing
+ * to refetch.
  *
  * The stream is a generation, not a socket: the server ends it with `closed`
  * when the last working run finishes, and the capsules go with it. The
@@ -56,6 +67,7 @@ export function useSheetRuns({
   setCellLocal,
   requestPaint,
   onEnded,
+  onRunsChange,
 }: SheetRunsArgs): SheetRunsApi {
   const trpc = useTRPC();
   const runsRef = useRef<ReadonlyMap<string, ActiveRun>>(new Map());
@@ -86,31 +98,46 @@ export function useSheetRuns({
     runsRef.current = new Map();
     stopPulse();
     requestPaint();
-  }, [requestPaint, stopPulse]);
+    onRunsChange?.();
+  }, [onRunsChange, requestPaint, stopPulse]);
 
   // Not listening, no capsules.
   useEffect(() => {
     if (!listening) clear();
   }, [clear, listening]);
 
-  const onData = useCallback(
-    (event: { id: string; data: RunAiChange }) => {
+  /** Folds one change into the capsules and the model. */
+  const apply = useCallback(
+    (change: Exclude<RunAiChange, { type: "closed" }>) => {
       const model = modelRef.current;
       if (!model) return;
-      if (event.data.type === "closed") {
-        clear();
-        onEnded();
-        return;
-      }
-      const update = applyRunChange(runsRef.current, event.data, model.sheetId);
+      const update = applyRunChange(runsRef.current, change, model.sheetId);
       runsRef.current = update.runs;
       for (const output of update.outputs) {
         setCellLocal(output.row, output.columnId, output.value);
       }
       if (update.runs.size > 0) ensurePulse();
       requestPaint();
+      onRunsChange?.();
     },
-    [clear, ensurePulse, modelRef, onEnded, requestPaint, setCellLocal],
+    [ensurePulse, modelRef, onRunsChange, requestPaint, setCellLocal],
+  );
+
+  const seed = useCallback(
+    (run: RunAi) => apply({ type: "run", run }),
+    [apply],
+  );
+
+  const onData = useCallback(
+    (event: { id: string; data: RunAiChange }) => {
+      if (event.data.type === "closed") {
+        clear();
+        onEnded();
+        return;
+      }
+      apply(event.data);
+    },
+    [apply, clear, onEnded],
   );
 
   const sheetId = modelRef.current?.sheetId ?? "";
@@ -127,5 +154,5 @@ export function useSheetRuns({
     ),
   );
 
-  return { runsRef, phaseRef };
+  return { runsRef, phaseRef, seed };
 }

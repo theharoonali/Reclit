@@ -1,31 +1,23 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { createApp } from "../bootstrap";
 import { pingDatabase } from "../db/prisma";
+import type { TestServer } from "./support/http";
+import { startTestServer } from "./support/http";
 
 // Skips the database-backed check (rather than failing) when DATABASE_URL
 // points nowhere, so a checkout without a reachable database still passes CI.
 const dbUp = await pingDatabase();
 
-let app: Awaited<ReturnType<typeof createApp>>;
-let baseUrl: string;
+let server: TestServer;
 
 beforeAll(async () => {
-  app = await createApp({ logger: false });
-  await app.listen(0, "127.0.0.1");
-  const address = app.getHttpServer().address();
-  if (typeof address === "string" || address === null) {
-    throw new Error("Expected the test server to bind a TCP port");
-  }
-  baseUrl = `http://127.0.0.1:${address.port}`;
+  server = await startTestServer();
 });
 
-afterAll(async () => {
-  await app.close();
-});
+afterAll(() => server.close());
 
 describe("api smoke", () => {
   it("GET /health reports database reachability", async () => {
-    const res = await fetch(`${baseUrl}/health`);
+    const res = await fetch(`${server.baseUrl}/health`);
     expect(res.status).toBe(dbUp ? 200 : 503);
     expect(await res.json()).toMatchObject({
       status: dbUp ? "ok" : "degraded",
@@ -35,7 +27,7 @@ describe("api smoke", () => {
   it.skipIf(!dbUp)(
     "serves spreadsheet.list over the mounted tRPC adapter",
     async () => {
-      const res = await fetch(`${baseUrl}/trpc/spreadsheet.list`);
+      const res = await fetch(`${server.baseUrl}/trpc/spreadsheet.list`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         result: { data: { json: unknown[] } };

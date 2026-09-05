@@ -71,14 +71,24 @@ A real one to read: `apps/api/src/__tests__/spreadsheet.api.test.ts`.
 
 Required, per procedure: name, kind, the **exact payload shape**, the **exact
 response shape**, and every error code it can return. `NOTES` records the
-behaviour a shape cannot express — ordering, defaults, side effects, and the
-limits of what the procedure accepts.
+**wire-observable** behaviour a shape cannot express — ordering, defaults, side
+effects, limits, and when each error code fires. How the service achieves it
+(transactions, hooks, invariants it maintains) belongs in the feature doc's
+`Behaviour` section, not here; each fact lives in one place
+([COMMON.md](COMMON.md) §7).
 
 ### 2. Setup
 
 Helpers come from `src/__tests__/support/` — never re-declared per file
-([BACKEND.md](BACKEND.md), "No repetition"). A contract file's own setup is
-limited to its caller, its fixtures, and its cleanup.
+([BACKEND.md](BACKEND.md), "No repetition"):
+
+| File | Exports |
+| --- | --- |
+| `support/trpc.ts` | `caller`, `callerWithSignal(signal)`, `expectError(promise, Type)`, `expectTRPCError(promise, code)`, `expectDate`, `nextTracked` (subscription items) |
+| `support/http.ts` | `startTestServer()` → `{ baseUrl, close }` on an ephemeral port, `jsonInit(method, body)` |
+| `support/fixtures.ts` | `ensureUser`, `makeWorkspace`, `removeWorkspace`, `makeIsolatedOwnerWorkspace`, `removeUser` |
+
+A contract file's own setup is limited to its fixtures and its cleanup.
 
 ### 3. Tests, grouped per procedure
 
@@ -115,8 +125,8 @@ supplies it.
   contract promises, including types of `Date` fields.
 - Assert error **codes**, never error message strings.
 - `expect(promise).rejects.toThrow(/regex/)` **hangs** against `TRPCError`
-  rejections in bun 1.3.9. Use `expectTRPCError` from
-  `src/__tests__/support/trpc.ts`, which catches and asserts on `error.code`.
+  rejections in bun 1.3.9. Use `expectTRPCError` (tRPC code) or `expectError`
+  (a domain error class, through a service) from `src/__tests__/support/trpc.ts`.
 
 ## Environment
 

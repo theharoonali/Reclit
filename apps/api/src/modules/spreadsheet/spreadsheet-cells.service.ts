@@ -1,12 +1,11 @@
-import type { Prisma } from "../../../generated/prisma/client";
 import { isUniqueViolation } from "../../common/prisma-errors";
-import { prisma } from "../../db/prisma";
+import { prisma, toJsonInput } from "../../db/prisma";
 import {
   SpreadsheetCellTypeMismatchError,
   SpreadsheetColumnNotFoundError,
   SpreadsheetRowExistsError,
 } from "./spreadsheet.errors";
-import { cellId, rowId, shortCellId, shortRowId } from "./spreadsheet.ids";
+import { cellId, rowId, shortRowId } from "./spreadsheet.ids";
 import type {
   AppendRowInput,
   CellValue,
@@ -20,16 +19,14 @@ import type {
 import { cellValueMatchesType, toWireColumnType } from "./spreadsheet.schema";
 import { spreadsheetService } from "./spreadsheet.service";
 import type { ColumnRecord } from "./spreadsheet.shape";
+import { toSheetCell } from "./spreadsheet.shape";
 
-// Framework-free (see spreadsheet.service.ts). Row and cell writes live here;
-// column writes live in spreadsheet-columns.service.ts and the full-grid
-// rebuild in spreadsheet-import.service.ts, which keeps all three inside the
-// size caps (docs/rules/COMMON.md §5). Lookups are reused from
-// `spreadsheetService`, never re-implemented.
+// Framework-free (docs/rules/BACKEND.md hard rule 1). Row and cell writes;
+// column writes are spreadsheet-columns.service.ts, the full-grid rebuild
+// spreadsheet-import.service.ts. Lookups come from `spreadsheetService`.
 
-// Zod cannot express Prisma.InputJsonValue exactly; the runtime shapes match.
-const toJsonInput = (value: Exclude<CellValue, null>): Prisma.InputJsonValue =>
-  value as Prisma.InputJsonValue;
+type CellWrite = { columnIndex: number; value: CellValue };
+type StoredValue = Exclude<CellValue, null>;
 
 /** Throws unless `value` fits the column's declared type. */
 function assertValueFits(value: CellValue, dbType: string): void {
@@ -39,10 +36,74 @@ function assertValueFits(value: CellValue, dbType: string): void {
   }
 }
 
+/** Throws unless every entry targets an existing column with a fitting value. */
+function assertCellsFit(columns: ColumnRecord[], cells: CellWrite[]): void {
+  const byIndex = new Map(columns.map((column) => [column.index, column]));
+  for (const entry of cells) {
+    const column = byIndex.get(entry.columnIndex);
+    if (!column) throw new SpreadsheetColumnNotFoundError(entry.columnIndex);
+    assertValueFits(entry.value, column.type);
+  }
+}
+
+// The write builders below return PrismaPromises (not awaited) so callers can
+// batch them in one `$transaction([...])`. The scoped pks make every write a
+// single statement with no prior lookup.
+
+const rowData = (id: string, index: number) => ({
+  id: rowId(id, index),
+  spreadsheetId: id,
+  index,
+});
+
+const cellData = (
+  id: string,
+  rowIndex: number,
+  columnIndex: number,
+  value: StoredValue,
+) => ({
+  id: cellId(id, rowIndex, columnIndex),
+  spreadsheetId: id,
+  rowIndex,
+  columnIndex,
+  value: toJsonInput(value),
+});
+
+const upsertRow = (id: string, rowIndex: number) =>
+  prisma.row.upsert({
+    where: { id: rowId(id, rowIndex) },
+    create: rowData(id, rowIndex),
+    update: {},
+  });
+
+/** Writes or clears one cell — `null` deletes the record. */
+const writeCell = (
+  id: string,
+  rowIndex: number,
+  { columnIndex, value }: CellWrite,
+) =>
+  value === null
+    ? prisma.cell.deleteMany({
+        where: { id: cellId(id, rowIndex, columnIndex) },
+      })
+    : prisma.cell.upsert({
+        where: { id: cellId(id, rowIndex, columnIndex) },
+        create: cellData(id, rowIndex, columnIndex, value),
+        update: { value: toJsonInput(value) },
+      });
+
+/** One past the highest stored row index. */
+async function nextRowIndex(id: string): Promise<number> {
+  const { _max } = await prisma.row.aggregate({
+    where: { spreadsheetId: id },
+    _max: { index: true },
+  });
+  return (_max.index ?? -1) + 1;
+}
+
 export class SpreadsheetCellsService {
   /**
-   * The scoped pks make this a single upsert pair with no prior cell lookup:
-   * the column read both validates the type and proves the sheet exists.
+   * The column read both validates the type and proves the sheet exists.
    * `value: null` clears (deletes) the cell.
    */
   async setCell({
@@ -53,81 +114,24 @@ export class SpreadsheetCellsService {
   }: SetCellInput): Promise<SheetCell> {
     const column = await spreadsheetService.columnOrThrow(id, columnIndex);
     assertValueFits(value, column.type);
-    if (value === null) {
-      await prisma.cell.deleteMany({
-        where: { id: cellId(id, rowIndex, columnIndex) },
-      });
-    } else {
-      const rid = rowId(id, rowIndex);
-      const cid = cellId(id, rowIndex, columnIndex);
-      await prisma.$transaction([
-        prisma.row.upsert({
-          where: { id: rid },
-          create: { id: rid, spreadsheetId: id, index: rowIndex },
-          update: {},
-        }),
-        prisma.cell.upsert({
-          where: { id: cid },
-          create: {
-            id: cid,
-            spreadsheetId: id,
-            rowIndex,
-            columnIndex,
-            value: toJsonInput(value),
-          },
-          update: { value: toJsonInput(value) },
-        }),
-      ]);
-    }
-    return {
-      id: shortCellId(rowIndex, columnIndex),
-      rowIndex,
-      columnIndex,
-      value,
-    };
+    const write = writeCell(id, rowIndex, { columnIndex, value });
+    if (value === null) await write;
+    else await prisma.$transaction([upsertRow(id, rowIndex), write]);
+    return toSheetCell(rowIndex, columnIndex, value);
   }
 
-  /** Throws unless every entry targets an existing column with a fitting value. */
-  private assertCellsFit(
-    columns: ColumnRecord[],
-    cells: { columnIndex: number; value: CellValue }[],
-  ): void {
-    const byIndex = new Map(columns.map((column) => [column.index, column]));
-    for (const entry of cells) {
-      const column = byIndex.get(entry.columnIndex);
-      if (!column) throw new SpreadsheetColumnNotFoundError(entry.columnIndex);
-      assertValueFits(entry.value, column.type);
-    }
+  /** Proves the sheet exists and every entry fits one of its columns. */
+  private async assertWritable(id: string, cells: CellWrite[]): Promise<void> {
+    await spreadsheetService.byId(id);
+    assertCellsFit(await spreadsheetService.columnsOf(id), cells);
   }
 
   /** Batch of cell writes on one row, validated up front, in one transaction. */
   async updateRow({ id, rowIndex, cells }: UpdateRowInput): Promise<SheetRow> {
-    await spreadsheetService.byId(id);
-    const columns = await spreadsheetService.columnsOf(id);
-    this.assertCellsFit(columns, cells);
-    const rid = rowId(id, rowIndex);
+    await this.assertWritable(id, cells);
     await prisma.$transaction([
-      prisma.row.upsert({
-        where: { id: rid },
-        create: { id: rid, spreadsheetId: id, index: rowIndex },
-        update: {},
-      }),
-      ...cells.map(({ columnIndex, value }) => {
-        const cid = cellId(id, rowIndex, columnIndex);
-        return value === null
-          ? prisma.cell.deleteMany({ where: { id: cid } })
-          : prisma.cell.upsert({
-              where: { id: cid },
-              create: {
-                id: cid,
-                spreadsheetId: id,
-                rowIndex,
-                columnIndex,
-                value: toJsonInput(value),
-              },
-              update: { value: toJsonInput(value) },
-            });
-      }),
+      upsertRow(id, rowIndex),
+      ...cells.map((cell) => writeCell(id, rowIndex, cell)),
     ]);
     return spreadsheetService.row(id, rowIndex);
   }
@@ -138,39 +142,21 @@ export class SpreadsheetCellsService {
    * internally; `value: null` entries write no cell (a row is sparse).
    */
   async appendRow({ id, cells }: AppendRowInput): Promise<SheetRow> {
-    await spreadsheetService.byId(id);
-    const columns = await spreadsheetService.columnsOf(id);
-    this.assertCellsFit(columns, cells);
+    await this.assertWritable(id, cells);
     const writes = cells.filter(
-      (
-        entry,
-      ): entry is { columnIndex: number; value: Exclude<CellValue, null> } =>
+      (entry): entry is { columnIndex: number; value: StoredValue } =>
         entry.value !== null,
     );
     const MAX_ATTEMPTS = 3;
     let target = 0;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      target =
-        ((
-          await prisma.row.aggregate({
-            where: { spreadsheetId: id },
-            _max: { index: true },
-          })
-        )._max.index ?? -1) + 1;
+      target = await nextRowIndex(id);
       try {
         await prisma.$transaction([
-          prisma.row.create({
-            data: { id: rowId(id, target), spreadsheetId: id, index: target },
-          }),
+          prisma.row.create({ data: rowData(id, target) }),
           ...writes.map(({ columnIndex, value }) =>
             prisma.cell.create({
-              data: {
-                id: cellId(id, target, columnIndex),
-                spreadsheetId: id,
-                rowIndex: target,
-                columnIndex,
-                value: toJsonInput(value),
-              },
+              data: cellData(id, target, columnIndex, value),
             }),
           ),
         ]);
@@ -186,18 +172,9 @@ export class SpreadsheetCellsService {
   /** `index` defaults to one past the highest stored row. */
   async createRow({ id, index }: CreateRowInput): Promise<SheetRow> {
     await spreadsheetService.byId(id);
-    const target =
-      index ??
-      ((
-        await prisma.row.aggregate({
-          where: { spreadsheetId: id },
-          _max: { index: true },
-        })
-      )._max.index ?? -1) + 1;
+    const target = index ?? (await nextRowIndex(id));
     try {
-      await prisma.row.create({
-        data: { id: rowId(id, target), spreadsheetId: id, index: target },
-      });
+      await prisma.row.create({ data: rowData(id, target) });
     } catch (error) {
       if (isUniqueViolation(error)) throw new SpreadsheetRowExistsError(target);
       throw error;
@@ -218,11 +195,7 @@ export class SpreadsheetCellsService {
     return { id: shortRowId(rowIndex) };
   }
 
-  /**
-   * `removeRow` for a batch: clears every listed row and its cells in one
-   * transaction. Same semantics — absolute positions, nothing shifts, and an
-   * index that holds no stored row is a no-op rather than an error.
-   */
+  /** `removeRow` for a batch, in one transaction; duplicates collapse. */
   async removeRows({
     id,
     rowIndexes,

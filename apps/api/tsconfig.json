@@ -18,11 +18,14 @@
     "noPropertyAccessFromIndexSignature": false,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "paths": {
-      "@api/*": ["./src/*"]
-    },
     "types": ["bun"]
   },
   "exclude": ["node_modules"],
-  "include": ["src/**/*.ts", "trigger.config.ts", "../../types"]
+  "include": [
+    "src/**/*.ts",
+    "prisma/**/*.ts",
+    "prisma.config.ts",
+    "trigger.config.ts",
+    "../../types"
+  ]
 }

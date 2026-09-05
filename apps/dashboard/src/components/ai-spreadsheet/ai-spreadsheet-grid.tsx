@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { sheetToCsv } from "@/lib/ai-spreadsheet/export-csv";
 import type {
   ColumnDraft,
@@ -25,6 +25,7 @@ import { AiSpreadsheetSidePanel } from "./ai-spreadsheet-side-panel";
 import { AiSpreadsheetUploadEditor } from "./ai-spreadsheet-upload-editor";
 import { useColumnRemove } from "./use-column-remove";
 import { useColumnReorder } from "./use-column-reorder";
+import { useRunCell } from "./use-run-cell";
 import { useRunListening } from "./use-run-listening";
 import { useSheetCanvas } from "./use-sheet-canvas";
 import { useSheetImport } from "./use-sheet-import";
@@ -136,6 +137,12 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   const dragChipRef = useRef<HTMLDivElement | null>(null);
   const dragChipLabelRef = useRef<HTMLSpanElement | null>(null);
 
+  // Set after the canvas exists, like `cancelEditRef`: the Run button asks
+  // "can the selected cell run?" again whenever the selected column or the
+  // working runs change, and both signals come out of the canvas wiring.
+  const refreshRunnableRef = useRef<() => void>(() => {});
+  const refreshRunnable = useCallback(() => refreshRunnableRef.current(), []);
+
   const canvas = useSheetCanvas({
     modelRef,
     columnsVersion,
@@ -147,6 +154,8 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     setCellLocal: model.setCell,
     runListening: runListening.listening,
     onRunEnded: runListening.ended,
+    onRunsChange: refreshRunnable,
+    onActiveColumnChange: refreshRunnable,
     onOpenJson: openJson,
     onOpenDate: openDate,
     onOpenAudio: openAudio,
@@ -165,6 +174,21 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   });
   requestPaintRef.current = canvas.requestPaint;
   cancelEditRef.current = canvas.editor.cancel;
+
+  const runCell = useRunCell({
+    modelRef,
+    editorRef: canvas.editor.editorRef,
+    runsRef: canvas.runs.runsRef,
+    flushPending: sync.flushPending,
+    onStart: runListening.start,
+    onCancel: runListening.cancel,
+    seedRun: canvas.runs.seed,
+  });
+  refreshRunnableRef.current = runCell.refresh;
+  // A column's node or prompt may have changed (the panel form, a delete, a
+  // reorder): the selected cell's runnability follows the columns.
+  const refreshRunCell = runCell.refresh;
+  useEffect(() => refreshRunCell(), [columnsVersion, refreshRunCell]);
 
   const exportCsv = useCallback(() => {
     const model = modelRef.current;
@@ -327,10 +351,18 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
       />
 
       <AiSpreadsheetRunButton
-        disabled={runListening.isResolving}
-        labels={{ start: t("listen.start"), live: t("listen.live") }}
+        errorMessage={
+          runCell.errorCode === null
+            ? null
+            : runCell.errorCode === "CONFLICT"
+              ? t("listen.errorBusy")
+              : t("listen.error")
+        }
+        labels={{ start: t("listen.start"), running: t("listen.running") }}
         live={runListening.listening}
-        onRun={runListening.start}
+        onRun={runCell.run}
+        runnable={runCell.runnable && !runListening.isResolving}
+        status={runCell.status}
       />
 
       <AiSpreadsheetCellClearButton

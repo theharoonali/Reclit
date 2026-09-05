@@ -33,9 +33,17 @@ import { spreadsheetColumnsService } from "./spreadsheet-columns.service";
 import { spreadsheetImportService } from "./spreadsheet-import.service";
 
 // The REST face of the spreadsheet feature — same services, same zod inputs
-// as trpc/routers/spreadsheet.ts. Path/query params arrive as strings; the
-// schemas coerce them. Domain and Zod errors are mapped to HTTP statuses by
-// the global DomainErrorFilter (common/domain-error.filter.ts).
+// as trpc/routers/spreadsheet.ts. Path params arrive as strings and the
+// schemas coerce them; domain and Zod errors become HTTP statuses through the
+// global DomainErrorFilter (common/domain-error.filter.ts).
+
+type Params = Record<string, string>;
+
+/** Body plus route params as one object for `schema.parse`; the path wins. */
+const withParams = (params: Params, body: unknown = {}) => ({
+  ...(body as object),
+  ...params,
+});
 
 @Controller("spreadsheets")
 export class SpreadsheetController {
@@ -59,10 +67,7 @@ export class SpreadsheetController {
     return spreadsheetService.remove(id);
   }
 
-  /**
-   * 200, not the @Post default of 201: an import replaces a sheet's grid and
-   * creates no new resource at a new URL.
-   */
+  /** 200, not 201: an import replaces a grid and creates no new resource. */
   @Post(":id/import")
   @HttpCode(200)
   @UploadFile()
@@ -77,130 +82,103 @@ export class SpreadsheetController {
   }
 
   @Get(":id/rows")
-  rows(@Param("id") id: string, @Query() query: Record<string, unknown>) {
-    return spreadsheetService.rows(sheetRowsInput.parse({ id, ...query }));
+  rows(@Param() params: Params, @Query() query: Record<string, unknown>) {
+    return spreadsheetService.rows(
+      sheetRowsInput.parse(withParams(params, query)),
+    );
   }
 
   @Post(":id/rows")
-  createRow(@Param("id") id: string, @Body() body: unknown) {
-    const input = createRowInput.parse({ ...(body as object), id });
-    return spreadsheetCellsService.createRow(input);
+  createRow(@Param() params: Params, @Body() body: unknown) {
+    return spreadsheetCellsService.createRow(
+      createRowInput.parse(withParams(params, body)),
+    );
   }
 
   @Post(":id/rows/append")
-  appendRow(@Param("id") id: string, @Body() body: unknown) {
-    const input = appendRowInput.parse({ ...(body as object), id });
-    return spreadsheetCellsService.appendRow(input);
+  appendRow(@Param() params: Params, @Body() body: unknown) {
+    return spreadsheetCellsService.appendRow(
+      appendRowInput.parse(withParams(params, body)),
+    );
   }
 
   /** 200, not 201: a batch delete creates nothing. */
   @Post(":id/rows/remove")
   @HttpCode(200)
-  removeRows(@Param("id") id: string, @Body() body: unknown) {
-    const input = removeRowsInput.parse({ ...(body as object), id });
-    return spreadsheetCellsService.removeRows(input);
+  removeRows(@Param() params: Params, @Body() body: unknown) {
+    return spreadsheetCellsService.removeRows(
+      removeRowsInput.parse(withParams(params, body)),
+    );
   }
 
   @Get(":id/rows/:rowIndex")
-  row(@Param("id") id: string, @Param("rowIndex") rowIndex: string) {
-    const input = rowRefInput.parse({ id, rowIndex });
-    return spreadsheetService.row(input.id, input.rowIndex);
+  row(@Param() params: Params) {
+    const { id, rowIndex } = rowRefInput.parse(params);
+    return spreadsheetService.row(id, rowIndex);
   }
 
   @Patch(":id/rows/:rowIndex")
-  updateRow(
-    @Param("id") id: string,
-    @Param("rowIndex") rowIndex: string,
-    @Body() body: unknown,
-  ) {
-    const input = updateRowInput.parse({ ...(body as object), id, rowIndex });
-    return spreadsheetCellsService.updateRow(input);
+  updateRow(@Param() params: Params, @Body() body: unknown) {
+    return spreadsheetCellsService.updateRow(
+      updateRowInput.parse(withParams(params, body)),
+    );
   }
 
   @Delete(":id/rows/:rowIndex")
-  removeRow(@Param("id") id: string, @Param("rowIndex") rowIndex: string) {
-    const input = rowRefInput.parse({ id, rowIndex });
-    return spreadsheetCellsService.removeRow(input.id, input.rowIndex);
+  removeRow(@Param() params: Params) {
+    const { id, rowIndex } = rowRefInput.parse(params);
+    return spreadsheetCellsService.removeRow(id, rowIndex);
   }
 
   @Post(":id/columns")
-  createColumn(@Param("id") id: string, @Body() body: unknown) {
-    const input = createColumnInput.parse({ ...(body as object), id });
-    return spreadsheetColumnsService.createColumn(input);
+  createColumn(@Param() params: Params, @Body() body: unknown) {
+    return spreadsheetColumnsService.createColumn(
+      createColumnInput.parse(withParams(params, body)),
+    );
   }
 
   @Get(":id/columns/:columnIndex")
-  column(@Param("id") id: string, @Param("columnIndex") columnIndex: string) {
-    const input = columnRefInput.parse({ id, columnIndex });
-    return spreadsheetService.column(input.id, input.columnIndex);
+  column(@Param() params: Params) {
+    const { id, columnIndex } = columnRefInput.parse(params);
+    return spreadsheetService.column(id, columnIndex);
   }
 
   @Patch(":id/columns/:columnIndex")
-  updateColumn(
-    @Param("id") id: string,
-    @Param("columnIndex") columnIndex: string,
-    @Body() body: unknown,
-  ) {
-    const input = updateColumnInput.parse({
-      ...(body as object),
-      id,
-      columnIndex,
-    });
-    return spreadsheetColumnsService.updateColumn(input);
+  updateColumn(@Param() params: Params, @Body() body: unknown) {
+    return spreadsheetColumnsService.updateColumn(
+      updateColumnInput.parse(withParams(params, body)),
+    );
   }
 
   /**
-   * Moves a column. POST, not PATCH: it writes several rows rather than
-   * patching fields on one — the same reason `POST :id/rows/remove` is a POST.
-   * More path segments than `:id/columns/:columnIndex`, so no route shadowing.
+   * POST, not PATCH: a reorder writes several rows rather than patching one —
+   * the same reason `POST :id/rows/remove` is a POST. The extra path segment
+   * keeps it clear of `:id/columns/:columnIndex`.
    */
   @Post(":id/columns/:columnIndex/reorder")
   @HttpCode(200)
-  reorderColumn(
-    @Param("id") id: string,
-    @Param("columnIndex") columnIndex: string,
-    @Body() body: unknown,
-  ) {
-    const input = reorderColumnInput.parse({
-      ...(body as object),
-      id,
-      columnIndex,
-    });
-    return spreadsheetColumnsService.reorderColumn(input);
+  reorderColumn(@Param() params: Params, @Body() body: unknown) {
+    return spreadsheetColumnsService.reorderColumn(
+      reorderColumnInput.parse(withParams(params, body)),
+    );
   }
 
   @Delete(":id/columns/:columnIndex")
-  removeColumn(
-    @Param("id") id: string,
-    @Param("columnIndex") columnIndex: string,
-  ) {
-    const input = columnRefInput.parse({ id, columnIndex });
-    return spreadsheetColumnsService.removeColumn(input.id, input.columnIndex);
+  removeColumn(@Param() params: Params) {
+    const { id, columnIndex } = columnRefInput.parse(params);
+    return spreadsheetColumnsService.removeColumn(id, columnIndex);
   }
 
   @Get(":id/cells/:rowIndex/:columnIndex")
-  cell(
-    @Param("id") id: string,
-    @Param("rowIndex") rowIndex: string,
-    @Param("columnIndex") columnIndex: string,
-  ) {
-    const input = cellRefInput.parse({ id, rowIndex, columnIndex });
-    return spreadsheetService.cell(input.id, input.rowIndex, input.columnIndex);
+  cell(@Param() params: Params) {
+    const { id, rowIndex, columnIndex } = cellRefInput.parse(params);
+    return spreadsheetService.cell(id, rowIndex, columnIndex);
   }
 
   @Patch(":id/cells/:rowIndex/:columnIndex")
-  setCell(
-    @Param("id") id: string,
-    @Param("rowIndex") rowIndex: string,
-    @Param("columnIndex") columnIndex: string,
-    @Body() body: unknown,
-  ) {
-    const input = setCellInput.parse({
-      ...(body as object),
-      id,
-      rowIndex,
-      columnIndex,
-    });
-    return spreadsheetCellsService.setCell(input);
+  setCell(@Param() params: Params, @Body() body: unknown) {
+    return spreadsheetCellsService.setCell(
+      setCellInput.parse(withParams(params, body)),
+    );
   }
 }

@@ -49,22 +49,31 @@ export async function nextTracked<T>(
 }
 
 /**
- * Asserts a procedure rejects with a given tRPC code.
- * Do not use `expect(p).rejects.toThrow(/regex/)` here — it hangs against
+ * Asserts a promise rejects with an instance of `type` and returns it.
+ * Do not use `expect(p).rejects.toThrow(/regex/)` — it hangs against
  * TRPCError rejections in bun 1.3.9.
  */
-export async function expectTRPCError(
+export async function expectError<T>(
   promise: Promise<unknown>,
-  code: TRPCError["code"],
-): Promise<void> {
+  type: new (...args: never[]) => T,
+): Promise<T> {
   let caught: unknown;
   try {
     await promise;
   } catch (error) {
     caught = error;
   }
-  expect(caught).toBeInstanceOf(TRPCError);
-  expect((caught as TRPCError).code).toBe(code);
+  expect(caught).toBeInstanceOf(type);
+  return caught as T;
+}
+
+/** Asserts a procedure rejects with a given tRPC code. */
+export async function expectTRPCError(
+  promise: Promise<unknown>,
+  code: TRPCError["code"],
+): Promise<void> {
+  const error = await expectError(promise, TRPCError);
+  expect(error.code).toBe(code);
 }
 
 /** Asserts a value is a real Date — superjson transports these unstringified. */

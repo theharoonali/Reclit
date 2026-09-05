@@ -21,9 +21,16 @@
  *   id: string; cellId: string; spreadsheetId: string; batchId: string;
  *   status: string;                       // lowercase: "pending" | "running" | "completed" | "failed" | "<custom>"
  *   credit: number;
- *   result: ({ output?: CellValue } & Record<string, unknown>) | null;
+ *   result: ({ input?: RunAiInput; output?: CellValue } & Record<string, unknown>) | null;
  *   createdAt: Date; updatedAt: Date;
  * }
+ * RunAiInput = {                          // what a run is given; `result.input` and the job payload
+ *   prompt: string;                       // the column's prompt — the instruction
+ *   target: { id: "col.<i>"; index; name; type: ColumnType };
+ *   row: { id: "row.<r>"; index; cells: RunAiInputCell[] };   // EVERY column, in sort order
+ * }
+ * RunAiInputCell = { id: "col.<i>"; index; name; type: ColumnType; value: CellValue }  // blank = null
+ * RunAiJobPayload = { runId: string; input: RunAiInput }       // the Trigger.dev `run-ai-cell` payload
  * RunAiChange =
  *   | { type: "snapshot"; runs: RunAi[] }   // every working run of the sheet, newest per cell
  *   | { type: "run"; run: RunAi }           // one run after an insert or update
@@ -32,20 +39,43 @@
  * on the wire and uppercase in the database.
  *
  * PROCEDURES
- * | Procedure         | Kind         | Payload                                   | Response                       | Errors                 |
- * | ----------------- | ------------ | ----------------------------------------- | ------------------------------ | ---------------------- |
- * | runAi.byId        | query        | { id: string }                            | RunAi                          | NOT_FOUND, BAD_REQUEST |
- * | runAi.listByBatch | query        | { batchId: string }                       | RunAi[]                        | BAD_REQUEST            |
- * | runAi.listActive  | query        | { spreadsheetId: string }                 | RunAi[] (working runs)         | BAD_REQUEST            |
- * | runAi.onChange    | subscription | { spreadsheetId: string; lastEventId? }   | SSE of tracked RunAiChange     | BAD_REQUEST            |
- *
- * REST (`apps/api/src/modules/run-ai/run-ai.controller.ts`)
- * | Route              | Body                                                          | Response                | Status                                      |
- * | ------------------ | ------------------------------------------------------------- | ----------------------- | ------------------------------------------- |
- * | POST /run-ai/test  | { cellId; batchId?; status?; result?; credit? }  (no `id`)  | RunAi (created, 201 — or the cell's working run transitioned, 200) | 400 validation / invalid cellId; 404 sheet / column; 409 busy |
- * | POST /run-ai/test  | { id; status; result?; credit? }                 (with `id`) | RunAi (transitioned)    | 200; 400; 404 run / sheet / column; 409 busy |
+ * | Procedure         | Kind         | Payload                                        | Response                       | Errors                                            |
+ * | ----------------- | ------------ | ---------------------------------------------- | ------------------------------ | ------------------------------------------------- |
+ * | runAi.byId        | query        | { id: string }                                 | RunAi                          | NOT_FOUND, BAD_REQUEST                            |
+ * | runAi.listByBatch | query        | { batchId: string }                            | RunAi[]                        | BAD_REQUEST                                       |
+ * | runAi.listActive  | query        | { spreadsheetId: string }                      | RunAi[] (working runs)         | BAD_REQUEST                                       |
+ * | runAi.runCell     | mutation     | { id: sheetId; rowIndex: number; columnIndex } | RunAi (pending, result.input)  | BAD_REQUEST, NOT_FOUND, CONFLICT, BAD_GATEWAY     |
+ * | runAi.onChange    | subscription | { spreadsheetId: string; lastEventId? }        | SSE of tracked RunAiChange     | BAD_REQUEST                                       |
  *
  * NOTES
+ * - `runCell` runs one AI cell. The column must carry `node: "ai"` and a
+ *   `prompt`, else BAD_REQUEST (`RUN_AI_COLUMN_NOT_RUNNABLE`); an unknown
+ *   sheet or column is NOT_FOUND. It records the run `pending` with
+ *   `result: { input }` — `input.row.cells` is every column of the sheet in
+ *   its display (`sortOrder`) order, blank cells `value: null`, the target
+ *   included with its current value; audio/file/url cells hold their URL
+ *   (the worker fetches and attaches them) — then
+ *   hands `{ runId, input }` to the Trigger.dev worker (`batchId` is minted
+ *   `run-<uuid>`, one run per batch for now). The response is the run as
+ *   created; every later transition arrives through `onChange`. A cell that
+ *   already has a working run is CONFLICT (`RUN_AI_CELL_BUSY`); once that
+ *   run is `completed` or `failed` the cell can be run again, as many times
+ *   as wanted — each run is a new row. When the
+ *   worker cannot be reached the run is flipped to `failed` with
+ *   `result.error: { name, message }` and the call is BAD_GATEWAY
+ *   (`RUN_AI_DISPATCH_FAILED`). With no worker registered (tests, an api
+ *   started without `TRIGGER_SECRET_KEY`'s dispatcher) the run stays pending.
+ * - The worker (`src/trigger/run-ai-cell.ts`) moves the run to `running`,
+ *   fetches every audio / file / url cell of the row (http(s) values, ≤ 15 MB,
+ *   30 s each) and attaches them to the model call as files — a link that
+ *   cannot be fetched is noted in the prompt instead — asks Gemini with the
+ *   column prompt as the instruction and the row as context, and
+ *   `complete`s with `result: { input, output, model, usage, attachments }`
+ *   (`attachments`: `{ columnId, filename, mediaType, bytes }` per fetched
+ *   file, `{ columnId, url, error }` per failure) — `output` typed like the
+ *   column (string, number, boolean, ISO date string, JSON object, email,
+ *   URL) — or `fail`s with `result: { input, error }`. `markRunning` never
+ *   revives a finished run (`RUN_AI_FINISHED`, conflict).
  * - The stream is a generation, not a socket. A sheet should be streaming
  *   exactly while it has a run that is not `completed` / `failed`:
  *   `listActive` answers that on page load (non-empty → subscribe), the
@@ -72,16 +102,6 @@
  *   (sheet and column must exist, value must fit the column type), and a
  *   refused write leaves the run untouched. Without `output` only the run
  *   changes. `fail` never touches the cell.
- * - `POST /run-ai/test` is the manual driver. `id` + `status` transitions
- *   that run. `cellId` addresses the cell: if it has a working run, a
- *   `status` transitions it (200) and no `status` is a duplicate (409);
- *   otherwise a run is created (201, `batchId` defaults to `test-<uuid>`),
- *   and a terminal `status` transitions it straight on so one POST can
- *   create + complete. Everything goes through the same service methods
- *   (`completed` routes through `complete`). Errors follow
- *   the shared DomainErrorFilter: 400 `VALIDATION_FAILED` / `RUN_AI_INVALID_CELL_ID`
- *   / `SPREADSHEET_CELL_TYPE_MISMATCH`, 404 `RUN_AI_NOT_FOUND` /
- *   `SPREADSHEET_COLUMN_NOT_FOUND`, 409 `RUN_AI_CELL_BUSY`.
  * - `listByBatch` is createdAt ascending; an unknown batchId returns `[]`.
  * - `cellId` must parse as "<sheetId>.cell.<r>.<c>" (`RUN_AI_INVALID_CELL_ID`
  *   otherwise) but is never validated against Cell — the cell may be gone.
@@ -89,10 +109,24 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { createApp } from "../bootstrap";
+import {
+  collectAttachments,
+  type FetchLike,
+  filenameOf,
+  isAttachableCell,
+  MAX_ATTACHMENT_BYTES,
+  mediaTypeFor,
+  summariseAttachments,
+} from "../ai/cell-attachments";
+import {
+  buildCellMessages,
+  cellOutputSchema,
+  formatCellLine,
+} from "../ai/cell-prompt";
 import { pingDatabase, prisma } from "../db/prisma";
 import {
   RunAiCellBusyError,
+  RunAiFinishedError,
   RunAiInvalidCellIdError,
   RunAiNotFoundError,
 } from "../modules/run-ai/run-ai.errors";
@@ -100,6 +134,9 @@ import { runAiFeed } from "../modules/run-ai/run-ai.feed";
 import type {
   CreateRunAiInput,
   RunAiChange,
+  RunAiInput,
+  RunAiInputCell,
+  RunAiJobPayload,
 } from "../modules/run-ai/run-ai.schema";
 import { runAiService } from "../modules/run-ai/run-ai.service";
 import {
@@ -111,6 +148,7 @@ import {
   caller,
   callerWithSignal,
   expectDate,
+  expectError,
   expectTRPCError,
   nextTracked,
 } from "./support/trpc";
@@ -143,20 +181,6 @@ async function makeRun(over: Partial<CreateRunAiInput> = {}) {
   });
   createdIds.push(run.id);
   return run;
-}
-
-async function expectError<T>(
-  promise: Promise<unknown>,
-  type: new (...args: never[]) => T,
-): Promise<T> {
-  let caught: unknown;
-  try {
-    await promise;
-  } catch (error) {
-    caught = error;
-  }
-  expect(caught).toBeInstanceOf(type);
-  return caught as T;
 }
 
 beforeAll(async () => {
@@ -323,7 +347,25 @@ describe.skipIf(!dbUp)("one working run per cell (service)", () => {
     const first = await makeRun({ cellId });
     await runAiService.complete(first.id, { result: {} });
     await makeRun({ cellId });
-    await expectError(runAiService.markRunning(first.id), RunAiCellBusyError);
+    await expectError(
+      runAiService.setStatus(first.id, { status: "analyzing" }),
+      RunAiCellBusyError,
+    );
+  });
+
+  it("markRunning never revives a finished run (RunAiFinishedError)", async () => {
+    const run = await makeRun();
+    await runAiService.fail(run.id, {
+      result: { error: "dispatch timed out" },
+    });
+    const error = await expectError(
+      runAiService.markRunning(run.id),
+      RunAiFinishedError,
+    );
+    expect(error.code).toBe("RUN_AI_FINISHED");
+    const stored = await caller.runAi.byId({ id: run.id });
+    expect(stored.status).toBe("failed");
+    expect(stored.result).toEqual({ error: "dispatch timed out" });
   });
 
   it("rejects a cellId that is not <sheetId>.cell.<r>.<c>", async () => {
@@ -616,176 +658,471 @@ describe.skipIf(!dbUp)("runAi.onChange", () => {
   });
 });
 
-describe.skipIf(!dbUp)("REST surface", () => {
-  let app: Awaited<ReturnType<typeof createApp>>;
-  let baseUrl: string;
+describe.skipIf(!dbUp)("runAi.runCell", () => {
+  // Its own sheet: the column layout below is what the tests assert on.
+  // Display order after the reorder: Name | Summary (AI) | Notes (json) |
+  // Voice (audio) — while the AI column's *index* stays 1.
+  let sheet = "";
+  let aiColumn = 0;
+  let noteColumn = 0;
+  let voiceColumn = 0;
+  let plainColumn = 0;
+  let mutePromptColumn = 0;
+  const dispatched: RunAiJobPayload[] = [];
 
   beforeAll(async () => {
-    app = await createApp({ logger: false });
-    await app.listen(0, "127.0.0.1");
-    const address = app.getHttpServer().address();
-    if (typeof address === "string" || address === null) {
-      throw new Error("Expected the test server to bind a TCP port");
-    }
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    const workspace = await makeWorkspace("run-ai runCell");
+    sheet = workspace.spreadsheetId ?? "";
+    plainColumn = (
+      await caller.spreadsheet.createColumn({ id: sheet, name: "Name" })
+    ).index;
+    aiColumn = (
+      await caller.spreadsheet.createColumn({
+        id: sheet,
+        name: "Summary",
+        node: "ai",
+        prompt: "Summarise the row in five words.",
+      })
+    ).index;
+    const voice = await caller.spreadsheet.createColumn({
+      id: sheet,
+      name: "Voice",
+      type: "audio",
+    });
+    voiceColumn = voice.index;
+    noteColumn = (
+      await caller.spreadsheet.createColumn({
+        id: sheet,
+        name: "Notes",
+        type: "json",
+      })
+    ).index;
+    mutePromptColumn = (
+      await caller.spreadsheet.createColumn({
+        id: sheet,
+        name: "Silent",
+        node: "ai",
+      })
+    ).index;
+    // Move Notes before Voice so sort order and index disagree.
+    await caller.spreadsheet.reorderColumn({
+      id: sheet,
+      columnIndex: noteColumn,
+      newSortOrder: voice.sortOrder,
+    });
+    await caller.spreadsheet.updateRow({
+      id: sheet,
+      rowIndex: 0,
+      cells: [
+        { columnIndex: plainColumn, value: "Ada" },
+        { columnIndex: voice.index, value: "https://files.test/ada.mp3" },
+        { columnIndex: noteColumn, value: { mood: "curious" } },
+        { columnIndex: aiColumn, value: "stale summary" },
+      ],
+    });
   });
 
   afterAll(async () => {
-    await app.close();
+    runAiService.setDispatcher(null);
+    if (sheet) {
+      await prisma.runAi.deleteMany({ where: { spreadsheetId: sheet } });
+      const workspace = await prisma.spreadsheet.findUnique({
+        where: { id: sheet },
+        select: { workspaceId: true },
+      });
+      if (workspace) await removeWorkspace(workspace.workspaceId);
+    }
   });
 
-  const post = (payload: unknown) =>
-    fetch(`${baseUrl}/run-ai/test`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+  const runCell = (rowIndex: number, columnIndex = aiColumn) =>
+    caller.runAi.runCell({ id: sheet, rowIndex, columnIndex });
+
+  it("creates a pending run whose result.input is the whole row in sort order, and dispatches it", async () => {
+    dispatched.length = 0;
+    runAiService.setDispatcher(async (payload) => {
+      dispatched.push(payload);
     });
-
-  /** What the endpoint answers: a run, or the filter's `{ statusCode, code, message }`. */
-  type RestBody = {
-    id: string;
-    status: string;
-    batchId: string;
-    code?: string;
-  } & Record<string, unknown>;
-  const body = async (res: Response) => (await res.json()) as RestBody;
-
-  it("creates, stages, completes and fails runs; maps every error", async () => {
-    const cellId = `${sheetId}.cell.5.${textColumn}`;
-
-    // create → 201 pending, batchId minted
-    const createRes = await post({ cellId });
-    expect(createRes.status).toBe(201);
-    const created = await body(createRes);
-    createdIds.push(created.id);
-    expect(created).toMatchObject({
-      cellId,
-      spreadsheetId: sheetId,
+    const run = await runCell(0);
+    expect(run).toMatchObject({
+      cellId: `${sheet}.cell.0.${aiColumn}`,
+      spreadsheetId: sheet,
       status: "pending",
       credit: 0,
-      result: null,
     });
-    expect(created.batchId).toMatch(/^test-/);
+    expect(run.batchId).toMatch(/^run-/);
+    expectDate(run.createdAt);
 
-    // a second run for the busy cell → 409
-    const busy = await post({ cellId, batchId: "b2" });
-    expect(busy.status).toBe(409);
-    expect((await body(busy)).code).toBe("RUN_AI_CELL_BUSY");
+    const input = run.result?.input as RunAiInput;
+    expect(input.prompt).toBe("Summarise the row in five words.");
+    expect(input.target).toEqual({
+      id: `col.${aiColumn}`,
+      index: aiColumn,
+      name: "Summary",
+      type: "string",
+    });
+    expect(input.row.id).toBe("row.0");
+    expect(input.row.index).toBe(0);
+    // Every column, display order (Notes moved before Voice), blanks null,
+    // the target with its current value, the audio cell as its URL.
+    expect(input.row.cells).toEqual([
+      {
+        id: `col.${plainColumn}`,
+        index: plainColumn,
+        name: "Name",
+        type: "string",
+        value: "Ada",
+      },
+      {
+        id: `col.${aiColumn}`,
+        index: aiColumn,
+        name: "Summary",
+        type: "string",
+        value: "stale summary",
+      },
+      {
+        id: `col.${noteColumn}`,
+        index: noteColumn,
+        name: "Notes",
+        type: "json",
+        value: { mood: "curious" },
+      },
+      {
+        id: `col.${voiceColumn}`,
+        index: voiceColumn,
+        name: "Voice",
+        type: "audio",
+        value: "https://files.test/ada.mp3",
+      },
+      {
+        id: `col.${mutePromptColumn}`,
+        index: mutePromptColumn,
+        name: "Silent",
+        type: "string",
+        value: null,
+      },
+    ]);
 
-    // the same cell with a status → transitions its working run, 200
-    const byCell = await post({ cellId, status: "running" });
-    expect(byCell.status).toBe(200);
-    expect(await body(byCell)).toMatchObject({
-      id: created.id,
-      status: "running",
-    });
+    // The worker got exactly what was stored.
+    expect(dispatched).toEqual([{ runId: run.id, input }]);
+    // And the row is readable back through byId unchanged.
+    const stored = await caller.runAi.byId({ id: run.id });
+    expect(stored.result).toEqual({ input });
+  });
 
-    // custom stage → 200, lowercase
-    const staged = await post({ id: created.id, status: "Analyzing" });
-    expect(staged.status).toBe(200);
-    expect((await body(staged)).status).toBe("analyzing");
+  it("a never-written row still yields one null entry per column", async () => {
+    runAiService.setDispatcher(null);
+    const run = await runCell(7);
+    const input = run.result?.input as RunAiInput;
+    expect(input.row.cells.map((cell) => cell.value)).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+    expect(input.row.cells.map((cell) => cell.name)).toEqual([
+      "Name",
+      "Summary",
+      "Notes",
+      "Voice",
+      "Silent",
+    ]);
+  });
 
-    // completed → cell written, 200
-    const done = await post({
-      id: created.id,
-      status: "completed",
-      result: { output: "Hello", usage: { totalTokens: 12 } },
-      credit: 2,
-    });
-    expect(done.status).toBe(200);
-    expect(await body(done)).toMatchObject({
-      status: "completed",
-      credit: 2,
-      result: { output: "Hello", usage: { totalTokens: 12 } },
-    });
-    const cell = await caller.spreadsheet.cell({
-      id: sheetId,
-      rowIndex: 5,
-      columnIndex: textColumn,
-    });
-    expect(cell.value).toBe("Hello");
+  it("without a dispatcher the run simply stays pending", async () => {
+    runAiService.setDispatcher(null);
+    const run = await runCell(1);
+    expect((await caller.runAi.byId({ id: run.id })).status).toBe("pending");
+  });
 
-    // failed → 200, cell untouched
-    const secondRes = await post({ cellId, batchId: "b3", status: "running" });
-    expect(secondRes.status).toBe(201);
-    const second = await body(secondRes);
-    createdIds.push(second.id);
-    expect(second.status).toBe("running");
-    const failed = await post({
-      id: second.id,
-      status: "failed",
-      result: { error: "quota" },
+  it("a dispatcher that throws fails the run and answers BAD_GATEWAY", async () => {
+    runAiService.setDispatcher(async () => {
+      throw new Error("TRIGGER_SECRET_KEY is not set");
     });
-    expect(failed.status).toBe(200);
-    expect(await body(failed)).toMatchObject({
-      status: "failed",
-      result: { error: "quota" },
+    await expectTRPCError(runCell(2), "BAD_GATEWAY");
+    const [run] = await prisma.runAi.findMany({
+      where: { cellId: `${sheet}.cell.2.${aiColumn}` },
     });
+    expect(run?.status).toBe("FAILED");
+    expect(run?.result).toMatchObject({
+      error: { name: "Error", message: "TRIGGER_SECRET_KEY is not set" },
+    });
+    expect((run?.result as { input?: RunAiInput }).input?.prompt).toBe(
+      "Summarise the row in five words.",
+    );
+    runAiService.setDispatcher(null);
+  });
+
+  it("refuses a plain column and an AI column without a prompt (BAD_REQUEST)", async () => {
+    await expectTRPCError(runCell(3, plainColumn), "BAD_REQUEST");
+    await expectTRPCError(runCell(3, mutePromptColumn), "BAD_REQUEST");
+  });
+
+  it("returns NOT_FOUND for an unknown column and an unknown sheet", async () => {
+    await expectTRPCError(runCell(3, 999), "NOT_FOUND");
+    await expectTRPCError(
+      caller.runAi.runCell({
+        id: crypto.randomUUID(),
+        rowIndex: 0,
+        columnIndex: 0,
+      }),
+      "NOT_FOUND",
+    );
+  });
+
+  it("a cell that already has a working run is CONFLICT; once it finishes the cell can run again", async () => {
+    runAiService.setDispatcher(null);
+    const first = await runCell(4);
+    await expectTRPCError(runCell(4), "CONFLICT");
+    await runAiService.fail(first.id);
+    const second = await runCell(4);
+    expect(second.id).not.toBe(first.id);
+    expect(second.status).toBe("pending");
+    await runAiService.complete(second.id, { result: { output: "done" } });
+    expect((await runCell(4)).status).toBe("pending");
+  });
+
+  it("rejects a negative or fractional address (BAD_REQUEST)", async () => {
+    await expectTRPCError(runCell(-1), "BAD_REQUEST");
+    await expectTRPCError(runCell(1.5), "BAD_REQUEST");
+  });
+});
+
+describe("run-ai-cell task prompt (pure)", () => {
+  const input: RunAiInput = {
+    prompt: "Write a greeting for this person.",
+    target: { id: "col.2", index: 2, name: "Greeting", type: "string" },
+    row: {
+      id: "row.4",
+      index: 4,
+      cells: [
+        { id: "col.0", index: 0, name: "Name", type: "string", value: "Ada" },
+        { id: "col.3", index: 3, name: "Age", type: "number", value: 36 },
+        {
+          id: "col.1",
+          index: 1,
+          name: "Tags",
+          type: "json",
+          value: { vip: true },
+        },
+        {
+          id: "col.2",
+          index: 2,
+          name: "Greeting",
+          type: "string",
+          value: null,
+        },
+        {
+          id: "col.4",
+          index: 4,
+          name: "Voice",
+          type: "audio",
+          value: "https://files.test/ada.mp3",
+        },
+      ],
+    },
+  };
+
+  it("renders one line per cell in the given order, blanks and JSON included", () => {
+    expect(input.row.cells.map((cell) => formatCellLine(cell))).toEqual([
+      "Name (string): Ada",
+      "Age (number): 36",
+      'Tags (json): {"vip":true}',
+      "Greeting (string): (empty)",
+      "Voice (audio): https://files.test/ada.mp3",
+    ]);
+  });
+
+  it("names an attached file, or says why a URL could not be fetched", () => {
+    const voice = input.row.cells[4];
+    if (!voice) throw new Error("fixture");
     expect(
-      (
-        await caller.spreadsheet.cell({
-          id: sheetId,
-          rowIndex: 5,
-          columnIndex: textColumn,
-        })
-      ).value,
-    ).toBe("Hello");
+      formatCellLine(voice, { kind: "attached", filename: "ada.mp3" }),
+    ).toBe('Voice (audio): attached file "ada.mp3"');
+    expect(formatCellLine(voice, { kind: "failed", error: "HTTP 404" })).toBe(
+      "Voice (audio): https://files.test/ada.mp3 (could not be fetched: HTTP 404)",
+    );
+  });
 
-    // 404: unknown run, missing column
-    const missing = await post({ id: crypto.randomUUID(), status: "running" });
-    expect(missing.status).toBe(404);
-    expect((await body(missing)).code).toBe("RUN_AI_NOT_FOUND");
-    const orphanRes = await post({ cellId: `${sheetId}.cell.6.999` });
-    const orphan = await body(orphanRes);
-    createdIds.push(orphan.id);
-    const noColumn = await post({
-      id: orphan.id,
-      status: "completed",
-      result: { output: "x" },
-    });
-    expect(noColumn.status).toBe(404);
-    expect((await body(noColumn)).code).toBe("SPREADSHEET_COLUMN_NOT_FOUND");
+  it("puts the column prompt in the instruction and the row in the context", () => {
+    const { system, prompt } = buildCellMessages(input);
+    expect(system).toContain("Write a greeting for this person.");
+    expect(system).toContain('"Greeting"');
+    expect(system).toContain("type: string");
+    expect(system).not.toContain("attached files");
+    expect(prompt).toContain("Row 5:");
+    for (const cell of input.row.cells) {
+      expect(prompt).toContain(formatCellLine(cell));
+    }
+    expect(prompt.indexOf("Name (string)")).toBeLessThan(
+      prompt.indexOf("Age (number)"),
+    );
+    expect(prompt).toContain('Fill the column "Greeting".');
+    const withFile = buildCellMessages(
+      input,
+      new Map([["col.4", { kind: "attached", filename: "ada.mp3" }]]),
+    );
+    expect(withFile.system).toContain("including the attached files");
+    expect(withFile.prompt).toContain('Voice (audio): attached file "ada.mp3"');
+  });
 
-    // 400: validation and domain
-    const noCell = await post({ batchId: "b" });
-    expect(noCell.status).toBe(400);
-    expect((await body(noCell)).code).toBe("VALIDATION_FAILED");
-    const noStatus = await post({ id: created.id });
-    expect(noStatus.status).toBe(400);
-    // a terminal status for a cell with no working run → created, then
-    // transitioned straight on (201, and the output lands in the cell)
-    const oneShot = await post({
-      cellId: `${sheetId}.cell.7.${textColumn}`,
-      status: "completed",
-      result: { output: "one shot" },
-    });
-    expect(oneShot.status).toBe(201);
-    const oneShotRun = await body(oneShot);
-    createdIds.push(oneShotRun.id);
-    expect(oneShotRun.status).toBe("completed");
+  it("attaches audio, file and url cells that hold an http(s) URL — nothing else", () => {
+    const cell = (type: RunAiInput["target"]["type"], value: unknown) =>
+      ({ id: "col.9", index: 9, name: "X", type, value }) as RunAiInputCell;
+    expect(isAttachableCell(cell("audio", "https://a.test/x.mp3"))).toBe(true);
+    expect(isAttachableCell(cell("file", "http://a.test/x.pdf"))).toBe(true);
+    expect(isAttachableCell(cell("url", "https://example.com/"))).toBe(true);
+    expect(isAttachableCell(cell("string", "https://a.test/x.pdf"))).toBe(
+      false,
+    );
+    expect(isAttachableCell(cell("file", "ftp://a.test/x.pdf"))).toBe(false);
+    expect(isAttachableCell(cell("audio", null))).toBe(false);
+  });
+
+  it("names the file after the URL's last segment and picks a media type", () => {
+    expect(filenameOf("https://files.test/voice/ada%20intro.mp3")).toBe(
+      "ada intro.mp3",
+    );
+    expect(filenameOf("https://example.com/")).toBe("example.com");
+    expect(mediaTypeFor("https://a.test/x.mp3", "audio/mpeg; charset=x")).toBe(
+      "audio/mpeg",
+    );
     expect(
-      (
-        await caller.spreadsheet.cell({
-          id: sheetId,
-          rowIndex: 7,
-          columnIndex: textColumn,
-        })
-      ).value,
-    ).toBe("one shot");
-    const badWord = await post({ id: created.id, status: "two words" });
-    expect(badWord.status).toBe(400);
-    const badCell = await post({ cellId: "nonsense" });
-    expect(badCell.status).toBe(400);
-    expect((await body(badCell)).code).toBe("RUN_AI_INVALID_CELL_ID");
-    const flagRes = await post({ cellId: `${sheetId}.cell.8.${boolColumn}` });
-    const flag = await body(flagRes);
-    createdIds.push(flag.id);
-    const mismatch = await post({
-      id: flag.id,
-      status: "completed",
-      result: { output: "not a bool" },
+      mediaTypeFor("https://a.test/x.mp3", "application/octet-stream"),
+    ).toBe("audio/mpeg");
+    expect(mediaTypeFor("https://a.test/x.pdf", null)).toBe("application/pdf");
+    expect(
+      mediaTypeFor("https://example.com/", "text/html;charset=utf-8"),
+    ).toBe("text/html");
+    expect(mediaTypeFor("https://a.test/x.zzz", null)).toBe(
+      "application/octet-stream",
+    );
+  });
+
+  it("collects the fetched files, and records why the others failed, without throwing", async () => {
+    const responses: Record<
+      string,
+      { status: number; type: string; body: Uint8Array }
+    > = {
+      "https://files.test/ada.mp3": {
+        status: 200,
+        type: "audio/mpeg",
+        body: new Uint8Array([1, 2, 3]),
+      },
+      "https://files.test/missing.pdf": {
+        status: 404,
+        type: "text/html",
+        body: new Uint8Array(),
+      },
+      "https://files.test/huge.bin": {
+        status: 200,
+        type: "application/octet-stream",
+        body: new Uint8Array(MAX_ATTACHMENT_BYTES + 1),
+      },
+    };
+    const fakeFetch: FetchLike = async (url) => {
+      const hit = responses[url];
+      if (!hit) throw new Error("connection refused");
+      return {
+        ok: hit.status < 400,
+        status: hit.status,
+        headers: {
+          get: (name: string) => (name === "content-type" ? hit.type : null),
+        },
+        arrayBuffer: async () => hit.body.buffer as ArrayBuffer,
+      };
+    };
+    const cells: RunAiInputCell[] = [
+      { id: "col.0", index: 0, name: "Name", type: "string", value: "Ada" },
+      {
+        id: "col.1",
+        index: 1,
+        name: "Voice",
+        type: "audio",
+        value: "https://files.test/ada.mp3",
+      },
+      {
+        id: "col.2",
+        index: 2,
+        name: "CV",
+        type: "file",
+        value: "https://files.test/missing.pdf",
+      },
+      {
+        id: "col.3",
+        index: 3,
+        name: "Blob",
+        type: "file",
+        value: "https://files.test/huge.bin",
+      },
+      {
+        id: "col.4",
+        index: 4,
+        name: "Site",
+        type: "url",
+        value: "https://down.test/",
+      },
+    ];
+    const attachments = await collectAttachments(cells, fakeFetch);
+    expect(
+      attachments.files.map((f) => [
+        f.columnId,
+        f.filename,
+        f.mediaType,
+        f.data.byteLength,
+      ]),
+    ).toEqual([["col.1", "ada.mp3", "audio/mpeg", 3]]);
+    expect(attachments.failures).toEqual([
+      {
+        columnId: "col.2",
+        url: "https://files.test/missing.pdf",
+        error: "HTTP 404",
+      },
+      {
+        columnId: "col.3",
+        url: "https://files.test/huge.bin",
+        error: `larger than ${MAX_ATTACHMENT_BYTES} bytes`,
+      },
+      {
+        columnId: "col.4",
+        url: "https://down.test/",
+        error: "connection refused",
+      },
+    ]);
+    expect(summariseAttachments(attachments)[0]).toEqual({
+      columnId: "col.1",
+      filename: "ada.mp3",
+      mediaType: "audio/mpeg",
+      bytes: 3,
     });
-    expect(mismatch.status).toBe(400);
-    expect((await body(mismatch)).code).toBe("SPREADSHEET_CELL_TYPE_MISMATCH");
+  });
+
+  it("describes the answer shape per column type, free JSON for json", () => {
+    expect(cellOutputSchema("number")?.safeParse({ value: 3 }).success).toBe(
+      true,
+    );
+    expect(cellOutputSchema("number")?.safeParse({ value: "3" }).success).toBe(
+      false,
+    );
+    expect(
+      cellOutputSchema("boolean")?.safeParse({ value: true }).success,
+    ).toBe(true);
+    for (const type of [
+      "string",
+      "formula",
+      "date",
+      "email",
+      "url",
+      "audio",
+      "file",
+    ] as const) {
+      expect(cellOutputSchema(type)?.safeParse({ value: "x" }).success).toBe(
+        true,
+      );
+      expect(cellOutputSchema(type)?.safeParse({ value: 1 }).success).toBe(
+        false,
+      );
+    }
+    expect(cellOutputSchema("json")).toBeNull();
   });
 });

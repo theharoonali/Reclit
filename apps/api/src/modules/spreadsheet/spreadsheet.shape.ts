@@ -1,5 +1,11 @@
-import { shortColumnId, shortRowId } from "./spreadsheet.ids";
-import type { CellValue, SheetColumn, SheetRow } from "./spreadsheet.schema";
+import { shortCellId, shortColumnId, shortRowId } from "./spreadsheet.ids";
+import type {
+  CellValue,
+  SheetCell,
+  SheetColumn,
+  SheetRow,
+  SheetRowCell,
+} from "./spreadsheet.schema";
 import { toWireColumnType, toWireNodeType } from "./spreadsheet.schema";
 
 // Pure assembly from database records to the nested wire shapes. No prisma
@@ -18,6 +24,19 @@ export type CellRecord = {
   columnIndex: number;
   value: unknown;
 };
+
+export function toSheetCell(
+  rowIndex: number,
+  columnIndex: number,
+  value: CellValue,
+): SheetCell {
+  return {
+    id: shortCellId(rowIndex, columnIndex),
+    rowIndex,
+    columnIndex,
+    value,
+  };
+}
 
 export function toSheetColumn(record: ColumnRecord): SheetColumn {
   return {
@@ -63,10 +82,22 @@ export function buildRow(
   };
 }
 
-export function assembleRows(
+/**
+ * The whole row, one entry per column in the order `columns` arrives (display
+ * order from `columnsOf`), blank cells as `value: null`. This is the shape an
+ * AI run reads: every column, sorted, typed and named — never just the cells
+ * that happen to be stored.
+ */
+export function buildRowCells(
   columns: ColumnRecord[],
-  rowIndexes: number[],
   cells: CellRecord[],
-): SheetRow[] {
-  return rowIndexes.map((index) => buildRow(index, columns, cells));
+): SheetRowCell[] {
+  const values = new Map(cells.map((cell) => [cell.columnIndex, cell.value]));
+  return columns.map((column) => ({
+    id: shortColumnId(column.index),
+    index: column.index,
+    name: column.name,
+    type: toWireColumnType(column.type),
+    value: (values.get(column.index) ?? null) as CellValue,
+  }));
 }

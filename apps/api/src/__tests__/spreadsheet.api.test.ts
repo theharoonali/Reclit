@@ -172,10 +172,11 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import ExcelJS from "exceljs";
-import { createApp } from "../bootstrap";
 import { pingDatabase } from "../db/prisma";
 import { spreadsheetService } from "../modules/spreadsheet/spreadsheet.service";
 import { makeWorkspace, removeWorkspace } from "./support/fixtures";
+import type { TestServer } from "./support/http";
+import { jsonInit, startTestServer } from "./support/http";
 import { caller, expectDate, expectTRPCError } from "./support/trpc";
 
 // Skips (rather than fails) when DATABASE_URL points nowhere, so a checkout
@@ -1214,34 +1215,21 @@ describe.skipIf(!dbUp)("spreadsheet.removeRows", () => {
 });
 
 describe.skipIf(!dbUp)("REST surface", () => {
-  let app: Awaited<ReturnType<typeof createApp>>;
-  let baseUrl: string;
+  let server: TestServer;
+  let baseUrl = "";
 
   beforeAll(async () => {
-    app = await createApp({ logger: false });
-    await app.listen(0, "127.0.0.1");
-    const address = app.getHttpServer().address();
-    if (typeof address === "string" || address === null) {
-      throw new Error("Expected the test server to bind a TCP port");
-    }
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    server = await startTestServer();
+    baseUrl = server.baseUrl;
   });
 
-  afterAll(async () => {
-    await app.close();
-  });
-
-  const json = (method: string, body?: unknown) => ({
-    method,
-    headers: { "content-type": "application/json" },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  afterAll(() => server.close());
 
   it("drives the full route surface", async () => {
     // POST /spreadsheets
     const createRes = await fetch(
       `${baseUrl}/spreadsheets`,
-      json("POST", { name: "rest sheet", workspaceId }),
+      jsonInit("POST", { name: "rest sheet", workspaceId }),
     );
     expect(createRes.status).toBe(201);
     const sheet = (await createRes.json()) as { id: string };
@@ -1259,7 +1247,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
     // POST /spreadsheets/:id/columns — append-only ids
     const colRes = await fetch(
       `${baseUrl}/spreadsheets/${sheet.id}/columns`,
-      json("POST", { name: "Age", type: "number" }),
+      jsonInit("POST", { name: "Age", type: "number" }),
     );
     expect(colRes.status).toBe(201);
     expect(await colRes.json()).toEqual({
@@ -1275,7 +1263,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
     // PATCH + GET a cell
     const patchCell = await fetch(
       `${baseUrl}/spreadsheets/${sheet.id}/cells/0/0`,
-      json("PATCH", { value: 26 }),
+      jsonInit("PATCH", { value: 26 }),
     );
     expect(patchCell.status).toBe(200);
     expect(await patchCell.json()).toEqual({
@@ -1316,19 +1304,19 @@ describe.skipIf(!dbUp)("REST surface", () => {
     // PATCH /rows/:r + PATCH /columns/:c
     const patchRow = await fetch(
       `${baseUrl}/spreadsheets/${sheet.id}/rows/1`,
-      json("PATCH", { cells: [{ columnIndex: 0, value: 30 }] }),
+      jsonInit("PATCH", { cells: [{ columnIndex: 0, value: 30 }] }),
     );
     expect(patchRow.status).toBe(200);
     const patchColumn = await fetch(
       `${baseUrl}/spreadsheets/${sheet.id}/columns/0`,
-      json("PATCH", { name: "Years" }),
+      jsonInit("PATCH", { name: "Years" }),
     );
     expect(await patchColumn.json()).toMatchObject({ name: "Years" });
 
     // POST /columns/:c/reorder — 200 with the sheet's whole column order
     const reorder = await fetch(
       `${baseUrl}/spreadsheets/${sheet.id}/columns/0/reorder`,
-      json("POST", { newSortOrder: 0 }),
+      jsonInit("POST", { newSortOrder: 0 }),
     );
     expect(reorder.status).toBe(200);
     expect(await reorder.json()).toEqual([
@@ -1346,14 +1334,14 @@ describe.skipIf(!dbUp)("REST surface", () => {
     // POST /rows, DELETE /rows/:r, DELETE /columns/:c, DELETE /spreadsheets/:id
     const postRow = await fetch(
       `${baseUrl}/spreadsheets/${sheet.id}/rows`,
-      json("POST", {}),
+      jsonInit("POST", {}),
     );
     expect(postRow.status).toBe(201);
 
     // POST /rows/append — the row lands past the highest stored index
     const appendRes = await fetch(
       `${baseUrl}/spreadsheets/${sheet.id}/rows/append`,
-      json("POST", { cells: [{ columnIndex: 0, value: 31 }] }),
+      jsonInit("POST", { cells: [{ columnIndex: 0, value: 31 }] }),
     );
     expect(appendRes.status).toBe(201);
     const appended = (await appendRes.json()) as { index: number };
@@ -1364,7 +1352,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
     // POST /rows/remove — 200, batch delete of the row just appended
     const removeRes = await fetch(
       `${baseUrl}/spreadsheets/${sheet.id}/rows/remove`,
-      json("POST", { rowIndexes: [appended.index] }),
+      jsonInit("POST", { rowIndexes: [appended.index] }),
     );
     expect(removeRes.status).toBe(200);
     expect(await removeRes.json()).toEqual({
@@ -1407,7 +1395,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
     // 400 type mismatch
     const mismatch = await fetch(
       `${baseUrl}/spreadsheets/${sheet.id}/cells/0/0`,
-      json("PATCH", { value: "hello" }),
+      jsonInit("PATCH", { value: "hello" }),
     );
     expect(mismatch.status).toBe(400);
     expect(await mismatch.json()).toMatchObject({
@@ -1424,7 +1412,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
     // 400 a reorder past the last position
     const outOfRange = await fetch(
       `${baseUrl}/spreadsheets/${sheet.id}/columns/0/reorder`,
-      json("POST", { newSortOrder: 2 }),
+      jsonInit("POST", { newSortOrder: 2 }),
     );
     expect(outOfRange.status).toBe(400);
     expect(await outOfRange.json()).toMatchObject({
@@ -1435,7 +1423,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
     await caller.spreadsheet.createRow({ id: sheet.id, index: 0 });
     const exists = await fetch(
       `${baseUrl}/spreadsheets/${sheet.id}/rows`,
-      json("POST", { index: 0 }),
+      jsonInit("POST", { index: 0 }),
     );
     expect(exists.status).toBe(409);
     expect(await exists.json()).toMatchObject({
