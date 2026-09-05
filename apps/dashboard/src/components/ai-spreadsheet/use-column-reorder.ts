@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
+import { useLatestRef } from "@/hooks/use-latest-ref";
 import { previewOrder } from "@/lib/ai-spreadsheet/column-order";
 import { parseShortColumnId } from "@/lib/ai-spreadsheet/short-ids";
 import type {
@@ -53,8 +54,7 @@ export function useColumnReorder(args: {
   const reorderColumnMutation = useMutation(
     trpc.spreadsheet.reorderColumn.mutationOptions(),
   );
-  const mutateRef = useRef(reorderColumnMutation.mutate);
-  mutateRef.current = reorderColumnMutation.mutate;
+  const mutateRef = useLatestRef(reorderColumnMutation.mutate);
 
   const reorderColumn = useCallback(
     (columnId: string, newSortOrder: number) => {

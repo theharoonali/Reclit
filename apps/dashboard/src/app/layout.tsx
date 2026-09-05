@@ -1,16 +1,13 @@
 import "@/styles/globals.css";
 import "@reclit/ui/globals.css";
-import type { Metadata } from "next";
 import { Geist_Mono, Google_Sans } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
-import { getLocale, getTranslations } from "next-intl/server";
-import type { ReactElement } from "react";
+import { getLocale } from "next-intl/server";
+import type { ReactNode } from "react";
+import { pageMetadata } from "@/i18n/metadata";
 import { Providers } from "./providers";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const t = await getTranslations("metadata");
-  return { title: t("title"), description: t("description") };
-}
+export const generateMetadata = () => pageMetadata("metadata");
 
 const sans = Google_Sans({
   subsets: ["latin"],
@@ -27,13 +24,9 @@ const mono = Geist_Mono({
 export const viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: [
-    { media: "(prefers-color-scheme: light)" },
-    { media: "(prefers-color-scheme: dark)" },
-  ],
 };
 
-export default async function Layout({ children }: { children: ReactElement }) {
+export default async function Layout({ children }: { children: ReactNode }) {
   const locale = await getLocale();
 
   return (

@@ -13,7 +13,7 @@ export function AppHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="flex h-16 shrink-0 items-center gap-4 border-b border-border bg-background px-4 md:px-6">
+    <header className="flex h-header shrink-0 items-center gap-4 border-b border-border bg-background px-4 md:px-6">
       {title && (
         <div className="hidden shrink-0 text-label lg:block">{title}</div>
       )}

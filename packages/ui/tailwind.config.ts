@@ -1,4 +1,47 @@
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
+import {
+  type ColorToken,
+  colors,
+  fontSize,
+  motion,
+  opacity,
+  radius,
+  sizes,
+} from "./src/tokens";
+
+/**
+ * The Tailwind preset. It holds no design values of its own — everything is
+ * derived from `src/tokens.ts`, so that file is the only place the look is
+ * edited. The dashboard consumes this via `presets` in its own config.
+ */
+
+const cssVar = (token: string) => `hsl(var(--${token}))`;
+
+/** `{ "--background": "0 0% 100%", … }` for one colour mode. */
+const cssVars = (mode: Record<ColorToken, string>) =>
+  Object.fromEntries(
+    Object.entries(mode).map(([token, value]) => [`--${token}`, value]),
+  );
+
+/**
+ * `primary` + `primary-foreground` become `{ DEFAULT, foreground }` so the
+ * classes read `bg-primary` / `text-primary-foreground`; a token without a
+ * foreground pair stays a plain colour.
+ */
+const themeColors = Object.fromEntries(
+  (Object.keys(colors.light) as ColorToken[])
+    .filter((token) => !token.endsWith("-foreground"))
+    .map((token) => {
+      const foreground = `${token}-foreground`;
+      return [
+        token,
+        foreground in colors.light
+          ? { DEFAULT: cssVar(token), foreground: cssVar(foreground) }
+          : cssVar(token),
+      ];
+    }),
+);
 
 export default {
   darkMode: ["class"],
@@ -10,91 +53,30 @@ export default {
         sans: "var(--font-sans)",
         mono: "var(--font-mono)",
       },
-      // The type scale. Components use these semantic sizes — `text-title`,
-      // `text-subtitle` — never a raw step like `text-2xl`, so resizing the
-      // app's headings is one edit here. Each entry carries its own
-      // line-height, tracking and weight.
-      fontSize: {
-        display: [
-          "2rem",
-          { lineHeight: "2.5rem", letterSpacing: "-0.02em", fontWeight: "600" },
-        ],
-        title: [
-          "1.5rem",
-          { lineHeight: "2rem", letterSpacing: "-0.02em", fontWeight: "600" },
-        ],
-        heading: [
-          "1.125rem",
-          {
-            lineHeight: "1.75rem",
-            letterSpacing: "-0.01em",
-            fontWeight: "600",
-          },
-        ],
-        subheading: ["1rem", { lineHeight: "1.5rem", fontWeight: "500" }],
-        subtitle: ["0.875rem", { lineHeight: "1.375rem", fontWeight: "400" }],
-        body: ["0.875rem", { lineHeight: "1.375rem", fontWeight: "400" }],
-        label: ["0.875rem", { lineHeight: "1.25rem", fontWeight: "500" }],
-        caption: ["0.75rem", { lineHeight: "1rem", fontWeight: "400" }],
-        eyebrow: [
-          "0.75rem",
-          { lineHeight: "1rem", letterSpacing: "0.08em", fontWeight: "500" },
-        ],
-      },
-      colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
-        primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
-        },
-        secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
-        },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
-        },
-        success: "hsl(var(--success))",
-        warning: "hsl(var(--warning))",
-        muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
-        },
-        accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
-        },
-        popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
-        },
-        card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
-        },
-      },
-      // The app's one motion setting. Panels, drawers and the sidebar all
-      // share it so nothing slides at its own private speed.
-      transitionDuration: {
-        smooth: "300ms",
-      },
-      transitionTimingFunction: {
-        smooth: "cubic-bezier(0.32, 0.72, 0, 1)",
-      },
-      // One corner for the whole app: every element — div, card, button,
-      // input, select, popover, dialog — uses `rounded-sm`, which derives
-      // from `--radius` in `globals.css`, so one edit there reshapes
-      // everything. The other steps are deliberately not defined; besides
-      // `rounded-sm`, only `rounded-full` (pills, progress tracks) and
-      // `rounded-none` are allowed.
+      fontSize,
+      colors: themeColors,
+      // Every named length. `spacing` is the one key Tailwind derives `h-`,
+      // `w-`, `size-`, `p*-`, `gap-`, `min-w-` and `min-h-` from.
+      spacing: sizes,
+      opacity,
+      transitionDuration: { smooth: motion.duration },
+      transitionTimingFunction: { smooth: motion.easing },
+      // One corner for the whole app: every element uses `rounded-sm`, which
+      // derives from `--radius`. The other steps are deliberately undefined;
+      // besides `rounded-sm`, only `rounded-full` and `rounded-none` are used.
       borderRadius: {
         sm: "calc(var(--radius) - 4px)",
       },
     },
   },
+  plugins: [
+    // The CSS variables every colour class resolves to, emitted from the
+    // tokens so `globals.css` never repeats them.
+    plugin(({ addBase }) => {
+      addBase({
+        ":root": { ...cssVars(colors.light), "--radius": radius },
+        ".dark": cssVars(colors.dark),
+      });
+    }),
+  ],
 } satisfies Config;

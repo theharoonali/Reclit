@@ -6,6 +6,7 @@ import { Label } from "@reclit/ui/label";
 import { Textarea } from "@reclit/ui/textarea";
 import { Plus, Trash2 } from "lucide-react";
 import { useId, useRef, useState } from "react";
+import { FormField } from "@/components/common/form-field";
 import type { JsonObject } from "@/lib/ai-spreadsheet/types";
 
 /**
@@ -64,9 +65,7 @@ function toJson(entries: Entry[]): JsonObject | null {
  *
  * One stacked block per entry, laid out like `ai-spreadsheet-column-form.tsx`:
  * a label above every field, the key on a single-line `Input`, the value on a
- * full-height `Textarea`. The two used to sit side by side in a three-column
- * grid, which gave each of them half the panel's width — too narrow to read a
- * value of any length, and far too narrow to edit a nested object.
+ * full-height `Textarea` so a nested object has the whole panel width.
  */
 export function AiSpreadsheetJsonEditor(props: AiSpreadsheetJsonEditorProps) {
   const { labels } = props;
@@ -134,8 +133,7 @@ export function AiSpreadsheetJsonEditor(props: AiSpreadsheetJsonEditorProps) {
                 />
               </div>
 
-              <div className="flex flex-col gap-2">
-                <Label htmlFor={valueId}>{labels.value}</Label>
+              <FormField htmlFor={valueId} label={labels.value}>
                 <Textarea
                   id={valueId}
                   onChange={(event) =>
@@ -144,7 +142,7 @@ export function AiSpreadsheetJsonEditor(props: AiSpreadsheetJsonEditorProps) {
                   rows={4}
                   value={entry.value}
                 />
-              </div>
+              </FormField>
             </div>
           );
         })

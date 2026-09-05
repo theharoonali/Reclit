@@ -1,3 +1,4 @@
+import { SHEET_HEADER_PX } from "@reclit/ui/tokens";
 import type { SheetHit, Viewport } from "./types";
 
 /**
@@ -8,7 +9,8 @@ import type { SheetHit, Viewport } from "./types";
 
 export const ROW_HEIGHT = 32;
 export const COL_WIDTH = 160;
-export const HEADER_HEIGHT = 36;
+/** Shared with the DOM header strip (`h-sheet-header`) through the token. */
+export const HEADER_HEIGHT = SHEET_HEADER_PX;
 /**
  * A selection checkbox plus a row number at `GUTTER_FONT_SIZE`, kept snug so
  * the number sits close to the checkbox. Comfortable through 6 digits; a

@@ -2,6 +2,7 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
+import { useLatestRef } from "@/hooks/use-latest-ref";
 import { isMistyped } from "@/lib/ai-spreadsheet/cell-format";
 import { parseShortColumnId } from "@/lib/ai-spreadsheet/short-ids";
 import type {
@@ -94,12 +95,9 @@ export function useSheetSync(args: {
 
   // The debounce closes over these refs, not the mutation objects, so the
   // callbacks stay referentially stable for the canvas wiring.
-  const mutateCellRef = useRef(setCellMutation.mutateAsync);
-  mutateCellRef.current = setCellMutation.mutateAsync;
-  const mutateCreateRef = useRef(createColumnMutation.mutate);
-  mutateCreateRef.current = createColumnMutation.mutate;
-  const mutateUpdateRef = useRef(updateColumnMutation.mutate);
-  mutateUpdateRef.current = updateColumnMutation.mutate;
+  const mutateCellRef = useLatestRef(setCellMutation.mutateAsync);
+  const mutateCreateRef = useLatestRef(createColumnMutation.mutate);
+  const mutateUpdateRef = useLatestRef(updateColumnMutation.mutate);
 
   /** Sends one dirty cell; resolves either way (a failure is handled here). */
   const flushCell = useCallback(

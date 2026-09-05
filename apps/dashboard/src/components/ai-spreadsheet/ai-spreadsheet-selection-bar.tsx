@@ -1,8 +1,7 @@
 "use client";
 
-import { Button } from "@reclit/ui/button";
 import { Trash2 } from "lucide-react";
-import { HeaderActions } from "@/components/layout/header-actions";
+import { AiSpreadsheetHeaderAction } from "./ai-spreadsheet-header-action";
 
 type AiSpreadsheetSelectionBarProps = {
   count: number;
@@ -12,46 +11,29 @@ type AiSpreadsheetSelectionBarProps = {
 };
 
 /**
- * The delete control for ticked rows, portalled into the app header next to
- * Import (`docs/rules/FRONTEND.md` — page controls live in the header, not a
- * second bar). Renders nothing while nothing is ticked, so the header stays
- * clean outside a selection.
- *
- * Presentational: the selection set and the mutation live in
+ * The delete control for ticked rows, with the count beside it. Renders
+ * nothing while nothing is ticked, so the header stays clean outside a
+ * selection. Presentational: the selection set and the mutation live in
  * `use-sheet-selection.ts`, owned by the grid.
  */
 export function AiSpreadsheetSelectionBar(
   props: AiSpreadsheetSelectionBarProps,
 ) {
   if (props.count === 0) return null;
+  const deleting = props.status === "deleting";
 
   return (
-    <HeaderActions>
-      {props.status === "error" && (
-        <p
-          className="hidden max-w-xs truncate text-caption text-destructive sm:block"
-          role="alert"
-        >
-          {props.labels.error}
-        </p>
-      )}
-
+    <AiSpreadsheetHeaderAction
+      disabled={deleting}
+      errorMessage={props.status === "error" ? props.labels.error : null}
+      icon={Trash2}
+      label={deleting ? props.labels.deleting : props.labels.delete}
+      onClick={props.onDelete}
+      variant="destructive"
+    >
       <span className="text-caption text-muted-foreground">
         {props.labels.selected}
       </span>
-
-      <Button
-        disabled={props.status === "deleting"}
-        onClick={props.onDelete}
-        size="sm"
-        type="button"
-        variant="destructive"
-      >
-        <Trash2 aria-hidden="true" />
-        {props.status === "deleting"
-          ? props.labels.deleting
-          : props.labels.delete}
-      </Button>
-    </HeaderActions>
+    </AiSpreadsheetHeaderAction>
   );
 }

@@ -3,7 +3,6 @@
 import { Button } from "@reclit/ui/button";
 import { CapsuleSelect } from "@reclit/ui/capsule-select";
 import { Input } from "@reclit/ui/input";
-import { Label } from "@reclit/ui/label";
 import {
   Select,
   SelectContent,
@@ -13,6 +12,7 @@ import {
 } from "@reclit/ui/select";
 import { Textarea } from "@reclit/ui/textarea";
 import { type FormEvent, useId, useState } from "react";
+import { FormField } from "@/components/common/form-field";
 import { columnTypes, nodeTypes } from "@/lib/ai-spreadsheet/cell-format";
 import type {
   ColumnDraft,
@@ -77,8 +77,7 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
 
   return (
     <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor={nameId}>{labels.name}</Label>
+      <FormField htmlFor={nameId} label={labels.name}>
         <Input
           autoFocus
           id={nameId}
@@ -86,10 +85,9 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
           placeholder={labels.namePlaceholder}
           value={name}
         />
-      </div>
+      </FormField>
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor={typeId}>{labels.type}</Label>
+      <FormField htmlFor={typeId} label={labels.type}>
         <Select
           onValueChange={(value) => setType(value as ColumnType)}
           value={type}
@@ -105,10 +103,9 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </FormField>
 
-      <div className="flex flex-col gap-2">
-        <Label id={nodeId}>{labels.node}</Label>
+      <FormField label={labels.node} labelId={nodeId}>
         <CapsuleSelect
           aria-labelledby={nodeId}
           onValueChange={(value) => setNode(value === NO_NODE ? null : value)}
@@ -118,11 +115,10 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
           }))}
           value={node ?? NO_NODE}
         />
-      </div>
+      </FormField>
 
       {node !== null && (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor={promptId}>{labels.prompt}</Label>
+        <FormField htmlFor={promptId} label={labels.prompt}>
           <Textarea
             id={promptId}
             onChange={(event) => setPrompt(event.target.value)}
@@ -130,7 +126,7 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
             rows={4}
             value={prompt}
           />
-        </div>
+        </FormField>
       )}
 
       <div className="flex gap-2">

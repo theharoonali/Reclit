@@ -1,14 +1,10 @@
-import type { Metadata } from "next";
-import { getTranslations } from "next-intl/server";
 import { PublicFormPanel } from "@/components/public-form/public-form-panel";
+import { pageMetadata } from "@/i18n/metadata";
 
 // The form reflects the sheet's live columns; never serve a build snapshot.
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const t = await getTranslations("publicForm");
-  return { title: t("title"), description: t("description") };
-}
+export const generateMetadata = () => pageMetadata("publicForm");
 
 /**
  * No server prefetch on purpose: this is a public URL, so unknown ids are an

@@ -1,7 +1,7 @@
 "use client";
 
 import "@/styles/globals.css";
-import { Button } from "@reclit/ui/button";
+import { ErrorFallback } from "@/components/common/error-fallback";
 
 export default function GlobalError({
   error,
@@ -14,19 +14,7 @@ export default function GlobalError({
     <html lang="en">
       <body className="bg-background text-foreground antialiased">
         <div className="min-h-screen flex items-center justify-center">
-          <div className="max-w-md w-full text-center px-4">
-            <h2 className="text-heading mb-4">Something went wrong</h2>
-
-            {error.digest && (
-              <p className="text-caption text-muted-foreground mt-4">
-                Error ID: {error.digest}
-              </p>
-            )}
-
-            <Button className="mt-6" onClick={() => reset()} variant="outline">
-              Try again
-            </Button>
-          </div>
+          <ErrorFallback digest={error.digest} onRetry={reset} />
         </div>
       </body>
     </html>

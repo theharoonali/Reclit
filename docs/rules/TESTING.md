@@ -159,7 +159,9 @@ bundled. `src/` is what the app is; `tests/` is what proves it.
 Tests import the code under test through the `@/` alias — `@/lib/…`,
 `@/components/…` — never a relative path climbing out of `tests/`.
 
-The dashboard's `test` script no-ops while `tests/` holds no `*.test.ts`.
+The dashboard's `test` script runs `bun test --exit tests` (`bun:test`, no DOM
+— the suite covers `lib/ai-spreadsheet/*` and `use-sheet-model`'s `normalize`
+through `tests/support/canvas.ts`, a recording canvas context).
 
 Beyond placement:
 

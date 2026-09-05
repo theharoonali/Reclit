@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@reclit/ui/dropdown-menu";
+import { focusOutline } from "@reclit/ui/focus-ring";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, LogOut, Plus, Settings } from "lucide-react";
 import Link from "next/link";
@@ -46,9 +47,9 @@ export function AccountMenu({ collapsed }: { collapsed: boolean }) {
             aria-label={t("menuLabel")}
             className={cn(
               "h-auto w-full justify-start gap-3 px-2 py-2",
-              // Focus shows as an outline here, not the shared shadow ring —
-              // the halo reads as a floating card against the sidebar border.
-              "focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:ring-0",
+              // An outline, not the halo — the halo reads as a floating card
+              // against the sidebar border.
+              focusOutline,
               collapsed && "justify-center px-0",
             )}
             type="button"

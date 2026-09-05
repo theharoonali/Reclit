@@ -33,7 +33,7 @@ export function AiSpreadsheetSidePanel(props: AiSpreadsheetSidePanelProps) {
     <aside
       aria-hidden={!props.open}
       className={cn(
-        "flex w-80 min-h-0 shrink-0 flex-col border-l border-border bg-card",
+        "flex w-panel min-h-0 shrink-0 flex-col border-l border-border bg-card",
         "transition-transform duration-smooth ease-smooth",
         props.open
           ? "translate-x-0 shadow-lg"

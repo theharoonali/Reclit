@@ -1,339 +1,335 @@
 # Frontend Rules
 
 `apps/dashboard` — Next.js 16 App Router, Tailwind, shadcn-style `@reclit/ui`.
-Shared rules: [COMMON.md](COMMON.md). Integrating an API: [TESTING.md](TESTING.md).
+Shared rules: [COMMON.md](COMMON.md). Frontend tests: [TESTING.md](TESTING.md).
 
 **Building UI against an API? Read only the contract header of
-`apps/api/src/__tests__/<feature>.api.test.ts`.** It is the payload/response
-truth. Do not read backend source to learn a shape.
+`apps/api/src/__tests__/<feature>.api.test.ts`.** Never read backend source to
+learn a shape.
 
 ## Where code goes
 
 ```
 apps/dashboard/src/
 ├── app/
-│   ├── layout.tsx               # root: fonts, <html lang>, intl + <Providers>. No chrome, ever.
-│   ├── providers.tsx            # tRPC + theme providers
-│   ├── (app)/layout.tsx         # renders <AppShell> — the ONE chrome mount point
-│   └── (app)/<route>/page.tsx   # thin: framing, prefetch, one feature component
+│   ├── layout.tsx                 # root: fonts, <html lang>, intl + <Providers>. No chrome, ever
+│   ├── providers.tsx              # tRPC + theme (forcedTheme="light")
+│   ├── error.tsx · global-error.tsx  # boundaries; both render common/error-fallback
+│   ├── (app)/layout.tsx           # <WorkspaceProvider> + <AppShell> — the ONE chrome mount point
+│   ├── (app)/<route>/page.tsx     # thin: metadata, prefetch, <PageShell>, one feature component
+│   └── (public)/…                 # a second route group = different chrome (none, here)
 ├── components/
-│   ├── layout/                  # app-shell · app-sidebar · app-header
-│   ├── common/                  # cross-feature, feature-agnostic (see the ladder)
-│   └── <feature>/               # this feature's components, small, kebab-case
-├── config/nav.ts                # nav/menu data — never hardcoded in chrome
-├── i18n/                        # config.ts (locales) · request.ts (per-request locale)
-├── messages/<locale>.json       # every user-facing string. en.json is the source of truth
-├── hooks/use-*.ts               # reusable client hooks
-├── lib/                         # pure helpers: formatters, guards. No JSX, no fetching.
-├── trpc/                        # client/server wiring. Never add feature logic here.
-└── styles/globals.css           # app-level CSS only. Tokens live in @reclit/ui.
+│   ├── layout/                    # app-shell · app-sidebar · sidebar-credits · app-header · header-actions
+│   ├── common/                    # cross-feature: page-shell · form-field · loading-state · error-state · error-fallback
+│   ├── workspace/                 # workspace-provider (useWorkspace) · account-menu · create-workspace-dialog · workspace-header-title
+│   └── <feature>/                 # this feature's components AND its hooks (use-*.ts), kebab-case
+├── config/                        # nav.ts (menu data, keys not text) · populate.ts · subscription.ts (stubs)
+├── hooks/use-*.ts                 # feature-agnostic hooks: use-canvas-surface · use-file-picker · use-latest-ref · use-reseed
+├── i18n/                          # config.ts (locales) · request.ts (per-request locale) · metadata.ts (pageMetadata)
+├── lib/                           # pure helpers and thin fetch wrappers (api-fetch.ts). No JSX
+├── messages/<locale>.json         # every user-facing string; en.json is the source of truth
+├── trpc/                          # client.tsx · server.tsx · query-client.ts · logger-link.ts. No feature logic
+└── styles/globals.css             # app-level CSS only (document sizing). Tokens live in @reclit/ui
 ```
 
 Shared primitives live in `packages/ui/src/components/` and are imported by
-subpath (`@reclit/ui/button`) — see [shadcn](#shadcn) below.
+subpath (`@reclit/ui/button`) — see the [inventory](#reclitui-inventory).
+Routes today: `/`, `/ai-spreadsheet`, `/populate`, `/settings` (the `(app)`
+group) and `/form/[spreadsheetId]` (the `(public)` group).
 
-> Today the dashboard has `/`, `/ai-spreadsheet`, `/populate`, and
-> `/form/[spreadsheetId]`, the chrome in `components/layout/`, and
-> `components/common/` holding `loading-state` and `error-state`.
+### Adding a page
 
-### Pages are thin
+1. Add its entry to `config/nav.ts` (`labelKey`, not text). Never edit the
+   sidebar — it renders that config and derives the active row from
+   `usePathname()`.
+2. Create `app/(app)/<route>/page.tsx`:
+   - `export const generateMetadata = () => pageMetadata("<namespace>")`
+     from `@/i18n/metadata`;
+   - `export const dynamic = "force-dynamic"` if it reads live data (otherwise
+     Next prerenders it at build time and the build fails);
+   - a server prefetch (`prefetch(trpc.x.y.queryOptions())` + `<HydrateClient>`
+     from `@/trpc/server`) when the first paint should carry data;
+   - `<PageShell title description narrow?>` from `@/components/common/page-shell`
+     around one or two feature components. A page that must **fill** the frame
+     (an editor, a map) renders `<div className="h-full">` instead — `<main>`
+     has a definite height, so that resolves.
+3. Put the components in `components/<feature>/`, the strings under a new
+   namespace in `messages/en.json`, any page-level control inside
+   `<HeaderActions>` ([below](#headeractions-and-headertitle)).
+4. Write `docs/routes/<route>.md` from `_template.md` and add its row to
+   `docs/routes/index.md`.
+5. `bunx turbo lint typecheck --filter=@reclit/dashboard`, then open it.
 
-A `page.tsx` may contain: metadata, `export const dynamic`, a server prefetch, a
-page heading, and one or two feature components. No data transformation, no
-business logic, no inline markup beyond page framing. If a page is over ~60
-lines, the markup belongs in a component.
+A `page.tsx` contains framing and composition only: no data transformation, no
+business logic, no markup beyond `PageShell`. Over ~40 lines, the markup
+belongs in a component.
 
-## The chrome: few components, easy to redesign
+## The chrome
 
-The whole application shell is **three files**, and every page gets it from the
-route-group layout — never by rendering chrome itself.
+The application shell is five files in `components/layout/`, and every page
+gets it from the route-group layout — never by rendering chrome itself.
 
-| File | Owns | Rule |
-| --- | --- | --- |
-| `components/layout/app-shell.tsx` | the grid **and the scroll model**: sidebar + header + `{children}` | the only file that knows the overall page geometry |
-| `components/layout/app-sidebar.tsx` | side menu, collapsed/expanded state | renders `navSections` from `config/nav.ts` — no hardcoded links |
-| `components/layout/app-header.tsx` | top bar: title slot, actions slot | takes slots as props; knows nothing about any feature |
-| `components/layout/header-actions.tsx` | the portal that puts a page's controls in the header | the page owns the state; only the DOM moves |
+| File | Owns |
+| --- | --- |
+| `app-shell.tsx` | the grid **and the scroll model**: sidebar beside header + `<main>`. The only file that knows the page geometry |
+| `app-sidebar.tsx` | the side menu, collapsed/expanded state; renders `navSections` from `config/nav.ts`; account menu and credits at the bottom |
+| `sidebar-credits.tsx` | the credits meter above the account block, from `config/subscription.ts` |
+| `app-header.tsx` | the top bar: the title outlet (left) and the actions outlet (right). Knows nothing about any feature |
+| `header-actions.tsx` | the two portals that put a page's title and controls into the header |
 
-Consequences you must preserve:
+Rules that follow:
 
-- **Adding a page never touches the chrome** — you add an entry to
-  `config/nav.ts` and a `page.tsx`.
-- **Redesigning the layout touches one file** (`app-shell.tsx`) for geometry, or
-  the token file for the look. If a redesign would require editing pages, the
-  shell is leaking and must be fixed instead.
-- No page renders its own sidebar or header. A page that needs different chrome
-  gets a second route group, not a bespoke layout.
-- There is no footer. If one is ever needed, it is a fourth file here plus its
-  data in `config/nav.ts` — never markup pasted into `app-shell.tsx`.
-- Nav state (active item) derives from `usePathname()` inside the sidebar. Pages
-  do not pass it down.
-- **A page-level control belongs in the header, not in a bar of its own.** Wrap
-  it in `<HeaderActions>` and it is portalled into the header's action area, so
-  the component that owns its state keeps owning it and the page keeps its whole
-  content area. Growing a second horizontal bar under the header is what this
-  replaces. The header still never imports a feature component.
-- **The chrome does not scroll.** The shell is a fixed-viewport frame (`h-dvh` +
-  `overflow-hidden`); `<main>` is the only scroll container, and the sidebar's
-  `<nav>` scrolls on its own when the menu is tall. A page must never set
-  `min-h-screen`, `h-screen` or its own `overflow` — that creates a second
-  scrollbar and breaks the frame. Size page content normally and let `<main>`
-  scroll it.
-- Inside that frame, `sticky` positions against `<main>`, not the viewport. A
-  sticky page element sits below the header automatically; it does not need a
-  `top` offset for it.
-- **`<main>` has no padding — pages own their gutters.** A normal page wraps its
-  content in `px-4 py-8 md:px-8` (see `(app)/page.tsx`); a full-bleed page adds
-  nothing and gets the whole area. Padding in the shell would make an
-  edge-to-edge page impossible without negative margins.
-- A page that must **fill** the frame rather than flow inside it (an embedded
-  document, a map, an editor) uses `h-full` on its wrapper — `<main>` has a
-  definite height, so that resolves — and lets its own child own the scrolling.
-  See [`/ai-spreadsheet`](../routes/ai-spreadsheet.md).
+- **Adding a page never touches the chrome.** Redesigning the layout touches
+  `app-shell.tsx` for geometry, or `tokens.ts` for the look. If a redesign
+  would require editing pages, the shell is leaking — fix the shell.
+- A page that needs different chrome gets a second route group (`(public)`),
+  never a bespoke layout. There is no footer in `(app)`.
+- **The chrome does not scroll.** The shell is `h-dvh` + `overflow-hidden`;
+  `<main>` is the only scroll container, and the sidebar's `<nav>` scrolls on
+  its own. A page never sets `min-h-screen`, `h-screen` or its own `overflow`.
+  `sticky` positions against `<main>`, so a sticky element needs no `top`
+  offset for the header.
+- **`<main>` has no padding — `PageShell` owns the gutters**, so a full-bleed
+  page gets the whole area without negative margins.
+- Nothing is framed (`X-Frame-Options: DENY` in `next.config.ts`). Render a
+  document yourself; never reach for an `<iframe>`.
 
-**Nothing in this app is framed**, and `next.config.ts` sends
-`X-Frame-Options: DENY` accordingly. Do not reach for an `<iframe>` to embed a
-  document: a browser or extension that treats the file type as a download (IDM,
-  Chrome's "download PDFs" setting) will grab it instead of rendering it, and no
-  response header overrides that. Render the content yourself.
+### HeaderActions and HeaderTitle
+
+```tsx
+import { HeaderActions } from "@/components/layout/header-actions";
+
+<HeaderActions>
+  {error && <p role="alert" className="text-caption text-destructive">{error}</p>}
+  <Button size="sm" variant="outline" onClick={…}><Upload aria-hidden="true" />{label}</Button>
+</HeaderActions>
+```
+
+A page-level control belongs in the header, not in a bar of its own. Render
+`<HeaderActions>` (right) or `<HeaderTitle>` (left) from the client component
+that owns the control's state and it is portalled into `AppHeader`'s outlet —
+the state stays where it is, only the DOM moves, and the header still imports
+no feature. The outlets exist only under `(app)`; the portal renders nothing on
+the first client paint (before the outlet has mounted). The sheet's controls
+are the reference: `components/ai-spreadsheet/ai-spreadsheet-header-action.tsx`.
+
+### useWorkspace
+
+`WorkspaceProvider` (mounted in `(app)/layout.tsx`) owns the `workspace.list`
+query and the active workspace. Any workspace-scoped page reads
+`const { workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspace()`
+from `@/components/workspace/workspace-provider`. `activeWorkspace` is `null`
+while the list loads; the choice persists under the localStorage key
+`reclit.activeWorkspaceId`.
 
 ## Reuse before you build
 
-Search first. Then take the first rung that applies:
+Search first, then climb the ladder in [COMMON.md §4](COMMON.md) — exists →
+import · nearly exists → add a prop or `cva` variant · two features →
+`components/common/` · two apps or purely generic → `packages/ui` plus an
+`exports` entry in `packages/ui/package.json`. Forking a "v2" is prohibited; a
+component that only forwards props is deleted.
 
-1. **`packages/ui` has it** → import it.
-2. **`components/common/` has it** → import it.
-3. **It nearly exists** → add a prop or a `cva` variant to the existing
-   component. Forking a "v2" of a component is prohibited.
-4. **Used by two features** → move it to `components/common/`.
-5. **Used by two apps, or purely generic** → move it to `packages/ui` and add it
-   to the `exports` map in `packages/ui/package.json`.
+`components/common/` today: `page-shell` (page frame + title), `form-field`
+(label stacked over one control), `loading-state` (fills its parent, centres
+the spinner, `label` for screen readers), `error-state` (`message`),
+`error-fallback` (the error boundaries' body). Reach for these before writing
+markup; the next shared piece (an `empty-state`, a `confirm-dialog`, a
+`data-table`) is born here the moment a second feature needs it.
 
-Rules that follow from this:
+Worked examples: a query with all three states —
+`components/settings/profile-settings.tsx`; a mutation that invalidates —
+`components/workspace/create-workspace-dialog.tsx`; one form for create *and*
+edit (optional record) — `components/ai-spreadsheet/ai-spreadsheet-column-form.tsx`;
+a feature-owned hook set — `components/ai-spreadsheet/use-*.ts`.
 
-- **One component per job.** A form serving create *and* edit takes an optional
-  record — it is not two components. Nothing in the repo demonstrates this yet;
-  the first feature form is the one to get it right.
-- No wrapper-of-a-wrapper. If a component only forwards props, delete it.
-- Presentation and data-fetching split at ~150 lines: a `<feature>-panel.tsx`
-  that queries, and `<feature>-list.tsx` / `<feature>-form.tsx` that render.
-- These belong in `components/common/` the moment a second feature needs them,
-  and are the expected names: `page-header`, `empty-state`, `error-state`,
-  `loading-state`, `confirm-dialog`, `data-table`, `form-field`.
-- **`loading-state` and `error-state` already exist — use them.** Never
-  hand-roll a spinner or a failure paragraph in a feature. `LoadingState` fills
-  its parent and centres `@reclit/ui/spinner`; give it a `label`, which is read
-  by screen readers rather than drawn. A parent with a definite height centres
-  it on the page.
+Presentation and data-fetching split at ~150 lines: a `<feature>-panel.tsx`
+that queries, and `<feature>-list.tsx` / `<feature>-form.tsx` that render.
 
-## shadcn
+## `@reclit/ui` inventory
 
-- shadcn components are **shared primitives**: they go in
-  `packages/ui/src/components/<name>.tsx`, and every one gets an entry in the
-  `exports` map of `packages/ui/package.json`
-  (`"./dialog": "./src/components/dialog.tsx"`). Import as `@reclit/ui/dialog`.
-  Never copy a shadcn component into `apps/dashboard`.
-- Radix dependencies are added to `packages/ui/package.json`, not the dashboard,
-  and only when a primitive genuinely needs one. `Select` does (listbox
-  semantics, positioning, type-ahead); `Label` does not, and ships as a plain
-  `<label>`.
-- Keep the shadcn source as generated except for two required edits:
-  1. import `cn` from `@reclit/ui/cn`;
-  2. **strip enter/exit animation classes** (`data-[state=closed]:animate-out`,
-     `data-[state=closed]:fade-out-0`, …). A stuck exit animation keeps the node
-     mounted and swallows clicks. `@reclit/ui` components are unanimated by design.
-- Variants are `cva` in the component file. A consumer that needs a new look gets
-  a new variant there — not a `className` override full of raw utilities.
+| Import | Exports | Notes |
+| --- | --- | --- |
+| `@reclit/ui/avatar` | `Avatar`, `AvatarImage`, `AvatarFallback` | fallback shows until the image loads |
+| `@reclit/ui/button` | `Button`, `buttonVariants` | `variant`: `default` · `secondary` · `outline` · `ghost` · `destructive` · `destructive-outline` · `link`; `size`: `default` · `sm` · `lg` · `icon`; `asChild` |
+| `@reclit/ui/calendar` | `Calendar` | inline month over `react-day-picker`, no popover |
+| `@reclit/ui/capsule-select` | `CapsuleSelect` | single-choice pill row, radiogroup semantics |
+| `@reclit/ui/checkbox` | `Checkbox` | Radix |
+| `@reclit/ui/dialog` | `Dialog`, `DialogTrigger`, `DialogContent`, `DialogHeader`, `DialogFooter`, `DialogTitle`, `DialogDescription`, `DialogClose` | Radix, unanimated |
+| `@reclit/ui/dropdown-menu` | `DropdownMenu`, `…Trigger`, `…Content`, `…Item`, `…CheckboxItem`, `…RadioGroup`, `…RadioItem`, `…Label`, `…Separator`, `…Sub*` | Radix, unanimated |
+| `@reclit/ui/input` | `Input` | single-line field |
+| `@reclit/ui/label` | `Label` | a plain `<label>` |
+| `@reclit/ui/progress` | `Progress` | `value`, `max`; plain divs |
+| `@reclit/ui/select` | `Select`, `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem`, `SelectGroup`, `SelectLabel`, `SelectSeparator` | Radix; the trigger is `Input`'s twin |
+| `@reclit/ui/spinner` | `Spinner` | `size`: `sm` · `default` · `lg`; decorative — the parent announces loading |
+| `@reclit/ui/textarea` | `Textarea` | multi-line field |
+| `@reclit/ui/tooltip` | `Tooltip`, `TooltipTrigger`, `TooltipContent`, `TooltipProvider`, `TooltipPortal` | Radix, unanimated |
+| `@reclit/ui/cn` · `@reclit/ui/focus-ring` · `@reclit/ui/tokens` | `cn` · `focusRing`, `focusField`, `focusOutline` · the design tokens | helpers |
+
+- **Every `Button` carries an explicit `variant`.** `default` is the one
+  primary action on a surface; `secondary` supports it; `outline` is a neutral
+  edged action; `ghost` is for dense or repeated actions (icon buttons,
+  cancel); `destructive` is delete and nothing else; `destructive-outline` a
+  destructive action that is not the surface's emphasis; `link` reads as text.
+- **An icon inside a `Button` gets no classes.** The base sizes any `svg`
+  child and spaces it — `<Plus />`, never `<Plus className="mr-2 h-4 w-4" />`.
+  Icons are `lucide-react`.
 - **Never hand-roll a form control.** A bare `<button>`, `<input>`, `<select>`
-  or `<label>` with utility classes in a feature or chrome component is a bug:
-  it drifts from the token set the moment either side changes, and it is how two
-  "nearly the same" buttons appear. Use `@reclit/ui/button`,
-  `@reclit/ui/input`, `@reclit/ui/select`, `@reclit/ui/label`. The only
-  exception is a control the user never sees — a `sr-only` file input behind a
-  `Button`, or the grid's hidden input proxy. If the shared primitive is missing
-  a case, add a variant or a prop to it.
-- **Every `Button` carries an explicit `variant`.** Relying on the default hides
-  the decision at the call site and makes a screen with four primary-looking
-  buttons easy to write. `default` is the one primary action on a surface;
-  `secondary` supports it; `outline` is a neutral edged action; `ghost` is for
-  dense or repeated actions (icon buttons, cancel); `destructive` is delete and
-  nothing else; `link` reads as text.
-- **An icon inside a `Button` gets no classes.** The base sizes any `svg` child
-  and spaces it — write `<Plus />`, never `<Plus className="mr-2 h-4 w-4" />`.
+  or `<label>` with utility classes in a feature or chrome component is a bug.
+  The only exception is a control the user never sees — the hidden file input
+  from `useFilePicker`, the grid's hidden input proxy. If the primitive is
+  missing a case, add a variant or a prop to it.
+- **A label over a control is `FormField`**, never a hand-written wrapper.
+
+### shadcn
+
+- shadcn components are shared primitives: `packages/ui/src/components/<name>.tsx`
+  plus `"./<name>": "./src/components/<name>.tsx"` in the `exports` map. Never
+  copy one into `apps/dashboard`. Radix dependencies go in
+  `packages/ui/package.json`, and only when a primitive genuinely needs one.
+- Keep the generated source except for two edits: import `cn` from `../utils`,
+  and **strip every enter/exit animation class** — a stuck exit animation
+  keeps the node mounted and swallows clicks. `@reclit/ui` is unanimated.
+- Variants are `cva` in the component file. A consumer that needs a new look
+  gets a new variant there, not a `className` full of raw utilities.
+- Focus is never written inline: compose `focusRing` (buttons, links, anything
+  without a resting border — a halo), `focusField` (bordered text controls —
+  border colour only) or `focusOutline` (a control against a border) from
+  `@reclit/ui/focus-ring`. All three carry `outline-none`; `aria-invalid`
+  swaps the colours to `--destructive`. Never suppress focus globally.
 
 ## Styling
 
-- **Tailwind only.** No CSS modules, no styled-components, no inline `style`, no
-  raw hex, no arbitrary values.
-- **Use semantic tokens, never literal colors:** `bg-background`,
-  `text-muted-foreground`, `border`, `text-destructive`, `bg-card`. `bg-white`
-  and `text-gray-500` are bugs — they break dark mode.
-- **Every global lives in `packages/ui`, and only there:**
+- **Tailwind only.** No CSS modules, no styled-components, no inline `style`
+  (except a measured or Radix-provided pixel value), no raw hex, no arbitrary
+  values.
+- **Semantic tokens, never literal colours:** `bg-background`,
+  `text-muted-foreground`, `border-input`, `text-destructive`, `bg-card`.
+  `bg-white` and `text-gray-500` are bugs.
+- Class order: layout → box → typography → colour → state. Compose
+  conditionals with `cn()`, never string concatenation. Mobile-first.
+- `apps/dashboard/tailwind.config.ts` only sets `content` and the preset;
+  `apps/dashboard/src/styles/globals.css` holds document sizing only.
 
-  | Global | File | How |
-  | --- | --- | --- |
-  | colors | `packages/ui/src/globals.css` | HSL triples on `:root` and `.dark`, one per token |
-  | border radius | `packages/ui/src/globals.css` | `--radius`; the single `rounded-sm` step derives from it in `tailwind.config.ts` |
-  | focus | `packages/ui/src/styles/focus-ring.ts` | the one `focusRing` string every focusable control composes |
-  | type scale ↔ `cn()` | `packages/ui/src/utils/cn.ts` | `FONT_SIZES`, so tailwind-merge treats the scale as sizes, not colours |
-  | fonts | `packages/ui/tailwind.config.ts` | `font-sans`/`font-mono` → `--font-sans`/`--font-mono`, set in `app/layout.tsx` (`Google_Sans` + `Geist_Mono`) |
-  | type scale | `packages/ui/tailwind.config.ts` | `theme.extend.fontSize` — see [Typography](#typography) |
-  | scrollbars | `packages/ui/src/globals.css` | 8px, pill thumb on `--border`, transparent track — applied globally, never per-component |
-  | animations | `packages/ui/tailwind.config.ts` | `theme.extend.keyframes` + `theme.extend.animation` |
-  | spacing, breakpoints, shadows | `packages/ui/tailwind.config.ts` | `theme.extend` |
+### Design tokens
 
-  Need a colour that is not a token? **Add the token** — to both `:root` and
-  `.dark` — and use it. Never inline the value.
-- **Tokens are space-separated HSL triples** (`--primary: 20 90% 55%`), so
-  `hsl(var(--token) / 0.5)` and Tailwind's `bg-primary/10` are valid on all of
-  them. Never write the comma form: it produces invalid CSS under an alpha
-  modifier and fails *silently*, painting transparent.
-- **The app's black is `#1B1D20`** — `216 8.5% 11.6%`, the light-mode text
-  colour and the dark-mode page surface. It is reached through `text-foreground`
-  / `bg-background` and the `*-foreground` tokens; the hex appears in
-  `globals.css` and nowhere else. Orange is the accent (`--primary`, `--ring`)
-  and is a separate decision from the black.
+**`packages/ui/src/tokens.ts` is the one file where the design is edited.**
+Everything else derives from it:
+
+| Export | Becomes |
+| --- | --- |
+| `colors.light` / `colors.dark` | CSS variables `--<token>` on `:root` / `.dark`, emitted by the Tailwind preset, and the colour classes `bg-primary`, `text-muted-foreground`, `border-input`, `bg-overlay/overlay` … |
+| `radius` | `--radius` → the app's one corner, `rounded-sm` |
+| `fontSize` | the type scale, `text-display` … `text-eyebrow` |
+| `sizes` | every named length, usable after any length prefix: `h-control`, `h-control-sm`, `px-control-x`, `size-icon`, `px-field-x`, `size-checkbox`, `size-avatar`, `w-sidebar`, `w-sidebar-rail`, `w-panel`, `h-header`, `h-sheet-header` … |
+| `opacity.overlay` | the dialog scrim's alpha |
+| `motion` | `duration-smooth`, `ease-smooth` — the one motion setting |
+| `SHEET_HEADER_PX` | the canvas header height, shared by the DOM strip and the canvas geometry |
+
+- **Add a colour** = one key in `light` (the type forces `dark` to match).
+  **Add a size** = one key in `sizes`. Nothing else needs to learn the name:
+  the preset exposes it and `cn()` reads the same object, so overrides dedupe.
+- Colours are **space-separated HSL triples** (`20 90% 55%`) so
+  `hsl(var(--x) / 0.5)` and `/alpha` modifiers work. The comma form fails
+  silently.
+- **Control and chrome dimensions are tokens; layout spacing is not.** A
+  primitive's height, padding, icon size, the sidebar, header and panel widths
+  come from `sizes` — a raw `h-9`, `px-4` or `w-56` in a primitive or chrome
+  file is a bug. Spacing *between* elements (`gap-4`, `space-y-8`, `p-6`) uses
+  Tailwind's default scale.
+- The canvas sheet reads the same tokens (`lib/ai-spreadsheet/theme-colors.ts`
+  reads the CSS variables; its first-paint fallback is built from
+  `colors.light`), so the painted grid follows this file too.
+- `globals.css` in `packages/ui` holds base element styles, scrollbars and the
+  `.scrollbar-none` utility — never a token value.
+- Fonts: `font-sans` / `font-mono` map to `--font-sans` / `--font-mono`, set
+  by `next/font` in `app/layout.tsx` (`Google_Sans` + `Geist_Mono`). Never
+  name a family in a component.
+- **Dark mode is defined but off.** `providers.tsx` passes
+  `forcedTheme="light"`; removing that prop enables the `.dark` tokens.
+- Editing `tokens.ts` while `bun dev` runs may need a dev-server restart for
+  the new class names to appear; the preset is loaded once.
 
 ### Radius
 
-`--radius` in `packages/ui/src/globals.css` is the only radius in the app, and
-`theme.extend.borderRadius` defines exactly one step from it:
-
-| Class | Value | Use for |
-| --- | --- | --- |
-| `rounded-sm` | `--radius - 4px` | **everything** — divs/cards/panels, buttons, inputs, textareas, selects (trigger and content), popovers, dialogs, menus, nav items, chips, avatars |
-
-- **`rounded-sm` is the app's one corner.** Every element that rounds uses it,
-  so the whole app reshapes with a single `--radius` edit. `rounded-md`,
-  `rounded-lg`, `rounded-xl` etc. are not part of the system — the config
-  deliberately defines only `sm`, and using another step (which would fall
-  back to Tailwind's core value) is a rule violation.
-- **`rounded-full` and `rounded-none` are the only other radii allowed** —
-  `rounded-full` strictly for pills (badges, capsules, progress tracks).
-  `rounded-r`, `rounded-[10px]` and friends bypass the token and will not
-  move when it does.
-- A surface that seems to need a different corner than its neighbours is a
-  sign the token is wrong. Change `--radius`, not the component.
-
-### Focus
-
-There are exactly **two** focus recipes, both in
-`packages/ui/src/styles/focus-ring.ts`, and they are composed — never retyped:
-
-```ts
-import { focusRing } from "@reclit/ui/focus-ring";
-className={cn("...", focusRing)}
-```
-
-- `focusRing` — buttons, links, and anything without a resting border: the
-  border moves to `--ring` and a soft 3px halo sits outside it (shadcn's
-  shape). Most of these controls are borderless, so the halo is what keeps
-  keyboard focus visible.
-- `focusField` — bordered text controls (`Input`, `Textarea`, the select
-  trigger): the border colour moves to `--ring` and nothing else. No halo.
-- **Never write `focus-visible:ring-*`, `focus:outline-*` or `outline-none` in a
-  component.** Both recipes already carry `outline-none`, because the control
-  draws its own indicator and the browser's would sit on top of it.
-- `aria-invalid` swaps the focus colours to `--destructive` in both recipes.
-- **Never suppress focus globally.** A `*:focus { outline: none }` in
-  `apps/dashboard/src/styles/globals.css` makes every control the primitives do
-  not cover invisible to keyboard users.
-- `apps/dashboard/tailwind.config.ts` only sets `content` and the preset. Theme
-  changes go in the preset so the app and the package stay in sync.
-- `apps/dashboard/src/styles/globals.css` is for app-level CSS only (document
-  sizing, resets). Design tokens never go here.
-- Class order: layout → box → typography → colour → state. Compose conditionals
-  with `cn()`, never string concatenation.
-- Mobile-first: unprefixed styles are the small screen; add `md:`/`lg:` upward.
+`rounded-sm` (`--radius - 4px`) is the app's one corner — divs, cards, buttons,
+inputs, selects, popovers, dialogs, menus, nav items, avatars, chips.
+`rounded-full` is for pills and `rounded-none` for the rare square; no other
+step exists in the config, so `rounded-md`/`rounded-lg` are bugs. A surface
+that seems to need a different corner means `radius` is wrong — change it.
 
 ### Typography
 
-**Text sizing is global.** Every size, its line-height, its weight and its
-tracking live in one place — `theme.extend.fontSize` in
-`packages/ui/tailwind.config.ts` — so restyling the app's headings is one edit,
-not a sweep through every component.
+Every size, line-height, weight and tracking is one entry in `fontSize`:
 
-| Class | Use for | Size / weight |
-| --- | --- | --- |
-| `text-display` | a hero number or marketing headline | 2rem / 600 |
-| `text-title` | the page `h1` | 1.5rem / 600 |
-| `text-heading` | a section `h2`, the app name | 1.125rem / 600 |
-| `text-subheading` | a card or panel `h3` | 1rem / 500 |
-| `text-subtitle` | the muted line under a title, body copy | 0.875rem / 400 |
-| `text-body` | default body and control text | 0.875rem / 400 |
-| `text-label` | form labels, buttons, dense UI | 0.875rem / 500 |
-| `text-caption` | timestamps, badges | 0.75rem / 400 |
-| `text-eyebrow` | uppercase section headings in the nav | 0.75rem / 500, tracked |
+| Class | Use for |
+| --- | --- |
+| `text-display` | a hero number or marketing headline |
+| `text-title` | the page `h1` |
+| `text-heading` | a section `h2`, the app name |
+| `text-subheading` | a card or panel `h3` |
+| `text-subtitle` | the muted line under a title |
+| `text-body` | body and control text |
+| `text-label` | form labels, buttons, dense UI |
+| `text-caption` | timestamps, badges, inline errors |
+| `text-eyebrow` | uppercase section headings in the nav |
 
-- **Raw Tailwind size steps are prohibited in components** — `text-sm`,
-  `text-2xl`, `text-base` and friends are bugs. If a component needs a size the
-  scale does not have, add a named entry to the scale; never reach for a step.
-- **A new scale entry goes in two places**: `theme.extend.fontSize` in
-  `packages/ui/tailwind.config.ts` *and* `FONT_SIZES` in
-  `packages/ui/src/utils/cn.ts`. tailwind-merge cannot tell `text-label` from a
-  colour on its own, so a step missing from that list is silently dropped by
-  `cn()` whenever a text colour is applied alongside it — the class survives in
-  the source and vanishes from the DOM.
-- Each entry already carries its weight, so **do not pair it with
-  `font-medium`/`font-semibold`** unless you are deliberately overriding it.
-- Same for line-height and tracking: `leading-*` and `tracking-*` alongside a
-  scale class means the scale is wrong. Fix the scale.
-- `font-sans`/`font-mono` are the only font utilities. Never name a family in a
-  component.
+Raw steps (`text-sm`, `text-2xl`) are bugs — add a named entry instead. Each
+entry carries its weight, line-height and tracking, so `font-medium`,
+`leading-*` or `tracking-*` beside a scale class means the scale is wrong.
 
 ## Data
 
 - Client components: `useTRPC()` + `useQuery(trpc.x.y.queryOptions(input))`.
-- Server components: `prefetch(trpc.x.y.queryOptions())` + `<HydrateClient>` from
-  `@/trpc/server`.
+- Server components: `prefetch(trpc.x.y.queryOptions())` + `<HydrateClient>`
+  from `@/trpc/server`.
 - Mutations: `useMutation(trpc.x.y.mutationOptions({ onSuccess }))` and
   **invalidate the query they affect** —
-  `queryClient.invalidateQueries({ queryKey: trpc.x.y.queryKey() })`.
-- A page that reads live database data must set
-  `export const dynamic = "force-dynamic"`, otherwise Next tries to prerender it
-  at build time and the build fails.
-- **Always handle all three states**: `isLoading`, `error`, and empty.
-- Payload and response types come from `RouterInputs`/`RouterOutputs`. Never
+  `queryClient.invalidateQueries({ queryKey: trpc.x.y.queryKey() })`. The
+  sheet's local-model writes are the one recorded exception
+  ([ai-spreadsheet.md](../routes/ai-spreadsheet.md)).
+- **Always handle all three states**: `isPending` → `<LoadingState>`,
+  `isError` → `<ErrorState>`, and empty.
+- Payload and response types come from `RouterInputs` / `RouterOutputs`. Never
   hand-write an interface for an API shape ([COMMON.md](COMMON.md)).
+- Multipart uploads use `postFile` from `lib/api-fetch.ts`; `API_BASE_URL`
+  there is the only place the API origin is resolved.
 
 ## Internationalisation
 
-Every user-facing string is a message key. **A literal in a component is a bug** —
-it cannot be translated and nobody will find it later.
+Every user-facing string is a message key. **A literal in a component is a
+bug** — it cannot be translated and nobody will find it later.
 
 | Piece | Path |
 | --- | --- |
 | locale list, default, cookie name | `src/i18n/config.ts` |
 | per-request locale + message loading | `src/i18n/request.ts` |
+| page metadata | `pageMetadata(namespace)` in `src/i18n/metadata.ts` |
 | the strings | `src/messages/<locale>.json` |
 | provider | `NextIntlClientProvider` in `app/layout.tsx` |
 
-- **Server components:** `const t = await getTranslations("namespace")` from
-  `next-intl/server`. **Client components:** `const t = useTranslations("namespace")`
-  from `next-intl`. Page metadata uses `generateMetadata` + `getTranslations`.
-- **`en.json` is the source of truth.** Adding a language is: add the code to
-  `locales` in `src/i18n/config.ts`, add `src/messages/<code>.json`, translate
-  every key. A missing key throws in development.
-- **Nav and config data hold keys, not text** — `config/nav.ts` carries
-  `labelKey`/`titleKey`, and the sidebar resolves them. Never put display copy
-  in a config file.
-- **Not everything is copy.** Brand names (`APP_NAME`), workspace and user names
-  are data and stay literal. Translate what a translator would change.
-- Namespace by surface — `nav`, `sidebar`, `header`, `dashboard`, `metadata` —
-  not by component. Components are renamed more often than surfaces.
-- **Error boundaries stay in English.** `app/error.tsx` and
-  `app/global-error.tsx` deliberately do not call `useTranslations`:
-  `global-error.tsx` replaces the root layout, so no provider is mounted above
-  it, and an error boundary must not depend on context that may itself be what
-  broke.
-- There is **no `[locale]` URL segment and no middleware**. The locale is read
-  from the `locale` cookie with a fallback to `defaultLocale`. The cost is that
-  every route renders dynamically, since reading a cookie opts out of static
-  prerendering — accept it, or move to routed locales.
+- Server components: `await getTranslations("namespace")` from
+  `next-intl/server`. Client components: `useTranslations("namespace")` from
+  `next-intl`.
+- **Namespace by surface, one per feature or chrome area** — today `nav`,
+  `sidebar`, `account`, `workspace`, `settings`, `dashboard`, `metadata`,
+  `aiSpreadsheet`, `populate`, `publicForm`. A new feature adds its own.
+- **`en.json` is the source of truth.** Adding a language: add the code to
+  `locales` in `i18n/config.ts`, add `messages/<code>.json`, translate every
+  key. A missing key throws in development.
+- Config data holds keys, not text (`config/nav.ts` carries `labelKey` /
+  `titleKey`). Brand, workspace and user names are data and stay literal.
+- **Error boundaries stay in English.** `ErrorFallback` deliberately does not
+  call `useTranslations`: `global-error.tsx` replaces the root layout, so no
+  provider is mounted above it.
+- There is no `[locale]` URL segment and no middleware; the locale comes from
+  the `locale` cookie, which makes every route render dynamically.
 
 ## Client boundaries
 
-- `"use client"` only where interactivity actually requires it — on the leaf
-  component, not the page and not the layout.
+- `"use client"` only where interactivity requires it — on the leaf component,
+  not the page and not the layout.
 - Never import API runtime code; types only.
-- No `useEffect` for data fetching — that is TanStack Query's job.
+- No `useEffect` for data fetching — that is TanStack Query's job. For a
+  stable callback that must see the latest value, `useLatestRef`; for local
+  draft state that follows a prop while mounted, `useReseed`.

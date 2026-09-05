@@ -10,10 +10,10 @@ import {
   DialogTitle,
 } from "@reclit/ui/dialog";
 import { Input } from "@reclit/ui/input";
-import { Label } from "@reclit/ui/label";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { type FormEvent, useState } from "react";
+import { FormField } from "@/components/common/form-field";
 import { useTRPC } from "@/trpc/client";
 import { useWorkspace } from "./workspace-provider";
 
@@ -66,8 +66,7 @@ export function CreateWorkspaceDialog({
             <DialogDescription>{t("description")}</DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-2">
-            <Label htmlFor="workspace-name">{t("nameLabel")}</Label>
+          <FormField htmlFor="workspace-name" label={t("nameLabel")}>
             <Input
               autoFocus
               id="workspace-name"
@@ -76,7 +75,7 @@ export function CreateWorkspaceDialog({
               placeholder={t("namePlaceholder")}
               value={name}
             />
-          </div>
+          </FormField>
 
           {create.isError && (
             <p role="alert" className="text-caption text-destructive">

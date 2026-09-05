@@ -10,10 +10,8 @@ must not wait for it and must not read its source.
 
 **Load the `frontend-feature` skill before writing code** (and `frontend-design`
 too, if it is available, when the visual direction is up to you).
-Rules: `docs/rules/FRONTEND.md`, `docs/rules/COMMON.md`.
-Reference: `apps/dashboard/src/components/layout/` (the app shell) and
-`apps/dashboard/src/config/nav.ts`. There is no data-bound feature component in
-the repo yet — build the first one from the rules, not from an example.
+Rules: `docs/rules/FRONTEND.md`, `docs/rules/COMMON.md`. The worked examples
+and the `@reclit/ui` inventory are in FRONTEND.md ("Reuse before you build").
 
 ## Your boundary
 
@@ -33,11 +31,11 @@ those right now. Shapes come from the plan file, not from backend code.
 4. Handle loading, error, and empty in every list or detail view.
 5. Chrome: add the nav entry to `src/config/nav.ts`. Do not edit the sidebar,
    or header to add a page.
-6. Tokens: any new colour goes in `packages/ui/src/globals.css` (both `:root` and
-   `.dark`); radius, fonts, animations in `packages/ui/tailwind.config.ts`.
+6. Tokens: a new colour, size or text step is one key in
+   `packages/ui/src/tokens.ts` — nothing else ("Design tokens" in FRONTEND.md).
 7. Route doc in `docs/routes/`, "APIs called" filled from the plan.
 8. `bunx turbo lint typecheck --filter=@reclit/dashboard`, then look at the page
-   in the browser — light, dark, and narrow.
+   in the browser at desktop and narrow widths.
 
 ## Non-negotiable
 

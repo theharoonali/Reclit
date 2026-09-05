@@ -1,7 +1,9 @@
 "use client";
 
 import { Button } from "@reclit/ui/button";
-import { useRef, useState } from "react";
+import { useState } from "react";
+import { useFilePicker } from "@/hooks/use-file-picker";
+import { useReseed } from "@/hooks/use-reseed";
 import { fileLabel, isResourceUrl } from "@/lib/ai-spreadsheet/cell-format";
 import type { CellValue } from "@/lib/ai-spreadsheet/types";
 import { uploadFile } from "@/lib/ai-spreadsheet/upload-file";
@@ -22,9 +24,9 @@ type AiSpreadsheetUploadEditorProps = {
 };
 
 /**
- * The upload panel behind a file or audio cell. Mount it with a `key` tied to the
- * cell, like the JSON and date editors; the same re-seed dance keeps it honest
- * when the cell changes underneath the animating panel.
+ * The upload panel behind a file or audio cell. Mount it with a `key` tied to
+ * the cell, like the JSON and date editors; `useReseed` keeps it honest when
+ * the cell changes underneath the animating panel.
  *
  * The file goes through the API's `POST /files` into the public bucket, and
  * the cell then stores the returned URL — playback (`use-sheet-audio`) just
@@ -34,26 +36,21 @@ export function AiSpreadsheetUploadEditor(
   props: AiSpreadsheetUploadEditorProps,
 ) {
   const { labels } = props;
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const [status, setStatus] = useState<"idle" | "uploading" | "error">("idle");
-  const [seed, setSeed] = useState(props.value);
   const [current, setCurrent] = useState(props.value);
-
-  if (seed !== props.value) {
-    setSeed(props.value);
-    setCurrent(props.value);
+  const markSeed = useReseed(props.value, (value) => {
+    setCurrent(value);
     setStatus("idle");
-  }
+  });
 
   const url = isResourceUrl(current) ? current : null;
 
-  const handleFile = async (file: File | undefined) => {
-    if (!file) return;
+  const handleFile = async (file: File) => {
     setStatus("uploading");
     try {
       const uploaded = await uploadFile(file);
       setCurrent(uploaded.url);
-      setSeed(uploaded.url);
+      markSeed(uploaded.url);
       setStatus("idle");
       props.onChange(uploaded.url);
     } catch {
@@ -61,9 +58,11 @@ export function AiSpreadsheetUploadEditor(
     }
   };
 
+  const picker = useFilePicker((file) => void handleFile(file));
+
   const handleClear = () => {
     setCurrent(null);
-    setSeed(null);
+    markSeed(null);
     props.onChange(null);
   };
 
@@ -73,21 +72,13 @@ export function AiSpreadsheetUploadEditor(
         {url ? fileLabel(url) : labels.empty}
       </p>
 
-      <input
-        accept={props.accept}
-        className="sr-only"
-        onChange={(event) => {
-          void handleFile(event.target.files?.[0]);
-          event.target.value = "";
-        }}
-        ref={inputRef}
-        type="file"
-      />
+      <input accept={props.accept} {...picker.inputProps} />
 
       <Button
         disabled={status === "uploading"}
-        onClick={() => inputRef.current?.click()}
+        onClick={picker.open}
         type="button"
+        variant="default"
       >
         {status === "uploading"
           ? labels.uploading

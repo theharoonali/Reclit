@@ -1,31 +1,20 @@
 import { type ClassValue, clsx } from "clsx";
 import { extendTailwindMerge } from "tailwind-merge";
+import { fontSize, sizes } from "../tokens";
 
 /**
- * The type scale from `tailwind.config.ts`. tailwind-merge has to be told about
- * it: `text-label` is not a t-shirt size, so out of the box it is classified as
- * a *colour* and `cn("text-label", "text-primary-foreground")` silently drops
- * the size — which is how every `Button` ended up rendering at the inherited
- * 16px/400 instead of 14px/500.
- *
- * Keep this list in step with `theme.extend.fontSize`.
+ * `cn` merges class lists and lets a later class override an earlier one of
+ * the same kind. tailwind-merge only knows Tailwind's default scale, so it is
+ * taught the token names here: without this, `text-label` would be read as a
+ * *colour* and dropped next to `text-primary-foreground`, and `h-control`
+ * would survive alongside an `h-auto` override. Both lists derive from
+ * `tokens.ts`, so adding a token needs no edit here.
  */
-const FONT_SIZES = [
-  "display",
-  "title",
-  "heading",
-  "subheading",
-  "subtitle",
-  "body",
-  "label",
-  "caption",
-  "eyebrow",
-] as const;
-
 const twMerge = extendTailwindMerge({
   extend: {
-    classGroups: {
-      "font-size": [{ text: [...FONT_SIZES] }],
+    theme: {
+      text: Object.keys(fontSize),
+      spacing: Object.keys(sizes),
     },
   },
 });

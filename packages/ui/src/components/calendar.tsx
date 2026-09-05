@@ -29,7 +29,7 @@ export type CalendarProps = React.ComponentProps<typeof DayPicker>;
 function Calendar({ className, classNames, ...props }: CalendarProps) {
   const navButton = cn(
     buttonVariants({ variant: "ghost", size: "icon" }),
-    "h-7 w-7",
+    "h-control-xs w-control-xs",
   );
 
   return (
@@ -38,19 +38,19 @@ function Calendar({ className, classNames, ...props }: CalendarProps) {
       classNames={{
         months: "flex flex-col gap-4",
         month: "grid grid-cols-[auto_1fr_auto] items-center gap-y-2",
-        month_caption: "flex h-7 items-center justify-center",
+        month_caption: "flex h-control-xs items-center justify-center",
         caption_label: "text-label text-card-foreground",
         button_previous: navButton,
         button_next: navButton,
         month_grid: "col-span-3 w-full border-collapse",
         weekdays: "flex",
         weekday:
-          "w-9 text-center text-caption font-normal text-muted-foreground",
+          "w-control text-center text-caption font-normal text-muted-foreground",
         week: "mt-1 flex w-full",
-        day: "h-9 w-9 p-0",
+        day: "h-control w-control p-0",
         day_button: cn(
           buttonVariants({ variant: "ghost" }),
-          "h-9 w-9 rounded-sm p-0 font-normal",
+          "h-control w-control rounded-sm p-0 font-normal",
         ),
         selected:
           "[&>button]:bg-primary [&>button]:text-primary-foreground [&>button:hover]:bg-primary [&>button:hover]:text-primary-foreground",
@@ -63,9 +63,9 @@ function Calendar({ className, classNames, ...props }: CalendarProps) {
       components={{
         Chevron: ({ orientation }) =>
           orientation === "left" ? (
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="size-icon" />
           ) : (
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="size-icon" />
           ),
       }}
       navLayout="around"

@@ -1,6 +1,7 @@
 "use client";
 
 import { type RefObject, useCallback, useEffect, useRef } from "react";
+import { useLatestRef } from "./use-latest-ref";
 
 export type SurfaceSize = { width: number; height: number; dpr: number };
 
@@ -34,10 +35,8 @@ export function useCanvasSurface(
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const sizeRef = useRef<SurfaceSize>({ width: 0, height: 0, dpr: 1 });
-  const onResizeRef = useRef(onResize);
-  onResizeRef.current = onResize;
-  const sourceRefRef = useRef(sourceRef);
-  sourceRefRef.current = sourceRef;
+  const onResizeRef = useLatestRef(onResize);
+  const sourceRefRef = useLatestRef(sourceRef);
 
   const measure = useCallback(() => {
     const canvas = canvasRef.current;

@@ -36,7 +36,7 @@ every API is documented by its contract test; every page has a route doc.
 | --- | --- |
 | `apps/api` | NestJS API server (port 4001), tRPC at `/trpc`, Prisma schema in `prisma/` |
 | `apps/dashboard` | Next.js web app (port 4000) - Canvas spreadsheet at `/ai-spreadsheet` |
-| `packages/ui` | Shared primitives: `Button`, `Input`, `Label`, `Select`, `Calendar`, `Spinner` + Tailwind preset |
+| `packages/ui` | 14 shared primitives (`Button`, `Input`, `Select`, `Dialog`, …), the design tokens (`src/tokens.ts`) and the Tailwind preset |
 
 ## Getting started
 

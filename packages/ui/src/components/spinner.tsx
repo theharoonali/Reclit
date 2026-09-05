@@ -9,9 +9,9 @@ const spinnerVariants = cva(
   {
     variants: {
       size: {
-        sm: "h-4 w-4 border-2",
-        default: "h-6 w-6 border-2",
-        lg: "h-10 w-10 border-4",
+        sm: "size-spinner-sm border-2",
+        default: "size-spinner border-2",
+        lg: "size-spinner-lg border-4",
       },
     },
     defaultVariants: {

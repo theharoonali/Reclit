@@ -3,6 +3,7 @@
 import { Button } from "@reclit/ui/button";
 import { Calendar } from "@reclit/ui/calendar";
 import { useState } from "react";
+import { useReseed } from "@/hooks/use-reseed";
 import type { CellValue } from "@/lib/ai-spreadsheet/types";
 
 type AiSpreadsheetDateEditorProps = {
@@ -28,16 +29,11 @@ type AiSpreadsheetDateEditorProps = {
 export function AiSpreadsheetDateEditor(props: AiSpreadsheetDateEditorProps) {
   const { labels } = props;
   const [selected, setSelected] = useState(() => toDate(props.value));
-  const [seed, setSeed] = useState(props.value);
-
-  // The panel outlives a single opening — it stays mounted so it can animate
-  // out, and its key is the cell — so the same cell reopening does not remount
-  // this. Re-seed when the cell changed underneath us instead, which is what
-  // happens when it was cleared or retyped in the grid between openings.
-  if (seed !== props.value) {
-    setSeed(props.value);
-    setSelected(toDate(props.value));
-  }
+  // The cell may be cleared or retyped in the grid while this stays mounted
+  // behind the animating panel — follow it (see `useReseed`).
+  const markSeed = useReseed(props.value, (value) =>
+    setSelected(toDate(value)),
+  );
 
   const handleSelect = (day: Date | undefined) => {
     // `mode="single"` reports `undefined` when the selected day is clicked
@@ -45,13 +41,13 @@ export function AiSpreadsheetDateEditor(props: AiSpreadsheetDateEditorProps) {
     if (!day) return;
     const next = withTimeOf(day, props.value);
     setSelected(day);
-    setSeed(next);
+    markSeed(next);
     props.onChange(next);
   };
 
   const handleClear = () => {
     setSelected(undefined);
-    setSeed(null);
+    markSeed(null);
     props.onChange(null);
   };
 

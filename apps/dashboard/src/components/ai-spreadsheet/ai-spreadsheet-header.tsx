@@ -35,8 +35,9 @@ type AiSpreadsheetHeaderProps = {
  * the scroll container at all. Horizontal sync comes from painting with the
  * body's `scrollX`.
  *
- * `h-9` must stay in step with `HEADER_HEIGHT` — the canvas is sized from this
- * element's box.
+ * `h-sheet-header` and the canvas's `HEADER_HEIGHT` both read
+ * `SHEET_HEADER_PX` from `@reclit/ui/tokens` — the canvas is sized from this
+ * element's box, so the two cannot be allowed to drift.
  *
  * The canvas is taken out of flow and the strip clips. Its width is a pixel
  * value written imperatively and only corrected when the `ResizeObserver`
@@ -58,7 +59,7 @@ export function AiSpreadsheetHeader(props: AiSpreadsheetHeaderProps) {
   return (
     <div
       className={cn(
-        "relative h-9 w-full shrink-0 touch-none overflow-hidden",
+        "relative h-sheet-header w-full shrink-0 touch-none overflow-hidden",
         props.className,
       )}
       onPointerCancel={props.onPointerCancel}

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
+import { useLatestRef } from "@/hooks/use-latest-ref";
 import { parseShortColumnId } from "@/lib/ai-spreadsheet/short-ids";
 import type { SheetModel } from "@/lib/ai-spreadsheet/types";
 import { useTRPC } from "@/trpc/client";
@@ -29,8 +30,7 @@ export function useColumnRemove(args: {
   const removeColumnMutation = useMutation(
     trpc.spreadsheet.removeColumn.mutationOptions(),
   );
-  const mutateRef = useRef(removeColumnMutation.mutate);
-  mutateRef.current = removeColumnMutation.mutate;
+  const mutateRef = useLatestRef(removeColumnMutation.mutate);
 
   const removeColumn = useCallback(
     (columnId: string) => {

@@ -31,7 +31,7 @@ consumes it. `/` is the dashboard shell. There is no auth yet.
 | --- | --- | --- |
 | `apps/api` | `@reclit/api` | NestJS API server (Bun runtime), port **4001**, tRPC mounted at `/trpc`, Prisma + Postgres |
 | `apps/dashboard` | `@reclit/dashboard` | Next.js 16 App Router web app, port **4000** |
-| `packages/ui` | `@reclit/ui` | The one shared package: `Button`, `Input`, `Label`, `Select`, `Calendar`, `Spinner` + `focusRing` + `cn` + Tailwind preset |
+| `packages/ui` | `@reclit/ui` | The one shared package: 14 primitives (`Button`, `Input`, `Select`, `Dialog`, `DropdownMenu`, … — inventory in [docs/rules/FRONTEND.md](docs/rules/FRONTEND.md)), the design tokens (`src/tokens.ts`), `cn`, the focus recipes and the Tailwind preset |
 
 ## Commands
 
@@ -62,9 +62,10 @@ Filter to one workspace: `bunx turbo typecheck --filter=@reclit/api`.
   deps use `"@reclit/x": "workspace:*"`.
 - **Path alias**: `@/*` → `src/*` inside the dashboard. The api uses relative imports.
 - **Every dashboard string is a message key** in `apps/dashboard/src/messages/en.json`,
-  and every text size is a named step in the `fontSize` scale in
-  `packages/ui/tailwind.config.ts`. Literal copy and raw `text-sm`/`text-2xl` in
-  a component are both bugs — see [docs/rules/FRONTEND.md](docs/rules/FRONTEND.md).
+  and every colour, control size and text size is a token in
+  `packages/ui/src/tokens.ts` — the one file the design is edited in. Literal
+  copy and raw `text-sm`/`h-9`/`bg-white` in a component are bugs — see
+  [docs/rules/FRONTEND.md](docs/rules/FRONTEND.md).
 - **Skills**: `backend-feature`, `frontend-feature`, `api-testing`,
   `feature-workflow`, `new-package`. Load the matching one before writing code.
 - **Feature layout**: one folder per feature in `apps/api/src/modules/<feature>/`

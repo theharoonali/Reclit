@@ -1,10 +1,10 @@
 "use client";
 
 import { Input } from "@reclit/ui/input";
-import { Label } from "@reclit/ui/label";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { ErrorState } from "@/components/common/error-state";
+import { FormField } from "@/components/common/form-field";
 import { LoadingState } from "@/components/common/loading-state";
 import { useTRPC } from "@/trpc/client";
 
@@ -27,24 +27,26 @@ export function ProfileSettings() {
       <h2 className="text-heading">{t("title")}</h2>
 
       <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label className="text-muted-foreground" htmlFor="profile-name">
-            {t("nameLabel")}
-          </Label>
+        <FormField
+          htmlFor="profile-name"
+          label={t("nameLabel")}
+          labelClassName="text-muted-foreground"
+        >
           <Input disabled id="profile-name" readOnly value={me.data.name} />
-        </div>
+        </FormField>
 
-        <div className="grid gap-2">
-          <Label className="text-muted-foreground" htmlFor="profile-email">
-            {t("emailLabel")}
-          </Label>
+        <FormField
+          htmlFor="profile-email"
+          label={t("emailLabel")}
+          labelClassName="text-muted-foreground"
+        >
           <Input
             disabled
             id="profile-email"
             readOnly
             value={me.data.email ?? ""}
           />
-        </div>
+        </FormField>
       </div>
     </section>
   );

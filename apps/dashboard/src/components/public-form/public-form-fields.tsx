@@ -5,7 +5,7 @@ import { Checkbox } from "@reclit/ui/checkbox";
 import { Input } from "@reclit/ui/input";
 import { Label } from "@reclit/ui/label";
 import { Textarea } from "@reclit/ui/textarea";
-import { useRef } from "react";
+import { useFilePicker } from "@/hooks/use-file-picker";
 import {
   emptyDraft,
   type FieldDraft,
@@ -151,27 +151,12 @@ function FileField({
   labels: { replace: string; remove: string };
   onChange: (field: FieldDraft) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const picker = useFilePicker((file) => onChange({ ...field, file }));
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <input
-        accept={accept}
-        className="sr-only"
-        id={inputId}
-        onChange={(event) => {
-          const file = event.target.files?.[0] ?? null;
-          if (file) onChange({ ...field, file });
-          event.target.value = "";
-        }}
-        ref={inputRef}
-        type="file"
-      />
-      <Button
-        onClick={() => inputRef.current?.click()}
-        type="button"
-        variant="outline"
-      >
+      <input accept={accept} id={inputId} {...picker.inputProps} />
+      <Button onClick={picker.open} type="button" variant="outline">
         {field.file ? labels.replace : chooseLabel}
       </Button>
       {field.file && (

@@ -13,9 +13,9 @@ reports `/` as `ƒ (Dynamic)`.
 | Path | Kind | Responsibility |
 | --- | --- | --- |
 | `apps/dashboard/src/app/(app)/layout.tsx` | RSC | The **one** chrome mount point — renders `<WorkspaceProvider>` around `<AppShell>` (plus `<WorkspaceHeaderTitle>`) for every route in the group |
-| `apps/dashboard/src/app/(app)/page.tsx` | RSC | Page framing only: heading, subtitle, one component |
+| `apps/dashboard/src/app/(app)/page.tsx` | RSC | `PageShell` (title, subtitle) around one component |
 | `apps/dashboard/src/components/layout/app-shell.tsx` | RSC | Page geometry: sidebar beside a column of header + `main`. The only file that knows the layout |
-| `apps/dashboard/src/components/layout/app-sidebar.tsx` | client | Collapse state (`useState`, `w-56` ↔ `w-16`), app name + current-plan capsule + collapse toggle, grouped nav, the credits block and account menu at the bottom. Active row from `usePathname()` |
+| `apps/dashboard/src/components/layout/app-sidebar.tsx` | client | Collapse state (`useState`, `w-sidebar` ↔ `w-sidebar-rail`), app name + current-plan capsule + collapse toggle, grouped nav, the credits block and account menu at the bottom. Active row from `usePathname()` |
 | `apps/dashboard/src/components/layout/sidebar-credits.tsx` | client | Credits usage bar + used/total count above the account block, from the stub in `config/subscription.ts`. Hidden when collapsed |
 | `apps/dashboard/src/components/layout/app-header.tsx` | RSC | Takes `title`/`actions` slots as props and mounts the two portal outlets (title left, actions right). Has no interactive element, so it is not a client component |
 | `apps/dashboard/src/components/layout/header-actions.tsx` | client | The header's two portal slots: `HeaderActions` (right) and `HeaderTitle` (left), one implementation |
@@ -26,14 +26,17 @@ reports `/` as `ƒ (Dynamic)`.
 | `apps/dashboard/src/components/dashboard/dashboard-empty.tsx` | RSC | The page's only body content |
 | `apps/dashboard/src/config/nav.ts` | data | `navSections`, `APP_NAME`. Chrome never hardcodes a link |
 | `apps/dashboard/src/config/subscription.ts` | data | Stubbed plan/credits data for the sidebar credits block and `/settings` |
-| `apps/dashboard/src/app/layout.tsx` | RSC | Root layout: fonts (`Google_Sans` + `Geist_Mono`), `<html lang>` from `getLocale()`, `NextIntlClientProvider`, `Providers`. No chrome |
+| `apps/dashboard/src/app/layout.tsx` | RSC | Root layout: fonts (`Google_Sans` + `Geist_Mono`), `<html lang>` from `getLocale()`, `NextIntlClientProvider`, `Providers`, `pageMetadata("metadata")`. No chrome |
+| `apps/dashboard/src/app/error.tsx` · `global-error.tsx` | client | Error boundaries; both render `components/common/error-fallback.tsx` (English on purpose) |
 | `apps/dashboard/src/i18n/config.ts` | data | Locale list, default locale, cookie name |
 | `apps/dashboard/src/i18n/request.ts` | server | Resolves the request locale from the cookie and loads its messages |
 | `apps/dashboard/src/messages/en.json` | data | Every user-facing string on this page |
 | `apps/dashboard/src/app/providers.tsx` | client | `TRPCReactProvider` + `next-themes` pinned to light via `forcedTheme="light"` |
 
-Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/cn`.
-Icons are `lucide-react` (a dashboard dependency, not a `@reclit/ui` one).
+Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/cn`,
+`@reclit/ui/focus-ring`, `@reclit/ui/avatar`, `@reclit/ui/dropdown-menu`,
+`@reclit/ui/dialog`, `@reclit/ui/progress`, `components/common/page-shell.tsx`,
+`components/common/form-field.tsx`. Icons are `lucide-react`.
 
 ## APIs called
 
@@ -98,8 +101,9 @@ account menu's create dialog calls `workspace.create` (invalidating
   from `header-actions.tsx`; portal content in (`HeaderTitle` /
   `HeaderActions`) rather than editing the header for one page.
 - Redesigning the layout is `app-shell.tsx` for geometry, or
-  `packages/ui/src/globals.css` for the look. If a redesign needs page edits,
-  the shell is leaking ([../rules/FRONTEND.md](../rules/FRONTEND.md)).
+  `packages/ui/src/tokens.ts` for the look (colours, radius, control and
+  chrome sizes, type scale). If a redesign needs page edits, the shell is
+  leaking ([../rules/FRONTEND.md](../rules/FRONTEND.md)).
 
 ## Linked routes
 

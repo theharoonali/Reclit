@@ -19,14 +19,17 @@ import { cn } from "../utils";
  * | `destructive-outline` | a destructive action that is not the surface's primary emphasis |
  * | `link` | an action that reads as text |
  *
- * Icons need no classes: the base sizes any `svg` child to 4 and spaces it
- * with `gap-2`. `<Plus />`, not `<Plus className="mr-2 h-4 w-4" />`.
+ * Icons need no classes: the base sizes any `svg` child to `size-icon` and
+ * spaces it with `gap-inline`. `<Plus />`, not `<Plus className="mr-2 h-4 w-4" />`.
+ *
+ * Every length is a token from `tokens.ts` (`h-control`, `px-control-x` …),
+ * so resizing the app's buttons is one edit there.
  */
 const buttonVariants = cva(
   cn(
-    "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-sm text-label transition-colors",
+    "inline-flex shrink-0 items-center justify-center gap-inline whitespace-nowrap rounded-sm text-label transition-colors",
     "disabled:pointer-events-none disabled:opacity-50",
-    "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+    "[&_svg]:pointer-events-none [&_svg]:size-icon [&_svg]:shrink-0",
     focusRing,
   ),
   {
@@ -45,10 +48,10 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 px-3 text-caption",
-        lg: "h-10 px-8",
-        icon: "h-9 w-9",
+        default: "h-control px-control-x py-control-y",
+        sm: "h-control-sm px-control-x-sm text-caption",
+        lg: "h-control-lg px-control-x-lg",
+        icon: "h-control w-control",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

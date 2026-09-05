@@ -9,14 +9,14 @@ subscription/add-on cards.
 
 | Path | Kind | Responsibility |
 | --- | --- | --- |
-| `apps/dashboard/src/app/(app)/settings/page.tsx` | RSC | metadata, prefetch `user.me`, gutter, mounts the two sections |
+| `apps/dashboard/src/app/(app)/settings/page.tsx` | RSC | `pageMetadata`, prefetch `user.me`, `PageShell`, mounts the two sections |
 | `apps/dashboard/src/components/settings/profile-settings.tsx` | client | display-only name + email from `user.me`, rendered as disabled (dimmed) fields |
 | `apps/dashboard/src/components/settings/subscription-settings.tsx` | client | plan cards (Pro plain, Premium primary-tinted) + three one-time add-on cards; pure UI over `config/subscription.ts`, no handlers |
 | `apps/dashboard/src/config/subscription.ts` | data | stubbed plans, add-ons, current plan and credit usage (no billing backend) |
 
-Shared pieces used: `@reclit/ui/avatar`, `@reclit/ui/button`, `@reclit/ui/input`,
-`@reclit/ui/label`, `components/common/loading-state.tsx`,
-`components/common/error-state.tsx`.
+Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`,
+`components/common/page-shell.tsx`, `components/common/form-field.tsx`,
+`components/common/loading-state.tsx`, `components/common/error-state.tsx`.
 
 ## APIs called
 
@@ -42,9 +42,8 @@ in the sidebar's account menu, and rename/delete have no UI surface right now
   `config/subscription.ts`; the Upgrade/Buy buttons carry no handlers and the
   current plan's button is disabled. Wiring billing means replacing that
   config with real data — the components need no structural change.
-- There is no workspace section: rename/delete UI was removed with it
-  (`workspace-settings.tsx` and `components/common/confirm-dialog.tsx` were
-  deleted; restore them from git history if workspace management returns).
+- There is no workspace section; workspace creation and switching live in the
+  sidebar's account menu ([root.md](root.md)).
 
 ## Linked routes
 

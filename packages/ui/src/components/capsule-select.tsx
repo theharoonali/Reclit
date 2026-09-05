@@ -64,7 +64,7 @@ function CapsuleSelect<T extends string = string>(
           <button
             aria-checked={checked}
             className={cn(
-              "inline-flex h-8 items-center rounded-full border px-3 text-label transition-colors",
+              "inline-flex h-control-sm items-center rounded-full border px-control-x-sm text-label transition-colors",
               checked
                 ? "border-primary bg-transparent text-primary"
                 : "border-input bg-transparent text-muted-foreground hover:text-foreground",

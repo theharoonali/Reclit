@@ -1,5 +1,6 @@
 "use client";
 
+import { Download, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sheetToCsv } from "@/lib/ai-spreadsheet/export-csv";
@@ -10,12 +11,11 @@ import type {
   SheetPayload,
 } from "@/lib/ai-spreadsheet/types";
 import { AiSpreadsheetBody } from "./ai-spreadsheet-body";
-import { AiSpreadsheetCellClearButton } from "./ai-spreadsheet-cell-clear-button";
 import { AiSpreadsheetColumnForm } from "./ai-spreadsheet-column-form";
 import { AiSpreadsheetDateEditor } from "./ai-spreadsheet-date-editor";
 import { AiSpreadsheetDragChip } from "./ai-spreadsheet-drag-chip";
-import { AiSpreadsheetExportButton } from "./ai-spreadsheet-export-button";
 import { AiSpreadsheetHeader } from "./ai-spreadsheet-header";
+import { AiSpreadsheetHeaderAction } from "./ai-spreadsheet-header-action";
 import { AiSpreadsheetImportButton } from "./ai-spreadsheet-import-button";
 import { AiSpreadsheetInputProxy } from "./ai-spreadsheet-input-proxy";
 import { AiSpreadsheetJsonEditor } from "./ai-spreadsheet-json-editor";
@@ -345,9 +345,11 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
         status={importer.status}
       />
 
-      <AiSpreadsheetExportButton
+      <AiSpreadsheetHeaderAction
+        icon={Download}
         label={t("export.label")}
-        onExport={exportCsv}
+        onClick={exportCsv}
+        variant="outline"
       />
 
       <AiSpreadsheetRunButton
@@ -365,11 +367,14 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
         status={runCell.status}
       />
 
-      <AiSpreadsheetCellClearButton
-        label={t("cells.delete")}
-        onClear={canvas.editor.clearSelectedCells}
-        visible={cellsSelected}
-      />
+      {cellsSelected && (
+        <AiSpreadsheetHeaderAction
+          icon={Trash2}
+          label={t("cells.delete")}
+          onClick={canvas.editor.clearSelectedCells}
+          variant="destructive-outline"
+        />
+      )}
 
       <AiSpreadsheetSelectionBar
         count={selection.count}

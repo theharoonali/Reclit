@@ -53,9 +53,6 @@ export function isJsonObject(value: CellValue): value is JsonObject {
   return typeof value === "object" && value !== null;
 }
 
-export const jsonKeyCount = (value: CellValue) =>
-  isJsonObject(value) ? Object.keys(value).length : 0;
-
 /**
  * File and audio cells hold the URL of the thing itself, so both are validated
  * the same way; anything that is not a URL is mistyped.

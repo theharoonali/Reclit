@@ -24,7 +24,7 @@ const DialogOverlay = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
-    className={cn("fixed inset-0 z-50 bg-black/50", className)}
+    className={cn("fixed inset-0 z-50 bg-overlay/overlay", className)}
     ref={ref}
     {...props}
   />
@@ -52,7 +52,7 @@ const DialogContent = React.forwardRef<
           focusRing,
         )}
       >
-        <X className="h-4 w-4" />
+        <X className="size-icon" />
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>

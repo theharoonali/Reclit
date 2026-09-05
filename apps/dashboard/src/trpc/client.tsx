@@ -7,12 +7,13 @@ import {
   createTRPCClient,
   httpBatchStreamLink,
   httpSubscriptionLink,
-  loggerLink,
   splitLink,
 } from "@trpc/client";
 import { createTRPCContext } from "@trpc/tanstack-react-query";
 import { useState } from "react";
 import superjson from "superjson";
+import { API_BASE_URL } from "@/lib/api-fetch";
+import { devLoggerLink } from "./logger-link";
 import { makeQueryClient } from "./query-client";
 
 export const { TRPCProvider, useTRPC, useTRPCClient } =
@@ -30,7 +31,7 @@ function getQueryClient() {
   return browserQueryClient;
 }
 
-const TRPC_URL = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4001"}/trpc`;
+const TRPC_URL = `${API_BASE_URL}/trpc`;
 
 export function TRPCReactProvider(
   props: Readonly<{
@@ -42,11 +43,7 @@ export function TRPCReactProvider(
   const [trpcClient] = useState(() =>
     createTRPCClient<AppRouter>({
       links: [
-        loggerLink({
-          enabled: (opts) =>
-            process.env.NODE_ENV === "development" ||
-            (opts.direction === "down" && opts.result instanceof Error),
-        }),
+        devLoggerLink(),
         // Queries and mutations batch over one streamed request; a
         // subscription is a long-lived SSE connection (the browser's own
         // EventSource), which tRPC reconnects with the last event id.

@@ -2,25 +2,24 @@ import "server-only";
 
 import type { AppRouter } from "@reclit/api/trpc/routers/_app";
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
-import { createTRPCClient, httpLink, loggerLink } from "@trpc/client";
+import { createTRPCClient, httpLink } from "@trpc/client";
 import {
   createTRPCOptionsProxy,
   type TRPCQueryOptions,
 } from "@trpc/tanstack-react-query";
 import { cache } from "react";
 import superjson from "superjson";
+import { API_BASE_URL } from "@/lib/api-fetch";
+import { devLoggerLink } from "./logger-link";
 import { makeQueryClient } from "./query-client";
 
 // IMPORTANT: Create a stable getter for the query client that
 //            will return the same client during the same request.
 export const getQueryClient = cache(makeQueryClient);
 
-// Server-side: prefer the internal URL (private networking) when set,
-// then the public URL, then the local-dev default.
-const API_BASE_URL =
-  process.env.API_INTERNAL_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  "http://localhost:4001";
+// Server-side: prefer the internal URL (private networking) when set, then
+// the same public URL the browser uses.
+const SERVER_API_URL = process.env.API_INTERNAL_URL || API_BASE_URL;
 
 const SSR_FETCH_TIMEOUT_MS = 8_000;
 
@@ -41,15 +40,11 @@ export const trpc = createTRPCOptionsProxy<AppRouter>({
   client: createTRPCClient({
     links: [
       httpLink({
-        url: `${API_BASE_URL}/trpc`,
+        url: `${SERVER_API_URL}/trpc`,
         transformer: superjson,
         fetch: fetchWithTimeout,
       }),
-      loggerLink({
-        enabled: (opts) =>
-          process.env.NODE_ENV === "development" ||
-          (opts.direction === "down" && opts.result instanceof Error),
-      }),
+      devLoggerLink(),
     ],
   }),
 });
@@ -64,6 +59,8 @@ export function HydrateClient(props: { children: React.ReactNode }) {
   );
 }
 
+// `any` is tRPC's own shape for "any procedure's options" — there is no
+// narrower type that accepts every router path.
 export function prefetch<T extends ReturnType<TRPCQueryOptions<any>>>(
   queryOptions: T,
 ) {

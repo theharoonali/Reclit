@@ -1,12 +1,12 @@
 import * as React from "react";
-import { focusField } from "../styles/focus-ring";
+import { fieldSingleLine } from "../styles/field";
 import { cn } from "../utils";
 
 export type InputProps = React.InputHTMLAttributes<HTMLInputElement>;
 
 /**
- * The text field. Height, radius, border and focus all come from the shared
- * set, so it and `SelectTrigger` are the same control with different innards.
+ * The text field. Height, radius, border and focus come from the shared field
+ * base, so it and `SelectTrigger` are the same control with different innards.
  */
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, type, ...props }, ref) => {
@@ -14,10 +14,8 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       <input
         type={type}
         className={cn(
-          "flex h-9 w-full rounded-sm border border-input bg-transparent px-3 py-1 text-body transition-colors",
+          fieldSingleLine,
           "placeholder:text-muted-foreground",
-          "disabled:cursor-not-allowed disabled:opacity-50",
-          focusField,
           className,
         )}
         ref={ref}

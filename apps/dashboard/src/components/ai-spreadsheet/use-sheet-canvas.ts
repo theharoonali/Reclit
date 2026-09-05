@@ -350,5 +350,3 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     ...pointer,
   };
 }
-
-export type SheetCanvasApi = ReturnType<typeof useSheetCanvas>;

@@ -1,9 +1,8 @@
 "use client";
 
-import { Button } from "@reclit/ui/button";
 import { Upload } from "lucide-react";
-import { useRef } from "react";
-import { HeaderActions } from "@/components/layout/header-actions";
+import { useFilePicker } from "@/hooks/use-file-picker";
+import { AiSpreadsheetHeaderAction } from "./ai-spreadsheet-header-action";
 import type { ImportStatus } from "./use-sheet-import";
 
 type AiSpreadsheetImportButtonProps = {
@@ -15,54 +14,30 @@ type AiSpreadsheetImportButtonProps = {
 };
 
 /**
- * The Import control, portalled into the app header so the sheet keeps the
- * whole content area (`docs/rules/FRONTEND.md` — pages put controls in the
- * header rather than growing their own bar).
- *
- * Purely presentational: it owns no mutation, so the grid keeps control of the
- * order in which an import discards pending writes and refreshes the model.
+ * The Import control: the shared header action with a hidden file input
+ * riding along. Purely presentational — it owns no mutation, so the grid keeps
+ * control of the order in which an import discards pending writes and
+ * refreshes the model.
  */
 export function AiSpreadsheetImportButton(
   props: AiSpreadsheetImportButtonProps,
 ) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const picker = useFilePicker(props.onPick);
+  const importing = props.status === "importing";
 
   return (
-    <HeaderActions>
-      {props.errorMessage && (
-        <p
-          className="hidden max-w-xs truncate text-caption text-destructive sm:block"
-          role="alert"
-        >
-          {props.errorMessage}
-        </p>
-      )}
-
+    <AiSpreadsheetHeaderAction
+      disabled={importing}
+      errorMessage={props.errorMessage}
+      icon={Upload}
+      label={importing ? props.labels.importing : props.labels.import}
+      onClick={picker.open}
+      variant="outline"
+    >
       <input
         accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        className="sr-only"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          // Reset first, so picking the same file again still fires `change`.
-          event.target.value = "";
-          if (file) props.onPick(file);
-        }}
-        ref={inputRef}
-        type="file"
+        {...picker.inputProps}
       />
-
-      <Button
-        disabled={props.status === "importing"}
-        onClick={() => inputRef.current?.click()}
-        size="sm"
-        type="button"
-        variant="outline"
-      >
-        <Upload aria-hidden="true" />
-        {props.status === "importing"
-          ? props.labels.importing
-          : props.labels.import}
-      </Button>
-    </HeaderActions>
+    </AiSpreadsheetHeaderAction>
   );
 }

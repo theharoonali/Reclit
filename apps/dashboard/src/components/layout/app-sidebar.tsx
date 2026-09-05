@@ -32,12 +32,12 @@ export function AppSidebar() {
     <aside
       className={cn(
         "hidden shrink-0 flex-col border-r border-border bg-card transition-all duration-smooth ease-smooth md:flex",
-        collapsed ? "w-16" : "w-56",
+        collapsed ? "w-sidebar-rail" : "w-sidebar",
       )}
     >
       <div
         className={cn(
-          "flex h-16 shrink-0 items-center",
+          "flex h-header shrink-0 items-center",
           collapsed ? "justify-center px-0" : "gap-3 px-5",
         )}
       >
