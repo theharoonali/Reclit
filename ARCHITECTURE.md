@@ -24,10 +24,11 @@ apps/api (NestJS on Bun, port 4001)
         ▼                       │ one dedicated pg connection per process)
   PostgreSQL  (DATABASE_URL)  ──┘ trigger run_ai_notify on "RunAi"
         ▲
-        │  runAiService.runCell → dispatcher hook → src/jobs/run-ai-dispatch.ts → tasks.trigger
+        │  runAiBatchService.runCells → dispatcher hook → src/jobs/run-ai-dispatch.ts → tasks.trigger
         │
-  Trigger.dev worker (src/trigger/run-ai-cell.ts, bundled by the Trigger CLI)
-        └── calls the same services → Gemini via src/ai/ → writes the run + cell
+  Trigger.dev worker (src/trigger/, bundled by the Trigger CLI)
+        ├── run-ai-batch: per AI column (a wave) prepares the inputs, then batchTriggerAndWait →
+        └── run-ai-cell: calls the same services → Gemini via src/ai/ → writes the run + cell
 
 packages/ui  → shared primitives + Tailwind preset, consumed by the dashboard
 ```
@@ -64,7 +65,9 @@ packages/ui  → shared primitives + Tailwind preset, consumed by the dashboard
   `bootstrap.ts`, so the test suite stays network-free.
 - `src/ai/` holds the Vercel AI SDK provider (`gemini.ts`) and the pure
   prompt/output helpers a task composes.
-- The one job today is `run-ai-cell`; its lifecycle, table and stream are
+- The jobs today are `run-ai-batch` (the orchestrator of one Run click: one
+  wave per AI column, prepared then fanned out) and `run-ai-cell` (one
+  cell); their lifecycle, table and stream are
   [docs/features/run-ai.md](docs/features/run-ai.md).
 
 ## Live updates (tRPC subscriptions over SSE)

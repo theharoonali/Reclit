@@ -2,18 +2,19 @@ import { tracked } from "@trpc/server";
 import { idInput } from "../../common/schema";
 import {
   runAiBatchInput,
-  runAiCellInput,
+  runAiCellsInput,
   runAiChangesInput,
   runAiSheetInput,
 } from "../../modules/run-ai/run-ai.schema";
 import { runAiService } from "../../modules/run-ai/run-ai.service";
+import { runAiBatchService } from "../../modules/run-ai/run-ai-batch.service";
 import { runAiChangesService } from "../../modules/run-ai/run-ai-changes.service";
 import { createTRPCRouter, mapDomainError, publicProcedure } from "../init";
 
-// Routers validate input and delegate. All DB access lives in the service.
-// `runCell` is the one write: it records a pending run and hands it to the
-// Trigger.dev worker; every later transition is the worker's, and the live
-// stream carries them back (docs/features/run-ai.md).
+// Routers validate input and delegate. All DB access lives in the services.
+// `runCells` is the one write: it records the pending runs of a selection and
+// hands them to the Trigger.dev worker; every later transition is the
+// worker's, and the live stream carries them back (docs/features/run-ai.md).
 
 export const runAiRouter = createTRPCRouter({
   byId: publicProcedure
@@ -32,14 +33,16 @@ export const runAiRouter = createTRPCRouter({
     ),
 
   /**
-   * Runs one AI cell: creates its `pending` run with the whole row (in
-   * column sort order) and the column prompt as `result.input`, then
-   * enqueues the `run-ai-cell` job. The run is returned as created; its
-   * progress arrives through `onChange`.
+   * Runs the AI cells of a rectangle: one `pending` run per selected row and
+   * AI column under one batch id, then enqueues the `run-ai-batch` job. The
+   * runs are returned as created, in series order; their progress arrives
+   * through `onChange`.
    */
-  runCell: publicProcedure
-    .input(runAiCellInput)
-    .mutation(({ input }) => runAiService.runCell(input).catch(mapDomainError)),
+  runCells: publicProcedure
+    .input(runAiCellsInput)
+    .mutation(({ input }) =>
+      runAiBatchService.runCells(input).catch(mapDomainError),
+    ),
 
   /**
    * SSE stream of one sheet's runs: replay since `lastEventId`, a snapshot

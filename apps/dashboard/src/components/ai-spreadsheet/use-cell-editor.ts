@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { editableText, parseCellInput } from "@/lib/ai-spreadsheet/cell-format";
 import { CELL_PAD_X, COL_WIDTH, clamp } from "@/lib/ai-spreadsheet/geometry";
+import { selectionRect } from "@/lib/ai-spreadsheet/run-targets";
 import { caretXForIndex } from "@/lib/ai-spreadsheet/text-metrics";
 import type {
   CellValue,
@@ -56,12 +57,12 @@ export type CellEditorArgs = {
    */
   onSelectionPresence?: (has: boolean) => void;
   /**
-   * Fired only when the active cell's *display column* changes (or the
-   * selection goes away), so a control that depends on which column is
-   * selected — the Run button — re-renders per column, never per row move
-   * or keystroke.
+   * Fired only when the selected rectangle (anchor…active) changes or goes
+   * away — never per keystroke — so a control that depends on which cells
+   * are selected (the Run button) recomputes from the ref and React bails
+   * out when what it derives is unchanged.
    */
-  onActiveColumnChange?: (col: number | null) => void;
+  onSelectionChange?: () => void;
 };
 
 /**
@@ -81,22 +82,26 @@ export function useCellEditor(args: CellEditorArgs) {
   const { modelRef, viewportRef, ctxRef, fontsRef, requestPaint } = args;
   const { getCell, setCell, scrollCellIntoView } = args;
   const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile } = args;
-  const { onSelectionPresence, onActiveColumnChange } = args;
+  const { onSelectionPresence, onSelectionChange } = args;
 
   const presenceRef = useRef(false);
-  const activeColRef = useRef<number | null>(null);
+  const rectKeyRef = useRef<string | null>(null);
   const notifyPresence = useCallback(() => {
-    const has = editorRef.current.active !== null;
+    const { active, anchor } = editorRef.current;
+    const has = active !== null;
     if (has !== presenceRef.current) {
       presenceRef.current = has;
       onSelectionPresence?.(has);
     }
-    const col = editorRef.current.active?.col ?? null;
-    if (col !== activeColRef.current) {
-      activeColRef.current = col;
-      onActiveColumnChange?.(col);
+    const rect = active ? selectionRect(active, anchor) : null;
+    const key = rect
+      ? `${rect.rowFirst}:${rect.rowLast}:${rect.colFirst}:${rect.colLast}`
+      : null;
+    if (key !== rectKeyRef.current) {
+      rectKeyRef.current = key;
+      onSelectionChange?.();
     }
-  }, [onActiveColumnChange, onSelectionPresence]);
+  }, [onSelectionChange, onSelectionPresence]);
 
   const stopBlink = useCallback(() => {
     if (blinkRef.current !== 0) window.clearInterval(blinkRef.current);
@@ -383,11 +388,10 @@ export function useCellEditor(args: CellEditorArgs) {
     const model = modelRef.current;
     const active = editor.active;
     if (!model || !active) return;
-    const anchor = editor.anchor ?? active;
-    const rowFirst = Math.min(anchor.row, active.row);
-    const rowLast = Math.max(anchor.row, active.row);
-    const colFirst = Math.min(anchor.col, active.col);
-    const colLast = Math.max(anchor.col, active.col);
+    const { rowFirst, rowLast, colFirst, colLast } = selectionRect(
+      active,
+      editor.anchor,
+    );
     const displayCol = new Map<string, number>();
     model.columns.forEach((column, index) => {
       displayCol.set(column.id, index);

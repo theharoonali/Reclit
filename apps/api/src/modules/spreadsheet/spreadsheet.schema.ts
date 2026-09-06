@@ -176,7 +176,7 @@ const name = z.string().trim().min(1, "Name is required").max(200);
 const prompt = z.string().trim().min(1, "Prompt cannot be empty").max(10_000);
 // Coerced so REST path params ("0") parse through the same schemas as tRPC
 // numbers.
-const gridIndex = z.coerce.number().int().min(0);
+export const gridIndex = z.coerce.number().int().min(0);
 
 /** The sheet's virtual grid height; shared with workspaceService.create. */
 export const DEFAULT_TOTAL_ROWS = 5_000_000;

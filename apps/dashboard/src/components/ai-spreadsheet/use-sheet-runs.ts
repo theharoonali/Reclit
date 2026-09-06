@@ -22,11 +22,12 @@ export type SheetRunsApi = {
   /** Where the pulse is in its breath, 0..1. */
   phaseRef: React.RefObject<number>;
   /**
-   * A run the sheet just created, applied before the stream reports it: the
-   * capsule paints at once, and a run so quick it finishes before the stream
-   * connects still had its moment on screen.
+   * The runs the sheet just created, applied before the stream reports them:
+   * the capsules paint at once — one paint for the whole batch — and a run
+   * so quick it finishes before the stream connects still had its moment on
+   * screen.
    */
-  seed: (run: RunAi) => void;
+  seed: (runs: RunAi[]) => void;
 };
 
 type SheetRunsArgs = {
@@ -106,17 +107,21 @@ export function useSheetRuns({
     if (!listening) clear();
   }, [clear, listening]);
 
-  /** Folds one change into the capsules and the model. */
-  const apply = useCallback(
-    (change: Exclude<RunAiChange, { type: "closed" }>) => {
+  /** Folds changes into the capsules and the model: one paint, one notice. */
+  const fold = useCallback(
+    (changes: Exclude<RunAiChange, { type: "closed" }>[]) => {
       const model = modelRef.current;
       if (!model) return;
-      const update = applyRunChange(runsRef.current, change, model.sheetId);
-      runsRef.current = update.runs;
-      for (const output of update.outputs) {
-        setCellLocal(output.row, output.columnId, output.value);
+      let runs = runsRef.current;
+      for (const change of changes) {
+        const update = applyRunChange(runs, change, model.sheetId);
+        runs = update.runs;
+        for (const output of update.outputs) {
+          setCellLocal(output.row, output.columnId, output.value);
+        }
       }
-      if (update.runs.size > 0) ensurePulse();
+      runsRef.current = runs;
+      if (runs.size > 0) ensurePulse();
       requestPaint();
       onRunsChange?.();
     },
@@ -124,8 +129,8 @@ export function useSheetRuns({
   );
 
   const seed = useCallback(
-    (run: RunAi) => apply({ type: "run", run }),
-    [apply],
+    (runs: RunAi[]) => fold(runs.map((run) => ({ type: "run", run }) as const)),
+    [fold],
   );
 
   const onData = useCallback(
@@ -135,9 +140,9 @@ export function useSheetRuns({
         onEnded();
         return;
       }
-      apply(event.data);
+      fold([event.data]);
     },
-    [apply, clear, onEnded],
+    [fold, clear, onEnded],
   );
 
   const sheetId = modelRef.current?.sheetId ?? "";

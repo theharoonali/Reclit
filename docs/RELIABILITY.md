@@ -19,9 +19,11 @@ via `pingDatabase()` (`apps/api/src/db/prisma.ts`) and returns:
   subscription retries it. A dropped connection reconnects with exponential
   backoff (0.5 s → 30 s) and emits `resync`, so every open stream re-sends its
   snapshot and no client shows a stale working run.
-- The Trigger.dev task `run-ai-cell` has no retries (a retry would revive a
-  terminal run); its `onFailure` marks the run `failed` when the task is
-  killed, so a cell is never left busy by a crash.
+- The Trigger.dev tasks `run-ai-batch` and `run-ai-cell` have no retries (a
+  retry would revive a terminal run or re-run finished cells); their
+  `onFailure` marks what is still working `failed` when a task is killed —
+  the batch through `failPending`, which never touches a completed step — so
+  a cell is never left busy by a crash.
 
 ## Tests
 

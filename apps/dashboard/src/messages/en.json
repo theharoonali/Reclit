@@ -177,8 +177,10 @@
     },
     "listen": {
       "start": "Run",
+      "startMany": "{count, plural, one {Run # cell} other {Run # cells}}",
       "running": "Starting...",
-      "errorBusy": "That cell already has a run in progress.",
+      "errorBusy": "A selected cell already has a run in progress.",
+      "errorTooLarge": "Select at most 1,000 rows and 5,000 AI cells to run at once.",
       "error": "The run could not be started. Try again."
     },
     "cells": {

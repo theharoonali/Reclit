@@ -1,27 +1,13 @@
 import type { Prisma } from "../../../generated/prisma/client";
-import { describeError } from "../../common/errors";
 import {
   isRecordNotFound,
   isUniqueViolation,
 } from "../../common/prisma-errors";
 import { prisma, toJsonInput } from "../../db/prisma";
-import {
-  cellId,
-  parseCellId,
-  shortColumnId,
-  shortRowId,
-} from "../spreadsheet/spreadsheet.ids";
-import {
-  toWireColumnType,
-  toWireNodeType,
-} from "../spreadsheet/spreadsheet.schema";
-import { spreadsheetService } from "../spreadsheet/spreadsheet.service";
-import { buildRowCells } from "../spreadsheet/spreadsheet.shape";
+import { parseCellId } from "../spreadsheet/spreadsheet.ids";
 import { spreadsheetCellsService } from "../spreadsheet/spreadsheet-cells.service";
 import {
   RunAiCellBusyError,
-  RunAiColumnNotRunnableError,
-  RunAiDispatchError,
   RunAiFinishedError,
   RunAiInvalidCellIdError,
   RunAiNotFoundError,
@@ -31,9 +17,6 @@ import type {
   CreateRunAiInput,
   FailRunAiInput,
   RunAi,
-  RunAiCellInput,
-  RunAiInput,
-  RunAiJobPayload,
   RunAiResult,
   SetRunAiStatusInput,
 } from "./run-ai.schema";
@@ -43,19 +26,12 @@ import {
   toWireRunAiStatus,
 } from "./run-ai.schema";
 
-// Framework-free (docs/rules/BACKEND.md hard rule 1). The run lifecycle:
-// `runCell` creates runs and hands them to the worker through the dispatcher
-// hook; the Trigger.dev task transitions them. The database enforces one
-// working run per cell (partial unique index). The live stream is
+// Framework-free (docs/rules/BACKEND.md hard rule 1). The run lifecycle and
+// the reads: runs are created here (one or a whole batch), the Trigger.dev
+// tasks transition them, and the database enforces one working run per cell
+// (partial unique index). Which cells run, in what order, and the dispatcher
+// hook live in run-ai-batch.service.ts; the live stream in
 // run-ai-changes.service.ts.
-
-/**
- * Asks the worker to execute a run. Registered by src/jobs/run-ai-dispatch.ts
- * (the only importer of @trigger.dev/sdk) from src/main.ts — this graph is
- * transpiled by the dashboard and may not import the SDK itself. Without one
- * (tests) a run stays `pending`.
- */
-export type RunAiDispatcher = (payload: RunAiJobPayload) => Promise<void>;
 
 const runAiSelect = {
   id: true,
@@ -71,6 +47,11 @@ const runAiSelect = {
 
 /** How many rows a reconnecting subscriber may replay. */
 const REPLAY_LIMIT = 500;
+
+/** The `where` half of "still working": any status but the terminal two. */
+const WORKING: Prisma.StringFilter<"RunAi"> = {
+  notIn: [...RUN_AI_TERMINAL_STATUSES_DB],
+};
 
 function toRunAi(
   record: Prisma.RunAiGetPayload<{ select: typeof runAiSelect }>,
@@ -97,89 +78,51 @@ function resultAndCredit({
   };
 }
 
+/** One create input as a row; shared by `create` and `createMany`. */
+function toCreateData(input: CreateRunAiInput): Prisma.RunAiCreateManyInput {
+  const address = parseCellId(input.cellId);
+  if (!address) throw new RunAiInvalidCellIdError(input.cellId);
+  return {
+    cellId: input.cellId,
+    spreadsheetId: address.sheetId,
+    batchId: input.batchId,
+    ...(input.status !== undefined && {
+      status: toDbRunAiStatus(input.status),
+    }),
+    ...resultAndCredit({ result: input.result, credit: input.credit ?? 0 }),
+  };
+}
+
 export class RunAiService {
-  private dispatcher: RunAiDispatcher | null = null;
-
-  setDispatcher(dispatcher: RunAiDispatcher | null): void {
-    this.dispatcher = dispatcher;
-  }
-
-  /**
-   * Runs one AI cell. The column must be an AI node with a prompt; the
-   * input is the whole row in column sort order plus that prompt. The run
-   * is created `pending` with `result.input` — the insert already reaches
-   * the sheet through the stream — and then handed to the worker. A
-   * dispatch that throws fails the run (the reason lands in `result.error`)
-   * and surfaces as `RunAiDispatchError`; no dispatcher leaves it pending.
-   */
-  async runCell(address: RunAiCellInput): Promise<RunAi> {
-    const column = await spreadsheetService.columnOrThrow(
-      address.id,
-      address.columnIndex,
-    );
-    if (
-      column.node === null ||
-      toWireNodeType(column.node) !== "ai" ||
-      column.prompt === null
-    ) {
-      throw new RunAiColumnNotRunnableError(address.columnIndex);
-    }
-    const { columns, cells } = await spreadsheetService.rowCells(
-      address.id,
-      address.rowIndex,
-    );
-    const input: RunAiInput = {
-      prompt: column.prompt,
-      target: {
-        id: shortColumnId(column.index),
-        index: column.index,
-        name: column.name,
-        type: toWireColumnType(column.type),
-      },
-      row: {
-        id: shortRowId(address.rowIndex),
-        index: address.rowIndex,
-        cells: buildRowCells(columns, cells),
-      },
-    };
-    const run = await this.create({
-      cellId: cellId(address.id, address.rowIndex, address.columnIndex),
-      batchId: `run-${crypto.randomUUID()}`,
-      result: { input },
-    });
-    if (this.dispatcher === null) return run;
-    try {
-      await this.dispatcher({ runId: run.id, input });
-    } catch (error) {
-      const failure = describeError(error);
-      await this.fail(run.id, { result: { input, error: failure } });
-      throw new RunAiDispatchError(run.id, failure.message);
-    }
-    return run;
-  }
-
   async create(input: CreateRunAiInput): Promise<RunAi> {
-    const address = parseCellId(input.cellId);
-    if (!address) throw new RunAiInvalidCellIdError(input.cellId);
+    const data = toCreateData(input);
     try {
-      const record = await prisma.runAi.create({
-        data: {
-          cellId: input.cellId,
-          spreadsheetId: address.sheetId,
-          batchId: input.batchId,
-          ...(input.status !== undefined && {
-            status: toDbRunAiStatus(input.status),
-          }),
-          ...resultAndCredit({
-            result: input.result,
-            credit: input.credit ?? 0,
-          }),
-        },
-        select: runAiSelect,
-      });
+      const record = await prisma.runAi.create({ data, select: runAiSelect });
       return toRunAi(record);
     } catch (error) {
       if (isUniqueViolation(error)) throw new RunAiCellBusyError(input.cellId);
+      throw error;
+    }
+  }
+
+  /**
+   * Every run of one batch in a single statement — all or nothing, so a busy
+   * cell anywhere in the batch creates no run at all. The rows come back in
+   * the statement's order, which is not a promise: callers match them to
+   * their plan by `cellId`.
+   */
+  async createMany(inputs: CreateRunAiInput[]): Promise<RunAi[]> {
+    const data = inputs.map(toCreateData);
+    try {
+      const records = await prisma.runAi.createManyAndReturn({
+        data,
+        select: runAiSelect,
+      });
+      return records.map(toRunAi);
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new RunAiCellBusyError(inputs.map((input) => input.cellId));
+      }
       throw error;
     }
   }
@@ -189,16 +132,17 @@ export class RunAiService {
    * failed by the API after a dispatch timeout, say — is never revived, so
    * the only rows this touches are working ones.
    */
-  async markRunning(id: string): Promise<RunAi> {
-    const { count } = await prisma.runAi.updateMany({
-      where: { id, status: { notIn: [...RUN_AI_TERMINAL_STATUSES_DB] } },
-      data: { status: "RUNNING" },
-    });
-    if (count === 0) {
-      await this.byId(id); // NOT_FOUND if the run never existed
-      throw new RunAiFinishedError(id);
-    }
-    return this.byId(id);
+  markRunning(id: string): Promise<RunAi> {
+    return this.updateWorking(id, { status: "RUNNING" });
+  }
+
+  /**
+   * Stores `result` on a working run without touching its status — how the
+   * batch orchestrator records a prepared step's `input` while the run is
+   * still `pending`. Same guard as `markRunning`.
+   */
+  setResult(id: string, result: RunAiResult): Promise<RunAi> {
+    return this.updateWorking(id, { result: toJsonInput(result) });
   }
 
   /**
@@ -245,6 +189,20 @@ export class RunAiService {
     return this.update(id, { status: "FAILED", ...resultAndCredit(input) });
   }
 
+  /**
+   * Fails every given run that is still working, in one statement, and says
+   * how many it flipped. A terminal row is never touched, so a batch crash or
+   * a late `onFailure` cannot revive or overwrite a completed step.
+   */
+  async failPending(ids: string[], result: RunAiResult): Promise<number> {
+    if (ids.length === 0) return 0;
+    const { count } = await prisma.runAi.updateMany({
+      where: { id: { in: ids }, status: WORKING },
+      data: { status: "FAILED", result: toJsonInput(result) },
+    });
+    return count;
+  }
+
   /** A run, or null. The stream uses this: a row deleted between a notify and its read is not an event. */
   async find(id: string): Promise<RunAi | null> {
     const record = await prisma.runAi.findUnique({
@@ -272,10 +230,7 @@ export class RunAiService {
   /** The newest working run per cell of a sheet — what a fresh subscriber paints. */
   async listActiveBySpreadsheet(spreadsheetId: string): Promise<RunAi[]> {
     const records = await prisma.runAi.findMany({
-      where: {
-        spreadsheetId,
-        status: { notIn: [...RUN_AI_TERMINAL_STATUSES_DB] },
-      },
+      where: { spreadsheetId, status: WORKING },
       distinct: ["cellId"],
       orderBy: [{ cellId: "asc" }, { createdAt: "desc" }],
       select: runAiSelect,
@@ -302,6 +257,22 @@ export class RunAiService {
       select: { updatedAt: true },
     });
     return String(latest?.updatedAt.getTime() ?? 0);
+  }
+
+  /** A guarded write: only a working run changes; a finished one is reported, never revived. */
+  private async updateWorking(
+    id: string,
+    data: Prisma.RunAiUpdateManyMutationInput,
+  ): Promise<RunAi> {
+    const { count } = await prisma.runAi.updateMany({
+      where: { id, status: WORKING },
+      data,
+    });
+    if (count === 0) {
+      await this.byId(id); // NOT_FOUND if the run never existed
+      throw new RunAiFinishedError(id);
+    }
+    return this.byId(id);
   }
 
   /** One statement, no read-then-write: a miss surfaces as P2025. */

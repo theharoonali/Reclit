@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { idInput } from "../../common/schema";
 import {
-  cellRefInput,
   cellValueSchema,
   columnTypeWire,
+  gridIndex,
   sheetRowCellSchema,
 } from "../spreadsheet/spreadsheet.schema";
 
@@ -39,7 +40,9 @@ export const toWireRunAiStatus = (status: string): string =>
  * What a run is given: the column's prompt (the instruction), the target
  * column, and the whole row in the sheet's column sort order — every column,
  * blank cells as `null`, the target included with its current value. Audio
- * and file cells carry their URL as text. Built by `runCell`, stored as
+ * and file cells carry their URL as text. From the second AI column of a row
+ * on, `previous` is the previous AI column with the value it produced. Built
+ * by `RunAiBatchService.prepare` right before the cell runs, stored as
  * `result.input`, and sent to the worker as the job payload.
  */
 export const runAiInputSchema = z.object({
@@ -55,6 +58,7 @@ export const runAiInputSchema = z.object({
     index: z.number().int(),
     cells: z.array(sheetRowCellSchema),
   }),
+  previous: sheetRowCellSchema.optional(),
 });
 export type RunAiInput = z.infer<typeof runAiInputSchema>;
 export type RunAiInputCell = RunAiInput["row"]["cells"][number];
@@ -65,6 +69,28 @@ export const runAiJobPayloadSchema = z.object({
   input: runAiInputSchema,
 });
 export type RunAiJobPayload = z.infer<typeof runAiJobPayloadSchema>;
+
+/** One column wave of a batch: the cells of one AI column, one per selected row. */
+const runAiWaveSchema = z.object({
+  columnIndex: z.number().int(),
+  columnName: z.string(),
+  cells: z
+    .array(z.object({ runId: z.string().min(1), rowIndex: z.number().int() }))
+    .min(1),
+});
+
+/**
+ * The Trigger.dev `run-ai-batch` payload — one per Run click: every wave of
+ * the batch in column sort order. The orchestrator prepares and runs one wave
+ * at a time, so a wave sees the answers of the waves before it.
+ */
+export const runAiBatchJobSchema = z.object({
+  batchId: z.string().min(1),
+  spreadsheetId: z.string().min(1),
+  waves: z.array(runAiWaveSchema).min(1),
+});
+export type RunAiBatchJob = z.infer<typeof runAiBatchJobSchema>;
+export type RunAiWave = z.infer<typeof runAiWaveSchema>;
 
 /**
  * Free-form JSON object on the run. `input` is what the run was given
@@ -134,10 +160,24 @@ export const runAiChangesInput = runAiSheetInput.extend({
   lastEventId: z.string().nullish(),
 });
 
-/** Router input for `runCell`: the sheet id plus the cell's grid address. */
-export const runAiCellInput = cellRefInput;
+/** The most rows one Run click may take — Trigger.dev's batch cap. */
+export const MAX_RUN_AI_BATCH_ROWS = 1000;
+/** The most columns one Run click may name — the import cap. */
+export const MAX_RUN_AI_BATCH_COLUMNS = 256;
+/** The most runs one Run click may create: rows × runnable columns. */
+export const MAX_RUN_AI_BATCH_CELLS = 5000;
 
-// Service inputs. In-process callers (`runCell`, the Trigger.dev task)
+/**
+ * Router input for `runCells`: the sheet id plus the rows and the columns of
+ * the selected rectangle (wire indexes). Columns that are not AI columns with
+ * a prompt are skipped by the service.
+ */
+export const runAiCellsInput = idInput.extend({
+  rowIndexes: z.array(gridIndex).min(1).max(MAX_RUN_AI_BATCH_ROWS),
+  columnIndexes: z.array(gridIndex).min(1).max(MAX_RUN_AI_BATCH_COLUMNS),
+});
+
+// Service inputs. In-process callers (`runCells`, the Trigger.dev tasks)
 // create and transition runs.
 export const createRunAiInput = z.object({
   cellId,
@@ -149,7 +189,7 @@ export const createRunAiInput = z.object({
       message: "a new run cannot start in a terminal status",
     })
     .optional(),
-  /** What the run starts with — `runCell` stores `{ input }` here. */
+  /** What the run starts with; `runCells` leaves it empty until the cell is prepared. */
   result: runAiResultSchema.optional(),
 });
 export const setRunAiStatusInput = z.object({
@@ -166,7 +206,7 @@ export const failRunAiInput = z.object({
 });
 
 export type RunAiChangesInput = z.infer<typeof runAiChangesInput>;
-export type RunAiCellInput = z.infer<typeof runAiCellInput>;
+export type RunAiCellsInput = z.infer<typeof runAiCellsInput>;
 /** `z.input`: `credit` is optional for callers and defaults in the service. */
 export type CreateRunAiInput = z.input<typeof createRunAiInput>;
 export type SetRunAiStatusInput = z.infer<typeof setRunAiStatusInput>;

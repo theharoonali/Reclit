@@ -28,9 +28,14 @@
  *   prompt: string;                       // the column's prompt — the instruction
  *   target: { id: "col.<i>"; index; name; type: ColumnType };
  *   row: { id: "row.<r>"; index; cells: RunAiInputCell[] };   // EVERY column, in sort order
+ *   previous?: RunAiInputCell;            // from a row's 2nd AI column on: the previous AI column with its output
  * }
  * RunAiInputCell = { id: "col.<i>"; index; name; type: ColumnType; value: CellValue }  // blank = null
  * RunAiJobPayload = { runId: string; input: RunAiInput }       // the Trigger.dev `run-ai-cell` payload
+ * RunAiBatchJob = {                        // the Trigger.dev `run-ai-batch` payload — one per Run click
+ *   batchId: string; spreadsheetId: string;
+ *   waves: { columnIndex; columnName; cells: { runId; rowIndex }[] }[];  // one wave per AI column, in sort order
+ * }
  * RunAiChange =
  *   | { type: "snapshot"; runs: RunAi[] }   // every working run of the sheet, newest per cell
  *   | { type: "run"; run: RunAi }           // one run after an insert or update
@@ -39,43 +44,56 @@
  * on the wire and uppercase in the database.
  *
  * PROCEDURES
- * | Procedure         | Kind         | Payload                                        | Response                       | Errors                                            |
- * | ----------------- | ------------ | ---------------------------------------------- | ------------------------------ | ------------------------------------------------- |
- * | runAi.byId        | query        | { id: string }                                 | RunAi                          | NOT_FOUND, BAD_REQUEST                            |
- * | runAi.listByBatch | query        | { batchId: string }                            | RunAi[]                        | BAD_REQUEST                                       |
- * | runAi.listActive  | query        | { spreadsheetId: string }                      | RunAi[] (working runs)         | BAD_REQUEST                                       |
- * | runAi.runCell     | mutation     | { id: sheetId; rowIndex: number; columnIndex } | RunAi (pending, result.input)  | BAD_REQUEST, NOT_FOUND, CONFLICT, BAD_GATEWAY     |
- * | runAi.onChange    | subscription | { spreadsheetId: string; lastEventId? }        | SSE of tracked RunAiChange     | BAD_REQUEST                                       |
+ * | Procedure         | Kind         | Payload                                                  | Response                        | Errors                                        |
+ * | ----------------- | ------------ | -------------------------------------------------------- | ------------------------------- | --------------------------------------------- |
+ * | runAi.byId        | query        | { id: string }                                           | RunAi                           | NOT_FOUND, BAD_REQUEST                        |
+ * | runAi.listByBatch | query        | { batchId: string }                                      | RunAi[]                         | BAD_REQUEST                                   |
+ * | runAi.listActive  | query        | { spreadsheetId: string }                                | RunAi[] (working runs)          | BAD_REQUEST                                   |
+ * | runAi.runCells    | mutation     | { id: sheetId; rowIndexes: number[]; columnIndexes: number[] } | RunAi[] (pending, series order) | BAD_REQUEST, NOT_FOUND, CONFLICT, BAD_GATEWAY |
+ * | runAi.onChange    | subscription | { spreadsheetId: string; lastEventId? }                  | SSE of tracked RunAiChange      | BAD_REQUEST                                   |
  *
  * NOTES
- * - `runCell` runs one AI cell. The column must carry `node: "ai"` and a
- *   `prompt`, else BAD_REQUEST (`RUN_AI_COLUMN_NOT_RUNNABLE`); an unknown
- *   sheet or column is NOT_FOUND. It records the run `pending` with
- *   `result: { input }` — `input.row.cells` is every column of the sheet in
- *   its display (`sortOrder`) order, blank cells `value: null`, the target
- *   included with its current value; audio/file/url cells hold their URL
- *   (the worker fetches and attaches them) — then
- *   hands `{ runId, input }` to the Trigger.dev worker (`batchId` is minted
- *   `run-<uuid>`, one run per batch for now). The response is the run as
- *   created; every later transition arrives through `onChange`. A cell that
- *   already has a working run is CONFLICT (`RUN_AI_CELL_BUSY`); once that
- *   run is `completed` or `failed` the cell can be run again, as many times
- *   as wanted — each run is a new row. When the
- *   worker cannot be reached the run is flipped to `failed` with
+ * - `runCells` runs the AI cells of a rectangle: `rowIndexes` (1..1000,
+ *   duplicates collapse) × `columnIndexes` (1..256). A column that is not an
+ *   AI node with a prompt — or does not exist — is skipped silently; when no
+ *   column is left it is BAD_REQUEST (`RUN_AI_COLUMN_NOT_RUNNABLE`), and
+ *   rows × runnable columns over 5000 is BAD_REQUEST
+ *   (`RUN_AI_BATCH_TOO_LARGE`). An unknown sheet is NOT_FOUND. If any target
+ *   cell already has a working run the whole call is CONFLICT
+ *   (`RUN_AI_CELL_BUSY`, the busy cells named) and nothing is created; once
+ *   that run is `completed` or `failed` the cell can be run again — each run
+ *   is a new row. Every run is created `pending` with `result: null` under
+ *   one shared `batchId` (`batch-<uuid>`), and the response lists them in
+ *   series order: rows ascending, then the AI columns in display
+ *   (`sortOrder`) order. The worker is handed one `RunAiBatchJob`; when it
+ *   cannot be reached every run of the batch is flipped to `failed` with
  *   `result.error: { name, message }` and the call is BAD_GATEWAY
  *   (`RUN_AI_DISPATCH_FAILED`). With no worker registered (tests, an api
- *   started without `TRIGGER_SECRET_KEY`'s dispatcher) the run stays pending.
- * - The worker (`src/trigger/run-ai-cell.ts`) moves the run to `running`,
- *   fetches every audio / file / url cell of the row (http(s) values, ≤ 15 MB,
- *   30 s each) and attaches them to the model call as files — a link that
- *   cannot be fetched is noted in the prompt instead — asks Gemini with the
- *   column prompt as the instruction and the row as context, and
- *   `complete`s with `result: { input, output, model, usage, attachments }`
- *   (`attachments`: `{ columnId, filename, mediaType, bytes }` per fetched
- *   file, `{ columnId, url, error }` per failure) — `output` typed like the
- *   column (string, number, boolean, ISO date string, JSON object, email,
- *   URL) — or `fail`s with `result: { input, error }`. `markRunning` never
- *   revives a finished run (`RUN_AI_FINISHED`, conflict).
+ *   started without `TRIGGER_SECRET_KEY`'s dispatcher) the runs stay pending.
+ * - The worker runs a batch in column waves (`src/trigger/run-ai-batch.ts`):
+ *   for each AI column in sort order it first *prepares* every cell of that
+ *   column — `result.input` is built from the database at that moment, so
+ *   `input.row.cells` (every column of the sheet in display order, blank
+ *   cells `value: null`, audio/file/url cells as their URL) already holds the
+ *   answers of the earlier columns, and from a row's second AI column on
+ *   `input.previous` is the row's previous AI column with the value it
+ *   produced — then runs the wave as one Trigger.dev batch of `run-ai-cell`
+ *   (a single run when the wave has one cell) and waits for it. Each cell
+ *   (`src/trigger/run-ai-cell.ts`) moves its run to `running`, fetches every
+ *   audio / file / url cell of the row (http(s) values, ≤ 15 MB, 30 s each)
+ *   and attaches them to the model call as files — a link that cannot be
+ *   fetched is noted in the prompt instead — asks Gemini with the column
+ *   prompt as the instruction, the previous output as the primary input and
+ *   the row as context, and `complete`s with
+ *   `result: { input, output, model, usage, attachments }` (`attachments`:
+ *   `{ columnId, filename, mediaType, bytes }` per fetched file,
+ *   `{ columnId, url, error }` per failure) — `output` typed like the column
+ *   (string, number, boolean, ISO date string, JSON object, email, URL) —
+ *   or `fail`s with `result: { input, error }`. A failed cell stops its row:
+ *   the row's cells in the later waves are `failed` with
+ *   `result.error: { name: "RunAiSeriesStopped", message }` without running;
+ *   other rows are unaffected. `markRunning` never revives a finished run
+ *   (`RUN_AI_FINISHED`, conflict).
  * - The stream is a generation, not a socket. A sheet should be streaming
  *   exactly while it has a run that is not `completed` / `failed`:
  *   `listActive` answers that on page load (non-empty → subscribe), the
@@ -102,7 +120,9 @@
  *   (sheet and column must exist, value must fit the column type), and a
  *   refused write leaves the run untouched. Without `output` only the run
  *   changes. `fail` never touches the cell.
- * - `listByBatch` is createdAt ascending; an unknown batchId returns `[]`.
+ * - `listByBatch` is createdAt ascending; the runs of one `runCells` share a
+ *   timestamp, so their order there is not a promise (the `runCells`
+ *   response is). An unknown batchId returns `[]`.
  * - `cellId` must parse as "<sheetId>.cell.<r>.<c>" (`RUN_AI_INVALID_CELL_ID`
  *   otherwise) but is never validated against Cell — the cell may be gone.
  * - Every procedure is public; there is no auth yet.
@@ -126,6 +146,7 @@ import {
 import { pingDatabase, prisma } from "../db/prisma";
 import {
   RunAiCellBusyError,
+  RunAiColumnNotRunnableError,
   RunAiFinishedError,
   RunAiInvalidCellIdError,
   RunAiNotFoundError,
@@ -133,12 +154,13 @@ import {
 import { runAiFeed } from "../modules/run-ai/run-ai.feed";
 import type {
   CreateRunAiInput,
+  RunAiBatchJob,
   RunAiChange,
   RunAiInput,
   RunAiInputCell,
-  RunAiJobPayload,
 } from "../modules/run-ai/run-ai.schema";
 import { runAiService } from "../modules/run-ai/run-ai.service";
+import { runAiBatchService } from "../modules/run-ai/run-ai-batch.service";
 import {
   SpreadsheetCellTypeMismatchError,
   SpreadsheetColumnNotFoundError,
@@ -331,6 +353,7 @@ describe.skipIf(!dbUp)("one working run per cell (service)", () => {
       RunAiCellBusyError,
     );
     expect(error.code).toBe("RUN_AI_CELL_BUSY");
+    expect(error.cellIds).toEqual([cellId]);
   });
 
   it("allows a new run once the previous one is terminal", async () => {
@@ -374,6 +397,32 @@ describe.skipIf(!dbUp)("one working run per cell (service)", () => {
       RunAiInvalidCellIdError,
     );
     expect(error.code).toBe("RUN_AI_INVALID_CELL_ID");
+  });
+});
+
+describe.skipIf(!dbUp)("failPending (service)", () => {
+  it("fails only the given runs that are still working, and says how many", async () => {
+    const done = await makeRun();
+    await runAiService.complete(done.id, { result: { note: "kept" } });
+    const working = await makeRun();
+    const staged = await makeRun({ status: "analyzing" });
+    const stop = { error: { name: "Error", message: "stopped" } };
+    const count = await runAiService.failPending(
+      [done.id, working.id, staged.id],
+      stop,
+    );
+    expect(count).toBe(2);
+    expect(await caller.runAi.byId({ id: done.id })).toMatchObject({
+      status: "completed",
+      result: { note: "kept" },
+    });
+    for (const id of [working.id, staged.id]) {
+      expect(await caller.runAi.byId({ id })).toMatchObject({
+        status: "failed",
+        result: stop,
+      });
+    }
+    expect(await runAiService.failPending([], stop)).toBe(0);
   });
 });
 
@@ -658,32 +707,33 @@ describe.skipIf(!dbUp)("runAi.onChange", () => {
   });
 });
 
-describe.skipIf(!dbUp)("runAi.runCell", () => {
+describe.skipIf(!dbUp)("runAi.runCells", () => {
   // Its own sheet: the column layout below is what the tests assert on.
-  // Display order after the reorder: Name | Summary (AI) | Notes (json) |
-  // Voice (audio) — while the AI column's *index* stays 1.
+  // Display order after the reorders: Name | Tone (AI) | Summary (AI) |
+  // Notes (json) | Voice (audio) | Silent (AI, no prompt) — while Tone's
+  // *index* is the highest, so sort order and index disagree.
   let sheet = "";
-  let aiColumn = 0;
+  let aiColumn = 0; // Summary
+  let toneColumn = 0;
   let noteColumn = 0;
   let voiceColumn = 0;
   let plainColumn = 0;
   let mutePromptColumn = 0;
-  const dispatched: RunAiJobPayload[] = [];
+  const dispatched: RunAiBatchJob[] = [];
 
   beforeAll(async () => {
-    const workspace = await makeWorkspace("run-ai runCell");
+    const workspace = await makeWorkspace("run-ai runCells");
     sheet = workspace.spreadsheetId ?? "";
     plainColumn = (
       await caller.spreadsheet.createColumn({ id: sheet, name: "Name" })
     ).index;
-    aiColumn = (
-      await caller.spreadsheet.createColumn({
-        id: sheet,
-        name: "Summary",
-        node: "ai",
-        prompt: "Summarise the row in five words.",
-      })
-    ).index;
+    const summary = await caller.spreadsheet.createColumn({
+      id: sheet,
+      name: "Summary",
+      node: "ai",
+      prompt: "Summarise the row in five words.",
+    });
+    aiColumn = summary.index;
     const voice = await caller.spreadsheet.createColumn({
       id: sheet,
       name: "Voice",
@@ -704,11 +754,24 @@ describe.skipIf(!dbUp)("runAi.runCell", () => {
         node: "ai",
       })
     ).index;
-    // Move Notes before Voice so sort order and index disagree.
+    const tone = await caller.spreadsheet.createColumn({
+      id: sheet,
+      name: "Tone",
+      node: "ai",
+      prompt: "Describe the tone of the summary in one word.",
+    });
+    toneColumn = tone.index;
+    // Move Notes before Voice, and Tone before Summary, so sort order and
+    // index disagree — the series order must follow the former.
     await caller.spreadsheet.reorderColumn({
       id: sheet,
       columnIndex: noteColumn,
       newSortOrder: voice.sortOrder,
+    });
+    await caller.spreadsheet.reorderColumn({
+      id: sheet,
+      columnIndex: toneColumn,
+      newSortOrder: summary.sortOrder,
     });
     await caller.spreadsheet.updateRow({
       id: sheet,
@@ -723,7 +786,7 @@ describe.skipIf(!dbUp)("runAi.runCell", () => {
   });
 
   afterAll(async () => {
-    runAiService.setDispatcher(null);
+    runAiBatchService.setDispatcher(null);
     if (sheet) {
       await prisma.runAi.deleteMany({ where: { spreadsheetId: sheet } });
       const workspace = await prisma.spreadsheet.findUnique({
@@ -734,157 +797,360 @@ describe.skipIf(!dbUp)("runAi.runCell", () => {
     }
   });
 
-  const runCell = (rowIndex: number, columnIndex = aiColumn) =>
-    caller.runAi.runCell({ id: sheet, rowIndex, columnIndex });
+  const runCells = (rowIndexes: number[], columnIndexes = [aiColumn]) =>
+    caller.runAi.runCells({ id: sheet, rowIndexes, columnIndexes });
+  const cellOf = (row: number, col: number) => `${sheet}.cell.${row}.${col}`;
+  const range = (n: number) => Array.from({ length: n }, (_, i) => i);
 
-  it("creates a pending run whose result.input is the whole row in sort order, and dispatches it", async () => {
+  it("creates one pending run per selected row and AI column, in series order, under one batch — and dispatches one wave per AI column", async () => {
     dispatched.length = 0;
-    runAiService.setDispatcher(async (payload) => {
-      dispatched.push(payload);
+    runAiBatchService.setDispatcher(async (batch) => {
+      dispatched.push(batch);
     });
-    const run = await runCell(0);
-    expect(run).toMatchObject({
-      cellId: `${sheet}.cell.0.${aiColumn}`,
-      spreadsheetId: sheet,
-      status: "pending",
-      credit: 0,
-    });
-    expect(run.batchId).toMatch(/^run-/);
-    expectDate(run.createdAt);
-
-    const input = run.result?.input as RunAiInput;
-    expect(input.prompt).toBe("Summarise the row in five words.");
-    expect(input.target).toEqual({
-      id: `col.${aiColumn}`,
-      index: aiColumn,
-      name: "Summary",
-      type: "string",
-    });
-    expect(input.row.id).toBe("row.0");
-    expect(input.row.index).toBe(0);
-    // Every column, display order (Notes moved before Voice), blanks null,
-    // the target with its current value, the audio cell as its URL.
-    expect(input.row.cells).toEqual([
+    // Rows out of order, a plain column in the middle: rows ascend, the AI
+    // columns follow the display order (Tone before Summary).
+    const runs = await runCells([3, 1], [aiColumn, plainColumn, toneColumn]);
+    runAiBatchService.setDispatcher(null);
+    expect(runs.map((run) => run.cellId)).toEqual([
+      cellOf(1, toneColumn),
+      cellOf(1, aiColumn),
+      cellOf(3, toneColumn),
+      cellOf(3, aiColumn),
+    ]);
+    const [tone1, summary1, tone3, summary3] = runs;
+    if (!tone1 || !summary1 || !tone3 || !summary3) {
+      throw new Error("expected four runs");
+    }
+    const first = tone1;
+    expect(first.batchId).toMatch(/^batch-/);
+    for (const run of runs) {
+      expect(run).toMatchObject({
+        spreadsheetId: sheet,
+        batchId: first.batchId,
+        status: "pending",
+        credit: 0,
+        result: null,
+      });
+      expectDate(run.createdAt);
+      expectDate(run.updatedAt);
+    }
+    expect(dispatched).toEqual([
       {
-        id: `col.${plainColumn}`,
-        index: plainColumn,
-        name: "Name",
-        type: "string",
-        value: "Ada",
-      },
-      {
-        id: `col.${aiColumn}`,
-        index: aiColumn,
-        name: "Summary",
-        type: "string",
-        value: "stale summary",
-      },
-      {
-        id: `col.${noteColumn}`,
-        index: noteColumn,
-        name: "Notes",
-        type: "json",
-        value: { mood: "curious" },
-      },
-      {
-        id: `col.${voiceColumn}`,
-        index: voiceColumn,
-        name: "Voice",
-        type: "audio",
-        value: "https://files.test/ada.mp3",
-      },
-      {
-        id: `col.${mutePromptColumn}`,
-        index: mutePromptColumn,
-        name: "Silent",
-        type: "string",
-        value: null,
+        batchId: first.batchId,
+        spreadsheetId: sheet,
+        waves: [
+          {
+            columnIndex: toneColumn,
+            columnName: "Tone",
+            cells: [
+              { runId: tone1.id, rowIndex: 1 },
+              { runId: tone3.id, rowIndex: 3 },
+            ],
+          },
+          {
+            columnIndex: aiColumn,
+            columnName: "Summary",
+            cells: [
+              { runId: summary1.id, rowIndex: 1 },
+              { runId: summary3.id, rowIndex: 3 },
+            ],
+          },
+        ],
       },
     ]);
-
-    // The worker got exactly what was stored.
-    expect(dispatched).toEqual([{ runId: run.id, input }]);
-    // And the row is readable back through byId unchanged.
-    const stored = await caller.runAi.byId({ id: run.id });
-    expect(stored.result).toEqual({ input });
-  });
-
-  it("a never-written row still yields one null entry per column", async () => {
-    runAiService.setDispatcher(null);
-    const run = await runCell(7);
-    const input = run.result?.input as RunAiInput;
-    expect(input.row.cells.map((cell) => cell.value)).toEqual([
-      null,
-      null,
-      null,
-      null,
-      null,
-    ]);
-    expect(input.row.cells.map((cell) => cell.name)).toEqual([
-      "Name",
-      "Summary",
-      "Notes",
-      "Voice",
-      "Silent",
-    ]);
-  });
-
-  it("without a dispatcher the run simply stays pending", async () => {
-    runAiService.setDispatcher(null);
-    const run = await runCell(1);
-    expect((await caller.runAi.byId({ id: run.id })).status).toBe("pending");
-  });
-
-  it("a dispatcher that throws fails the run and answers BAD_GATEWAY", async () => {
-    runAiService.setDispatcher(async () => {
-      throw new Error("TRIGGER_SECRET_KEY is not set");
-    });
-    await expectTRPCError(runCell(2), "BAD_GATEWAY");
-    const [run] = await prisma.runAi.findMany({
-      where: { cellId: `${sheet}.cell.2.${aiColumn}` },
-    });
-    expect(run?.status).toBe("FAILED");
-    expect(run?.result).toMatchObject({
-      error: { name: "Error", message: "TRIGGER_SECRET_KEY is not set" },
-    });
-    expect((run?.result as { input?: RunAiInput }).input?.prompt).toBe(
-      "Summarise the row in five words.",
+    const stored = await caller.runAi.listByBatch({ batchId: first.batchId });
+    expect(stored.map((run) => run.id).sort()).toEqual(
+      runs.map((run) => run.id).sort(),
     );
-    runAiService.setDispatcher(null);
   });
 
-  it("refuses a plain column and an AI column without a prompt (BAD_REQUEST)", async () => {
-    await expectTRPCError(runCell(3, plainColumn), "BAD_REQUEST");
-    await expectTRPCError(runCell(3, mutePromptColumn), "BAD_REQUEST");
+  it("skips plain, prompt-less and unknown columns silently", async () => {
+    runAiBatchService.setDispatcher(null);
+    const runs = await runCells(
+      [10],
+      [plainColumn, mutePromptColumn, 999, aiColumn],
+    );
+    expect(runs.map((run) => run.cellId)).toEqual([cellOf(10, aiColumn)]);
   });
 
-  it("returns NOT_FOUND for an unknown column and an unknown sheet", async () => {
-    await expectTRPCError(runCell(3, 999), "NOT_FOUND");
+  it("refuses a selection with no runnable column (BAD_REQUEST)", async () => {
     await expectTRPCError(
-      caller.runAi.runCell({
+      runCells([0], [plainColumn, mutePromptColumn]),
+      "BAD_REQUEST",
+    );
+  });
+
+  it("refuses a selection of more than 5000 AI cells (BAD_REQUEST) and creates nothing", async () => {
+    const workspace = await makeWorkspace("run-ai too large");
+    const wide = workspace.spreadsheetId ?? "";
+    try {
+      const columns: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        const column = await caller.spreadsheet.createColumn({
+          id: wide,
+          name: `AI ${i}`,
+          node: "ai",
+          prompt: "Go.",
+        });
+        columns.push(column.index);
+      }
+      await expectTRPCError(
+        caller.runAi.runCells({
+          id: wide,
+          rowIndexes: range(1000),
+          columnIndexes: columns,
+        }),
+        "BAD_REQUEST",
+      );
+      expect(await prisma.runAi.count({ where: { spreadsheetId: wide } })).toBe(
+        0,
+      );
+    } finally {
+      await removeWorkspace(workspace.id);
+    }
+  });
+
+  it("rejects more than 1000 rows or 256 columns, empty lists, and negative or fractional indexes (BAD_REQUEST)", async () => {
+    await expectTRPCError(runCells(range(1001)), "BAD_REQUEST");
+    await expectTRPCError(runCells([0], range(257)), "BAD_REQUEST");
+    await expectTRPCError(runCells([]), "BAD_REQUEST");
+    await expectTRPCError(runCells([0], []), "BAD_REQUEST");
+    await expectTRPCError(runCells([-1]), "BAD_REQUEST");
+    await expectTRPCError(runCells([1.5]), "BAD_REQUEST");
+  });
+
+  it("returns NOT_FOUND for an unknown sheet", async () => {
+    await expectTRPCError(
+      caller.runAi.runCells({
         id: crypto.randomUUID(),
-        rowIndex: 0,
-        columnIndex: 0,
+        rowIndexes: [0],
+        columnIndexes: [0],
       }),
       "NOT_FOUND",
     );
   });
 
-  it("a cell that already has a working run is CONFLICT; once it finishes the cell can run again", async () => {
-    runAiService.setDispatcher(null);
-    const first = await runCell(4);
-    await expectTRPCError(runCell(4), "CONFLICT");
+  it("a selected cell with a working run refuses the whole call (CONFLICT), naming it and creating nothing; once it finishes the cells run", async () => {
+    runAiBatchService.setDispatcher(null);
+    const [first] = await runCells([4]);
+    if (!first) throw new Error("no run");
+    await expectTRPCError(runCells([4, 5]), "CONFLICT");
+    expect(
+      await prisma.runAi.count({ where: { cellId: cellOf(5, aiColumn) } }),
+    ).toBe(0);
+    const error = await expectError(
+      runAiBatchService.runCells({
+        id: sheet,
+        rowIndexes: [4, 5],
+        columnIndexes: [aiColumn],
+      }),
+      RunAiCellBusyError,
+    );
+    expect(error.cellIds).toEqual([cellOf(4, aiColumn)]);
     await runAiService.fail(first.id);
-    const second = await runCell(4);
-    expect(second.id).not.toBe(first.id);
-    expect(second.status).toBe("pending");
-    await runAiService.complete(second.id, { result: { output: "done" } });
-    expect((await runCell(4)).status).toBe("pending");
+    const runs = await runCells([4, 5]);
+    expect(runs.map((run) => run.cellId)).toEqual([
+      cellOf(4, aiColumn),
+      cellOf(5, aiColumn),
+    ]);
+    expect(runs[0]?.id).not.toBe(first.id);
   });
 
-  it("rejects a negative or fractional address (BAD_REQUEST)", async () => {
-    await expectTRPCError(runCell(-1), "BAD_REQUEST");
-    await expectTRPCError(runCell(1.5), "BAD_REQUEST");
+  it("without a dispatcher the runs simply stay pending", async () => {
+    runAiBatchService.setDispatcher(null);
+    const [run] = await runCells([6]);
+    if (!run) throw new Error("no run");
+    expect((await caller.runAi.byId({ id: run.id })).status).toBe("pending");
+  });
+
+  it("a dispatcher that throws fails every run of the batch and answers BAD_GATEWAY", async () => {
+    runAiBatchService.setDispatcher(async () => {
+      throw new Error("TRIGGER_SECRET_KEY is not set");
+    });
+    await expectTRPCError(runCells([2], [aiColumn, toneColumn]), "BAD_GATEWAY");
+    runAiBatchService.setDispatcher(null);
+    const runs = await prisma.runAi.findMany({
+      where: { cellId: { in: [cellOf(2, aiColumn), cellOf(2, toneColumn)] } },
+    });
+    expect(runs).toHaveLength(2);
+    for (const run of runs) {
+      expect(run.status).toBe("FAILED");
+      expect(run.result).toEqual({
+        error: { name: "Error", message: "TRIGGER_SECRET_KEY is not set" },
+      });
+    }
+  });
+
+  it("duplicate row indexes collapse to one series, and a single cell is one wave of one cell", async () => {
+    dispatched.length = 0;
+    runAiBatchService.setDispatcher(async (batch) => {
+      dispatched.push(batch);
+    });
+    const runs = await runCells([7, 7]);
+    runAiBatchService.setDispatcher(null);
+    expect(runs).toHaveLength(1);
+    const [only] = runs;
+    if (!only) throw new Error("no run");
+    expect(dispatched[0]?.waves).toEqual([
+      {
+        columnIndex: aiColumn,
+        columnName: "Summary",
+        cells: [{ runId: only.id, rowIndex: 7 }],
+      },
+    ]);
+  });
+
+  describe("prepare (service)", () => {
+    it("builds result.input from the database when it is called, and leaves the run pending", async () => {
+      const [run] = await runCells([0]);
+      if (!run) throw new Error("no run");
+      // Written after the run was created: the input must see it.
+      await caller.spreadsheet.setCell({
+        id: sheet,
+        rowIndex: 0,
+        columnIndex: plainColumn,
+        value: "Ada Lovelace",
+      });
+      const prepared = await runAiBatchService.prepare(run.id);
+      expect(prepared.run.status).toBe("pending");
+      const { input } = prepared;
+      expect(input.prompt).toBe("Summarise the row in five words.");
+      expect(input.target).toEqual({
+        id: `col.${aiColumn}`,
+        index: aiColumn,
+        name: "Summary",
+        type: "string",
+      });
+      expect(input.row.id).toBe("row.0");
+      expect(input.row.index).toBe(0);
+      expect(input.previous).toBeUndefined();
+      // Every column, display order, blanks null, the target with its
+      // current value, the audio cell as its URL.
+      expect(input.row.cells).toEqual([
+        {
+          id: `col.${plainColumn}`,
+          index: plainColumn,
+          name: "Name",
+          type: "string",
+          value: "Ada Lovelace",
+        },
+        {
+          id: `col.${toneColumn}`,
+          index: toneColumn,
+          name: "Tone",
+          type: "string",
+          value: null,
+        },
+        {
+          id: `col.${aiColumn}`,
+          index: aiColumn,
+          name: "Summary",
+          type: "string",
+          value: "stale summary",
+        },
+        {
+          id: `col.${noteColumn}`,
+          index: noteColumn,
+          name: "Notes",
+          type: "json",
+          value: { mood: "curious" },
+        },
+        {
+          id: `col.${voiceColumn}`,
+          index: voiceColumn,
+          name: "Voice",
+          type: "audio",
+          value: "https://files.test/ada.mp3",
+        },
+        {
+          id: `col.${mutePromptColumn}`,
+          index: mutePromptColumn,
+          name: "Silent",
+          type: "string",
+          value: null,
+        },
+      ]);
+      expect((await caller.runAi.byId({ id: run.id })).result).toEqual({
+        input,
+      });
+      await runAiService.fail(run.id);
+    });
+
+    it("chains the previous step: its output becomes `previous`, and the row already holds it", async () => {
+      const [tone, summary] = await runCells([9], [aiColumn, toneColumn]);
+      if (!tone || !summary) throw new Error("no runs");
+      expect(tone.cellId).toBe(cellOf(9, toneColumn));
+      const { input: toneInput } = await runAiBatchService.prepare(tone.id);
+      await runAiService.complete(tone.id, {
+        result: { input: toneInput, output: "warm" },
+      });
+      const { input } = await runAiBatchService.prepare(summary.id, tone.id);
+      expect(input.previous).toEqual({
+        id: `col.${toneColumn}`,
+        index: toneColumn,
+        name: "Tone",
+        type: "string",
+        value: "warm",
+      });
+      expect(
+        input.row.cells.find((cell) => cell.index === toneColumn)?.value,
+      ).toBe("warm");
+      const stored = await caller.runAi.byId({ id: summary.id });
+      expect(stored.result?.input?.previous).toMatchObject({ value: "warm" });
+      await runAiService.fail(summary.id);
+    });
+
+    it("omits `previous` when the previous run produced no output", async () => {
+      const [tone, summary] = await runCells([11], [aiColumn, toneColumn]);
+      if (!tone || !summary) throw new Error("no runs");
+      await runAiService.fail(tone.id, {
+        result: { error: { name: "Error", message: "quota" } },
+      });
+      const { input } = await runAiBatchService.prepare(summary.id, tone.id);
+      expect(input.previous).toBeUndefined();
+      await runAiService.fail(summary.id);
+    });
+
+    it("refuses a finished run (RunAiFinishedError) and leaves its result alone", async () => {
+      const [run] = await runCells([12]);
+      if (!run) throw new Error("no run");
+      const reason = {
+        error: { name: "Error", message: "dispatch timed out" },
+      };
+      await runAiService.fail(run.id, { result: reason });
+      const error = await expectError(
+        runAiBatchService.prepare(run.id),
+        RunAiFinishedError,
+      );
+      expect(error.code).toBe("RUN_AI_FINISHED");
+      expect((await caller.runAi.byId({ id: run.id })).result).toEqual(reason);
+    });
+
+    it("refuses a column that stopped being runnable (RunAiColumnNotRunnableError)", async () => {
+      const scratch = await caller.spreadsheet.createColumn({
+        id: sheet,
+        name: "Scratch",
+        node: "ai",
+        prompt: "Go.",
+      });
+      const [run] = await runCells([13], [scratch.index]);
+      if (!run) throw new Error("no run");
+      await caller.spreadsheet.updateColumn({
+        id: sheet,
+        columnIndex: scratch.index,
+        node: null,
+        prompt: null,
+      });
+      await expectError(
+        runAiBatchService.prepare(run.id),
+        RunAiColumnNotRunnableError,
+      );
+      await runAiService.fail(run.id);
+      await caller.spreadsheet.removeColumn({
+        id: sheet,
+        columnIndex: scratch.index,
+      });
+    });
   });
 });
 
@@ -964,6 +1230,29 @@ describe("run-ai-cell task prompt (pure)", () => {
     );
     expect(withFile.system).toContain("including the attached files");
     expect(withFile.prompt).toContain('Voice (audio): attached file "ada.mp3"');
+  });
+
+  it("names the previous step's output as the primary input, before the fill instruction", () => {
+    const previous: RunAiInputCell = {
+      id: "col.5",
+      index: 5,
+      name: "Summary",
+      type: "string",
+      value: "Ada, 36, VIP",
+    };
+    const { system, prompt } = buildCellMessages({ ...input, previous });
+    expect(system).toContain(
+      'previous step of this row filled the column "Summary"',
+    );
+    expect(prompt).toContain(
+      "Output of the previous step:\nSummary (string): Ada, 36, VIP",
+    );
+    expect(prompt.indexOf("Output of the previous step:")).toBeLessThan(
+      prompt.indexOf('Fill the column "Greeting".'),
+    );
+    const without = buildCellMessages(input);
+    expect(without.system).not.toContain("previous step");
+    expect(without.prompt).not.toContain("Output of the previous step");
   });
 
   it("attaches audio, file and url cells that hold an http(s) URL — nothing else", () => {

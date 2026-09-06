@@ -25,7 +25,7 @@ import { AiSpreadsheetSidePanel } from "./ai-spreadsheet-side-panel";
 import { AiSpreadsheetUploadEditor } from "./ai-spreadsheet-upload-editor";
 import { useColumnRemove } from "./use-column-remove";
 import { useColumnReorder } from "./use-column-reorder";
-import { useRunCell } from "./use-run-cell";
+import { useRunCells } from "./use-run-cells";
 import { useRunListening } from "./use-run-listening";
 import { useSheetCanvas } from "./use-sheet-canvas";
 import { useSheetImport } from "./use-sheet-import";
@@ -138,8 +138,8 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   const dragChipLabelRef = useRef<HTMLSpanElement | null>(null);
 
   // Set after the canvas exists, like `cancelEditRef`: the Run button asks
-  // "can the selected cell run?" again whenever the selected column or the
-  // working runs change, and both signals come out of the canvas wiring.
+  // "what would run?" again whenever the selected rectangle or the working
+  // runs change, and both signals come out of the canvas wiring.
   const refreshRunnableRef = useRef<() => void>(() => {});
   const refreshRunnable = useCallback(() => refreshRunnableRef.current(), []);
 
@@ -155,7 +155,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     runListening: runListening.listening,
     onRunEnded: runListening.ended,
     onRunsChange: refreshRunnable,
-    onActiveColumnChange: refreshRunnable,
+    onSelectionChange: refreshRunnable,
     onOpenJson: openJson,
     onOpenDate: openDate,
     onOpenAudio: openAudio,
@@ -175,20 +175,20 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   requestPaintRef.current = canvas.requestPaint;
   cancelEditRef.current = canvas.editor.cancel;
 
-  const runCell = useRunCell({
+  const runCells = useRunCells({
     modelRef,
     editorRef: canvas.editor.editorRef,
     runsRef: canvas.runs.runsRef,
     flushPending: sync.flushPending,
     onStart: runListening.start,
     onCancel: runListening.cancel,
-    seedRun: canvas.runs.seed,
+    seedRuns: canvas.runs.seed,
   });
-  refreshRunnableRef.current = runCell.refresh;
+  refreshRunnableRef.current = runCells.refresh;
   // A column's node or prompt may have changed (the panel form, a delete, a
-  // reorder): the selected cell's runnability follows the columns.
-  const refreshRunCell = runCell.refresh;
-  useEffect(() => refreshRunCell(), [columnsVersion, refreshRunCell]);
+  // reorder): the selection's runnability follows the columns.
+  const refreshRunCells = runCells.refresh;
+  useEffect(() => refreshRunCells(), [columnsVersion, refreshRunCells]);
 
   const exportCsv = useCallback(() => {
     const model = modelRef.current;
@@ -354,17 +354,28 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
 
       <AiSpreadsheetRunButton
         errorMessage={
-          runCell.errorCode === null
+          runCells.errorCode === null
             ? null
-            : runCell.errorCode === "CONFLICT"
+            : runCells.errorCode === "CONFLICT"
               ? t("listen.errorBusy")
-              : t("listen.error")
+              : // After the button's own check, a size cap is the only
+                // BAD_REQUEST a click can provoke.
+                runCells.errorCode === "TOO_LARGE" ||
+                  runCells.errorCode === "BAD_REQUEST"
+                ? t("listen.errorTooLarge")
+                : t("listen.error")
         }
-        labels={{ start: t("listen.start"), running: t("listen.running") }}
+        labels={{
+          start:
+            runCells.count > 1
+              ? t("listen.startMany", { count: runCells.count })
+              : t("listen.start"),
+          running: t("listen.running"),
+        }}
         live={runListening.listening}
-        onRun={runCell.run}
-        runnable={runCell.runnable && !runListening.isResolving}
-        status={runCell.status}
+        onRun={runCells.run}
+        runnable={runCells.runnable && !runListening.isResolving}
+        status={runCells.status}
       />
 
       {cellsSelected && (

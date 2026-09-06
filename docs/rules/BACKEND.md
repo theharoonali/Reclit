@@ -112,7 +112,7 @@ the base service for lookups rather than re-implementing them:
 | Feature | Base | Split off |
 | --- | --- | --- |
 | spreadsheet | `spreadsheet.service.ts` (reads, lifecycle, `columnOrThrow`, `columnsOf`) | `-cells` (row/cell writes), `-columns` (column writes), `-import` (full-grid rebuild) |
-| run-ai | `run-ai.service.ts` (run lifecycle, reads) | `-changes` (the SSE stream: pump, snapshot, generator) |
+| run-ai | `run-ai.service.ts` (run lifecycle, reads) | `-batch` (what a Run click runs: plan, insert, waves, the dispatcher hook, `prepare`), `-changes` (the SSE stream: pump, snapshot, generator) |
 
 ## Errors
 

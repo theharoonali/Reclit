@@ -83,7 +83,8 @@ export function formatCellLine(
  * *is* the instruction; the row goes in as one line per column in the
  * sheet's sort order, then the target is named so the model knows which
  * cell it is filling. Audio, file and website cells are attached as files
- * (cell-attachments.ts) and their lines say so.
+ * (cell-attachments.ts) and their lines say so. From the second AI column of
+ * a row on, the previous step's output is named as the primary input.
  */
 export function buildCellMessages(
   input: RunAiInput,
@@ -92,7 +93,7 @@ export function buildCellMessages(
   system: string;
   prompt: string;
 } {
-  const { prompt, target, row } = input;
+  const { prompt, target, row, previous } = input;
   const attached = [...notes.values()].some((n) => n.kind === "attached");
   const system = [
     "You fill in one cell of a spreadsheet row.",
@@ -101,6 +102,11 @@ export function buildCellMessages(
     prompt,
     "",
     `Answer with ${TYPE_RULES[target.type]}, and nothing else. Use the other cells of the row as context${attached ? ", including the attached files" : ""}.`,
+    ...(previous
+      ? [
+          `The previous step of this row filled the column "${previous.name}"; its output below is your primary input, the rest of the row is context.`,
+        ]
+      : []),
   ].join("\n");
   const lines = row.cells.map((cell) =>
     formatCellLine(cell, notes.get(cell.id)),
@@ -109,6 +115,9 @@ export function buildCellMessages(
     `Row ${row.index + 1}:`,
     ...lines,
     "",
+    ...(previous
+      ? ["Output of the previous step:", formatCellLine(previous), ""]
+      : []),
     `Fill the column "${target.name}".`,
   ].join("\n");
   return { system, prompt: promptText };

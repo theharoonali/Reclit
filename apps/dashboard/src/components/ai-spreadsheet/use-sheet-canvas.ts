@@ -46,8 +46,8 @@ export type SheetCanvasArgs = {
   onRunEnded: () => void;
   /** The set of working runs changed. See use-sheet-runs. */
   onRunsChange?: () => void;
-  /** The active cell's display column changed. See use-cell-editor. */
-  onActiveColumnChange?: (col: number | null) => void;
+  /** The selected rectangle changed. See use-cell-editor. */
+  onSelectionChange?: () => void;
   onOpenJson: (row: number, columnId: string) => void;
   onOpenDate: (row: number, columnId: string) => void;
   onOpenAudio: (row: number, columnId: string) => void;
@@ -81,7 +81,7 @@ export type SheetCanvasArgs = {
 export function useSheetCanvas(args: SheetCanvasArgs) {
   const { modelRef, columnsVersion, rowCount, labels, formatters } = args;
   const { getCell, setCell, setCellLocal } = args;
-  const { runListening, onRunEnded, onRunsChange, onActiveColumnChange } = args;
+  const { runListening, onRunEnded, onRunsChange, onSelectionChange } = args;
   const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile, onOpenColumn } =
     args;
   const { onRemoveColumn, onReorderColumn, onSelectionPresence } = args;
@@ -153,7 +153,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     onOpenAudio,
     onOpenFile,
     onSelectionPresence,
-    onActiveColumnChange,
+    onSelectionChange,
   });
   const { editorRef, proxyRef } = editor;
 

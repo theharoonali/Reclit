@@ -28,7 +28,7 @@ change.
 | `…/ai-spreadsheet-upload-editor.tsx` | client | upload panel behind file and audio cells (`POST /files`) |
 | `…/ai-spreadsheet-header-action.tsx` | client | one header control (`HeaderActions` + error + `Button`); every sheet control is an instance of it |
 | `…/ai-spreadsheet-import-button.tsx` | client | Import: the header action with a hidden file input (`useFilePicker`) |
-| `…/ai-spreadsheet-run-button.tsx` | client | Run: enabled only for a runnable cell, filled with the live glyph while the sheet streams |
+| `…/ai-spreadsheet-run-button.tsx` | client | Run: enabled only while the selection holds a runnable AI cell and none is working ("Run N cells" for more than one), filled with the live glyph while the sheet streams |
 | `…/ai-spreadsheet-selection-bar.tsx` | client | "N rows selected" + Delete; renders nothing without a selection |
 | `…/ai-spreadsheet-drag-chip.tsx` | client | the card that rides the pointer during a column drag |
 | `…/use-sheet-labels.ts` | hook | resolves the canvas's i18n copy once and hands it to the painters as data |
@@ -41,8 +41,8 @@ change.
 | `…/use-column-remove.ts` · `use-column-reorder.ts` · `use-column-drag.ts` | hook | per-column delete · the (optimistic) reorder mutation · the drag: capture, threshold, drop slot, autoscroll |
 | `…/use-sheet-import.ts` | hook | uploads a CSV/XLSX, then refreshes the grid without remounting it |
 | `…/use-sheet-audio.ts` | hook | one shared `Audio` element and which audio cell is playing |
-| `…/use-run-cell.ts` · `use-run-listening.ts` · `use-sheet-runs.ts` | hook | Run: can the selected cell run + `runAi.runCell` · whether the sheet streams · the `runAi.onChange` subscription and the per-cell working-run map |
-| `apps/dashboard/src/lib/ai-spreadsheet/*.ts` | pure | types, geometry (`HEADER_HEIGHT` from `@reclit/ui/tokens`), palette (`theme-colors.ts`, read from the CSS variables with a fallback built from `colors.light`), formatting, text metrics, five painters, `run-state.ts`, `run-status.ts`, `short-ids.ts`, `export-csv.ts`, `fetch-all-rows.ts`, `import-file.ts`, `upload-file.ts` |
+| `…/use-run-cells.ts` · `use-run-listening.ts` · `use-sheet-runs.ts` | hook | Run: what the selection would run (`planRunTargets`) + `runAi.runCells` · whether the sheet streams · the `runAi.onChange` subscription and the per-cell working-run map (`seed` takes the whole batch) |
+| `apps/dashboard/src/lib/ai-spreadsheet/*.ts` | pure | types, geometry (`HEADER_HEIGHT` from `@reclit/ui/tokens`), palette (`theme-colors.ts`, read from the CSS variables with a fallback built from `colors.light`), formatting, text metrics, five painters, `run-state.ts`, `run-status.ts`, `run-targets.ts` (`selectionRect`, `planRunTargets`, the run caps in lockstep with the contract), `short-ids.ts`, `export-csv.ts`, `fetch-all-rows.ts`, `import-file.ts`, `upload-file.ts` |
 | `apps/dashboard/src/hooks/use-canvas-surface.ts` · `use-file-picker.ts` · `use-latest-ref.ts` · `use-reseed.ts` | hook | feature-agnostic: DPR-correct canvas · hidden file input · latest-value ref · prop-following draft state |
 
 Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/textarea`,
@@ -65,7 +65,7 @@ Feature: [spreadsheet](../features/spreadsheet.md) ·
 | `spreadsheet.removeColumn` | header × on a hovered column; pending writes discarded first | — |
 | `spreadsheet.reorderColumn` | grip drop; **optimistic** — the response's order is reconciled only where it differs, a failure restores the snapshot | — |
 | `spreadsheet.removeRows` | Delete rows in the header; pending writes discarded first | — |
-| `runAi.runCell` | Run; pending writes are flushed and awaited first, the stream is opened, the returned `pending` run is seeded into the cell | — |
+| `runAi.runCells` | Run; pending writes are flushed and awaited first, the stream is opened, the returned `pending` runs are seeded into their cells in one paint | — |
 | `runAi.listActive` · `runAi.onChange` (SSE) | `listActive` on load resumes a sheet mid-run; `onChange` streams while any run is working and ends with `closed` | — (a completed run's output is written into the model) |
 | `POST /files` (REST, multipart) | file / audio cell upload; the cell stores the returned URL | — |
 | `POST /spreadsheets/:id/import` (REST, multipart) | Import; replaces the whole grid | `spreadsheet.rows` — the one invalidation |
@@ -101,12 +101,18 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   a Prompt textarea. A column whose node has a glyph (`ai` → ✨,
   `NODE_GLYPHS` in `paint-header.ts`) paints it before its name. An `ai`
   column's prompt is what Run executes.
-- **Run.** Enabled only while the selected cell is in an AI column with a
-  prompt and has no working run; re-enables when that run finishes. Clicking
-  flushes pending edits, opens the stream, creates the run and seeds its
-  `pending` capsule ("Starting…" until the API answers). While the sheet
-  streams the button is filled with the live glyph but stays usable; a refusal
-  (`CONFLICT` = the cell is busy) shows inline beside it.
+- **Run.** Runs the AI cells of the selected rectangle: plain columns inside
+  it are ignored, every row is a series (its AI columns run in display order,
+  each fed the previous answer) and the rows run as a batch, column by
+  column. Enabled only while the rectangle holds at least one AI cell with a
+  prompt and none of them is working — the API refuses the whole batch
+  otherwise; re-enables when the runs finish. The label reads "Run N cells"
+  for more than one target. Clicking flushes pending edits, opens the stream,
+  creates the runs and seeds their `pending` capsules ("Starting…" until the
+  API answers). A rectangle over 1,000 rows or 5,000 AI cells is refused
+  inline before any request (`listen.errorTooLarge`); `CONFLICT` (a cell
+  became busy meanwhile) shows inline too. While the sheet streams the button
+  is filled with the live glyph but stays usable.
 - **Working runs.** A cell with a working run paints a borderless capsule with
   a dot and the status label: `pending` muted, `running` success, any custom
   stage in primary. The dot's halo breathes (1.2 s, repainted every 40 ms only
@@ -123,7 +129,9 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   from the anchor; a plain click collapses it. While any cell is selected a
   `destructive-outline` Delete shows in the header; it and Delete/Backspace
   blank every stored cell in the rectangle via the debounced `setCell(null)`
-  path (walking the sparse cell map, not the rectangle).
+  path (walking the sparse cell map, not the rectangle). The rectangle is
+  also what Run executes; the Run button re-plans whenever it changes
+  (`onSelectionChange`), never per keystroke.
 - **Capsule cells.** JSON, file, audio and boolean values paint as chips at
   one shared inset; a value that does not match its column falls back to
   destructive text. JSON: labelled with the key count, edited in the panel as
