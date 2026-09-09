@@ -49,32 +49,43 @@ export function cellOutputSchema(
 }
 
 /**
- * How a URL cell reached the model: as an attached file (named so the line
- * can point at it) or not at all (with the reason), keyed by column id.
+ * How a URL cell reached the model, keyed by column id: as an attached file
+ * (named so the line can point at it), as a transcript (an audio cell —
+ * cell-transcripts.ts), or not at all, with the step that failed and why.
  */
-export type CellAttachmentNote =
+export type CellSourceNote =
   | { kind: "attached"; filename: string }
-  | { kind: "failed"; error: string };
-export type CellAttachmentNotes = ReadonlyMap<string, CellAttachmentNote>;
+  | { kind: "transcribed"; text: string }
+  | { kind: "failed"; step: "fetch" | "transcribe"; error: string };
+export type CellSourceNotes = ReadonlyMap<string, CellSourceNote>;
+
+/** The reason half of a failed line: which step could not be done, and why. */
+const FAILED_STEPS: Record<"fetch" | "transcribe", string> = {
+  fetch: "could not be fetched",
+  transcribe: "could not be transcribed",
+};
 
 /**
  * One cell as a prompt line: `Name (type): value`; blanks say so, JSON is
- * stringified, and a cell whose file travels alongside names the file.
+ * stringified, a cell whose file travels alongside names the file, and an
+ * audio cell carries its transcript instead of its URL.
  */
 export function formatCellLine(
   cell: RunAiInputCell,
-  note?: CellAttachmentNote,
+  note?: CellSourceNote,
 ): string {
   const value =
     note?.kind === "attached"
       ? `attached file "${note.filename}"`
-      : note?.kind === "failed"
-        ? `${String(cell.value)} (could not be fetched: ${note.error})`
-        : cell.value === null
-          ? "(empty)"
-          : typeof cell.value === "object"
-            ? JSON.stringify(cell.value)
-            : String(cell.value);
+      : note?.kind === "transcribed"
+        ? `transcript of the audio: ${note.text}`
+        : note?.kind === "failed"
+          ? `${String(cell.value)} (${FAILED_STEPS[note.step]}: ${note.error})`
+          : cell.value === null
+            ? "(empty)"
+            : typeof cell.value === "object"
+              ? JSON.stringify(cell.value)
+              : String(cell.value);
   return `${cell.name} (${cell.type}): ${value}`;
 }
 
@@ -82,13 +93,15 @@ export function formatCellLine(
  * The instruction (`system`) and the context (`prompt`). The column's prompt
  * *is* the instruction; the row goes in as one line per column in the
  * sheet's sort order, then the target is named so the model knows which
- * cell it is filling. Audio, file and website cells are attached as files
- * (cell-attachments.ts) and their lines say so. From the second AI column of
- * a row on, the previous step's output is named as the primary input.
+ * cell it is filling. File and website cells are attached as files
+ * (cell-attachments.ts) and their lines say so; audio cells arrive as the
+ * transcript of their recording (cell-transcripts.ts). From the second AI
+ * column of a row on, the previous step's output is named as the primary
+ * input.
  */
 export function buildCellMessages(
   input: RunAiInput,
-  notes: CellAttachmentNotes = new Map(),
+  notes: CellSourceNotes = new Map(),
 ): {
   system: string;
   prompt: string;

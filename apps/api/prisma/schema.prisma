@@ -119,14 +119,15 @@ model Row {
 /// upsert by pk with no prior lookup. A cleared cell is a deleted record;
 /// `value` is never stored as null.
 model Cell {
-  id            String      @id
+  id            String        @id
   spreadsheetId String
   rowIndex      Int
   columnIndex   Int
   value         Json?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  spreadsheet   Spreadsheet @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  spreadsheet   Spreadsheet   @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
+  externalApis  ExternalApi[]
 
   @@unique([spreadsheetId, rowIndex, columnIndex])
   @@index([spreadsheetId, rowIndex])
@@ -163,3 +164,25 @@ model RunAi {
   @@index([createdAt])
 }
 
+/// One result an external service produced for one cell — deliberately
+/// generic: audio → text, PDF → text, website → markdown, any future file
+/// processing or scraping. `input` is the source reference the result was
+/// produced from (a file URL, a website URL, a file name) and is NOT unique: a
+/// cell may have several sources, and one source may be processed more than
+/// once. `output` is the result as JSON — an object whose `kind` says what
+/// produced it (external-api.schema.ts). Unlike `RunAi.cellId` this IS a
+/// relation: a processed result describes the cell's current content, so
+/// clearing the cell (its row is deleted), deleting the row or re-importing
+/// the sheet must take it with them.
+model ExternalApi {
+  id        String   @id @default(uuid())
+  cellId    String
+  input     String
+  output    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  cell      Cell     @relation(fields: [cellId], references: [id], onDelete: Cascade)
+
+  @@index([cellId, input])
+  @@index([cellId, createdAt])
+}

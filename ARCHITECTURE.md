@@ -13,7 +13,8 @@ apps/dashboard (Next.js 16, port 4000)
   ▼
 apps/api (NestJS on Bun, port 4001)
   ├── /trpc/*         tRPC 11 express adapter, mounted in src/bootstrap.ts
-  │                   appRouter → spreadsheet.*, workspace.*, user.*, runAi.* (+ onChange over SSE)
+  │                   appRouter → spreadsheet.*, workspace.*, user.*, runAi.*
+  │                   (+ onChange over SSE), externalApi.*
   ├── /health         AppController (database reachability)
   ├── /spreadsheets/* SpreadsheetController (REST mirror + multipart import)
   └── /files          FileController (multipart upload → Supabase Storage)
@@ -28,7 +29,8 @@ apps/api (NestJS on Bun, port 4001)
         │
   Trigger.dev worker (src/trigger/, bundled by the Trigger CLI)
         ├── run-ai-batch: per AI column (a wave) prepares the inputs, then batchTriggerAndWait →
-        └── run-ai-cell: calls the same services → Gemini via src/ai/ → writes the run + cell
+        └── run-ai-cell: calls the same services → the row's audio through ElevenLabs
+                         (cached in ExternalApi) → Gemini via src/ai/ → writes the run + cell
 
 packages/ui  → shared primitives + Tailwind preset, consumed by the dashboard
 ```
@@ -63,8 +65,11 @@ packages/ui  → shared primitives + Tailwind preset, consumed by the dashboard
   API enqueues through a hook a service exposes (`setDispatcher`) that
   `src/jobs/<feature>-dispatch.ts` registers from `src/main.ts` — not from
   `bootstrap.ts`, so the test suite stays network-free.
-- `src/ai/` holds the Vercel AI SDK provider (`gemini.ts`) and the pure
-  prompt/output helpers a task composes.
+- `src/ai/` holds the model providers (`gemini.ts` for the Vercel AI SDK,
+  `elevenlabs.ts` for Speech-to-Text) and the helpers a task composes: the
+  prompt (`cell-prompt.ts`), the row's attachments (`cell-attachments.ts`) and
+  its audio transcripts (`cell-transcripts.ts`, cached in `ExternalApi` —
+  [docs/features/external-api.md](docs/features/external-api.md)).
 - The jobs today are `run-ai-batch` (the orchestrator of one Run click: one
   wave per AI column, prepared then fanned out) and `run-ai-cell` (one
   cell); their lifecycle, table and stream are
