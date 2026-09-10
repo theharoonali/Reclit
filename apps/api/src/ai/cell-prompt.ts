@@ -13,8 +13,12 @@ import type {
 // database, no network — the contract test covers this without an API key.
 // The call itself (and the fetching of attachments) lives in cell-output.ts.
 
-/** What each column type asks of the model, in words it can follow. */
-const TYPE_RULES: Record<ColumnTypeWire, string> = {
+/**
+ * What each column type asks of the model, in words it can follow. Shared
+ * with `search-prompt.ts`: whichever node fills a cell, the sentence
+ * describing the answer's shape is the same one.
+ */
+export const TYPE_RULES: Record<ColumnTypeWire, string> = {
   string: "a plain text string",
   formula: "a plain text string",
   number: "a single finite number (no units, no formatting)",

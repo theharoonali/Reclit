@@ -60,12 +60,15 @@ Background jobs (outside the tRPC graph — [ARCHITECTURE.md](../../ARCHITECTURE
 | --- | --- |
 | `apps/api/trigger.config.ts` | Trigger.dev project config (`runtime: "bun"`, `dirs: ["./src/trigger"]`, `prismaExtension({ mode: "modern" })`) |
 | `apps/api/src/trigger/run-ai-batch.ts` | task `run-ai-batch` (`RunAiBatchJob`) — the skeleton of a Run click: per wave, `failPending` the cells of stopped rows → `prepare` the rest → `run-ai-cell` as `batchTriggerAndWait` (one cell: `triggerAndWait`) → a non-`completed` outcome stops the row; no retries; `onFailure` → `failPending` of every run |
-| `apps/api/src/trigger/run-ai-cell.ts` | task `run-ai-cell` (`{ runId, input }`): `markRunning` → `generateCellValue` → `complete` / `fail`, returns `{ runId, status }`; no retries; `onFailure` fails the run |
+| `apps/api/src/trigger/run-ai-cell.ts` | task `run-ai-cell` (`{ runId, input }`): `markRunning` → `generateCellValue` or `generateSearchCellValue` (`input.target.node` decides) → `complete` / `fail`, returns `{ runId, status }`; no retries; `onFailure` fails the run |
 | `apps/api/src/jobs/run-ai-dispatch.ts` | the API-side client: `registerRunAiDispatcher()` → `tasks.trigger("run-ai-batch", …, { idempotencyKey: batchId })`, the only `@trigger.dev/sdk` import on the API side; called from `src/main.ts` |
 | `apps/api/src/ai/gemini.ts` | `gemini(modelId?)` — the one Gemini provider for the Vercel AI SDK |
+| `apps/api/src/ai/serpapi.ts` | `googleSearch(query, fetch?)` — the one SerpAPI call, lazily keyed on `SERPAPI_API_KEY`, plus `toSearchResponse` (a 30-50 KB body trimmed to what an answer can be read out of) |
+| `apps/api/src/ai/search-prompt.ts` | pure: `buildSearchQueryMessages` (source cells → a query), `buildSearchAnswerMessages` (results → the typed value), `formatSearchResults`, `fallbackQuery` |
+| `apps/api/src/ai/search-output.ts` | `generateSearchCellValue` — the `google_search` node: two Gemini calls around one SerpAPI call |
 | `apps/api/src/ai/cell-prompt.ts` | pure: `buildCellMessages` (instruction + row as context + the previous step's output as the primary input), `cellOutputSchema` (answer shape per column type), `formatCellLine` |
 | `apps/api/src/ai/cell-attachments.ts` | fetches the row's audio / file / url cells into file parts (`collectAttachments`; ≤ 15 MB, 30 s each); a failure is recorded, never thrown |
-| `apps/api/src/ai/cell-output.ts` | `generateCellValue` — `generateText` with the prompt plus the attached files, `Output.object` (or `Output.json` for `json` columns), validated with `cellValueMatchesType` |
+| `apps/api/src/ai/cell-output.ts` | `generateCellValue` — `generateText` with the prompt plus the attached files, `Output.object` (or `Output.json` for `json` columns); `coerceCellValue`, the shared `cellValueMatchesType` guard both generators end on |
 
 ## Procedures
 
@@ -89,7 +92,7 @@ There is no REST face.
   `RunAiDispatchError`.
 - **`runCells` records the batch, the worker builds the inputs.** The
   service plans the targets — `columnsOf` (the one ordering point) filtered
-  to the selected AI columns with a prompt, times the selected rows
+  to the selected *runnable* columns, times the selected rows
   ascending — checks the caps, names any busy cell from
   `listActiveBySpreadsheet`, and inserts every run `pending` with
   `result: null` in one `createManyAndReturn` (all or nothing; the rows are
@@ -109,6 +112,29 @@ There is no REST face.
   wait costs no `maxDuration`. A cell whose outcome is not `completed` stops
   its row: the row's cells in the later waves are `failPending`ed with
   `RunAiSeriesStopped` and skipped.
+- **A Google Search column is fed one column, not the row.** `isRunnable`
+  is a per-node switch: an `ai` node needs a prompt, a `google_search` node
+  needs a prompt *and* `config.sourceColumns`, and `email` has no executor so
+  it is never runnable. For a search cell `prepare` resolves those indexes
+  against the row **in the configured order** — dropping the target column
+  itself, an index whose column is gone, and a cell blank in this row — and
+  writes them to `input.search.sourceColumns` with `input.row.cells` left
+  `[]`. Nothing resolving is `RunAiNoSearchInputError`, which fails that cell
+  and stops that row only. A sheet has many columns and one of them is the
+  search subject; the rest is noise the model would have to filter and tokens
+  paid for twice.
+- **The search node is two model calls, not a tool.** Gemini rejects function
+  declarations alongside a JSON response schema — *"Function calling with a
+  response mime type: 'application/json' is unsupported"* — and rejects a
+  forced tool call for the same reason, so a tool-shaped node could answer
+  from memory without ever searching. `generateSearchCellValue` unrolls it:
+  Gemini writes a query from the source cells alone, the worker runs it
+  (`googleSearch`), Gemini reads the answer out of the results through the
+  same `cellOutputSchema` an `ai` cell uses. An empty result set is retried
+  once with the source values verbatim. Every attempt lands in
+  `result.searches`; `result.attachments` is always `[]` and `result.usage` is
+  both calls summed. A search that cannot run fails the cell rather than
+  letting the model invent a value.
 - **One working run per cell is a database rule**, not a service check: the
   partial unique index refuses the insert (or a transition that would revive
   a finished run while another works the cell) and `create` / `createMany` /
@@ -153,9 +179,16 @@ There is no REST face.
   fans out with `batchTriggerAndWait`, and reads per-run outcomes.
 - `gemini()` (`src/ai/gemini.ts`) for any service or task that needs a Gemini
   model; add other providers beside it in `src/ai/`. `cellOutputSchema` /
-  `cellValueMatchesType` for any other producer of typed cell values;
+  `coerceCellValue` for any other producer of typed cell values;
   `collectAttachments` for anything else that must hand a row's media to a
   model.
+- `googleSearch` (`src/ai/serpapi.ts`) — the shape for any third-party JSON
+  API this repo calls: a lazy `process.env` key with a message naming the
+  variable, an injected `fetch` so the parsing is testable offline, and a
+  response trimmed to what the caller actually reads.
+- `input.target.node` + the switch in `run-ai-cell.ts` — the seam a third
+  node type plugs into: register it in `NODE_TYPES_WIRE`, teach `isRunnable`
+  and `prepare` what it needs, add a generator returning `CellGeneration`.
 
 ## Used by
 

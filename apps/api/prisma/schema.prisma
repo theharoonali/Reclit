@@ -17,6 +17,7 @@ datasource db {
 enum NodeType {
   AI
   EMAIL
+  GOOGLE_SEARCH
 }
 
 enum ColumnType {
@@ -94,6 +95,9 @@ model Column {
   type          ColumnType  @default(STRING)
   node          NodeType?
   prompt        String?
+  /// Extra per-node settings; which keys are meaningful is decided by `node`.
+  /// Shape: modules/spreadsheet/spreadsheet.schema.ts `nodeConfigSchema`.
+  config        Json?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   spreadsheet   Spreadsheet @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)

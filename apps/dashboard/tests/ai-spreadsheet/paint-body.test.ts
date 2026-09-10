@@ -34,14 +34,16 @@ const VIEWPORT: Viewport = {
   columnCount: 3,
 };
 
+const PLAIN = { node: null, prompt: null, config: null } as const;
+
 const MODEL: SheetModel = {
   sheetId: "sheet_123",
   sheetName: "Customers",
   rowCount: 100,
   columns: [
-    { id: "col.0", name: "Name", type: "string", node: null, prompt: null },
-    { id: "col.1", name: "Age", type: "number", node: null, prompt: null },
-    { id: "col.2", name: "Active", type: "boolean", node: null, prompt: null },
+    { ...PLAIN, id: "col.0", name: "Name", type: "string" },
+    { ...PLAIN, id: "col.1", name: "Age", type: "number" },
+    { ...PLAIN, id: "col.2", name: "Active", type: "boolean" },
   ],
   cells: new Map(),
   rowIds: new Map(),

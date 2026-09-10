@@ -28,7 +28,7 @@ export const toWireColumnType = (type: string): ColumnTypeWire =>
   type.toLowerCase() as ColumnTypeWire;
 
 /** Automated-processing kinds a column may carry; null = plain column. */
-export const NODE_TYPES_WIRE = ["ai", "email"] as const;
+export const NODE_TYPES_WIRE = ["ai", "email", "google_search"] as const;
 
 export const nodeTypeWire = z.enum(NODE_TYPES_WIRE);
 export type NodeTypeWire = z.infer<typeof nodeTypeWire>;
@@ -90,6 +90,26 @@ export function cellValueMatchesType(
   }
 }
 
+/**
+ * Extra per-node settings on a column, stored as `Column.config`. Which keys
+ * are meaningful is decided by the column's `node`; `.strict()` so a typo is a
+ * validation error rather than a silently ignored key. Plain (uncoerced)
+ * indexes — a config always arrives inside a JSON body, never as a path param,
+ * so it does not need `gridIndex`'s coercion.
+ */
+export const nodeConfigSchema = z
+  .object({
+    /**
+     * `google_search`: the columns whose values seed the search query, in the
+     * order they should be read. A Google Search column is given *only* these
+     * cells — never the whole row — because a sheet has many columns and only
+     * one of them (the company name) is the search subject.
+     */
+    sourceColumns: z.array(z.number().int().min(0)).min(1).max(8).optional(),
+  })
+  .strict();
+export type NodeConfig = z.infer<typeof nodeConfigSchema>;
+
 /* ---------------------------------------------------------------- outputs */
 
 export const spreadsheetMetaSchema = z.object({
@@ -109,6 +129,7 @@ export const sheetColumnSchema = z.object({
   type: columnTypeWire,
   node: nodeTypeWire.nullable(),
   prompt: z.string().nullable(),
+  config: nodeConfigSchema.nullable(),
 });
 
 /** One stored cell inside a nested row: column id + name + value. */
@@ -225,6 +246,7 @@ export const updateColumnInput = z
     type: columnTypeWire,
     node: nodeTypeWire.nullable(),
     prompt: prompt.nullable(),
+    config: nodeConfigSchema.nullable(),
   })
   .partial()
   .extend(columnRefInput.shape);
@@ -251,10 +273,15 @@ export const createColumnInput = idInput
     type: columnTypeWire.default("string"),
     node: nodeTypeWire.nullable().default(null),
     prompt: prompt.nullable().default(null),
+    config: nodeConfigSchema.nullable().default(null),
   })
   .refine((input) => input.node !== null || input.prompt === null, {
     message: "A prompt requires a node",
     path: ["prompt"],
+  })
+  .refine((input) => input.node !== null || input.config === null, {
+    message: "A config requires a node",
+    path: ["config"],
   });
 
 export type CreateSpreadsheetInput = z.infer<typeof createSpreadsheetInput>;

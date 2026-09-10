@@ -39,7 +39,8 @@ function chunk<T>(items: T[]): T[][] {
 function buildRecords(id: string, plan: InferredSheet) {
   // File order is already dense, so `index` and `sortOrder` start out equal —
   // they only diverge once a column is removed or reordered. Imported columns
-  // never carry a node.
+  // never carry a node, so they carry no prompt and no config either (both
+  // are left unset, which is SQL NULL).
   const columnData = plan.columns.map((column, index) => ({
     id: columnId(id, index),
     spreadsheetId: id,

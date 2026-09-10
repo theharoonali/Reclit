@@ -1,7 +1,10 @@
 import type { ModelMessage } from "ai";
 import { generateText, Output } from "ai";
 import type { RunAiInput } from "../modules/run-ai/run-ai.schema";
-import type { CellValue } from "../modules/spreadsheet/spreadsheet.schema";
+import type {
+  CellValue,
+  ColumnTypeWire,
+} from "../modules/spreadsheet/spreadsheet.schema";
 import {
   cellValueMatchesType,
   cellValueSchema,
@@ -31,6 +34,36 @@ export type CellGeneration = {
   /** What travelled with the prompt, and what could not — never the bytes. */
   attachments: AttachmentSummary[];
 };
+
+/**
+ * The model's raw answer as a value the target cell would accept, or a throw
+ * naming what it said instead. Shared by every generator (`generateCellValue`,
+ * `generateSearchCellValue`): the check is the same `cellValueMatchesType` the
+ * spreadsheet applies on any write, so a run can never complete with a value
+ * its own cell would refuse.
+ */
+export function coerceCellValue(
+  raw: unknown,
+  type: ColumnTypeWire,
+): Exclude<CellValue, null> {
+  const parsed = cellValueSchema.safeParse(raw);
+  if (!parsed.success || parsed.data === null) {
+    throw new Error(
+      `The model answered with something that is not a cell value: ${JSON.stringify(raw)}`,
+    );
+  }
+  const output = parsed.data;
+  const fits =
+    type === "json"
+      ? isPlainObject(output)
+      : cellValueMatchesType(output, type);
+  if (!fits) {
+    throw new Error(
+      `The model answered with ${JSON.stringify(output)}, which is not a ${type}`,
+    );
+  }
+  return output;
+}
 
 function notesOf(attachments: Attachments) {
   const notes = new Map<string, CellAttachmentNote>();
@@ -87,22 +120,7 @@ export async function generateCellValue(
     schema === null
       ? result.output
       : (result.output as { value: unknown }).value;
-  const parsed = cellValueSchema.safeParse(raw);
-  if (!parsed.success || parsed.data === null) {
-    throw new Error(
-      `The model answered with something that is not a cell value: ${JSON.stringify(raw)}`,
-    );
-  }
-  const output = parsed.data;
-  const fits =
-    input.target.type === "json"
-      ? isPlainObject(output)
-      : cellValueMatchesType(output, input.target.type);
-  if (!fits) {
-    throw new Error(
-      `The model answered with ${JSON.stringify(output)}, which is not a ${input.target.type}`,
-    );
-  }
+  const output = coerceCellValue(raw, input.target.type);
 
   return {
     output,

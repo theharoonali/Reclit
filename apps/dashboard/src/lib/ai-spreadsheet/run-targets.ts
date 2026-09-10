@@ -55,8 +55,24 @@ export function selectionRect(
   };
 }
 
-const isRunnable = (column: SheetColumn) =>
-  column.node === "ai" && column.prompt !== null;
+/**
+ * Which columns a Run click would execute. A hand-kept mirror of `isRunnable`
+ * in the API's `run-ai-batch.service.ts` (the dashboard may not import API
+ * runtime values): every runnable node needs a prompt, and a Google Search
+ * node needs source columns on top — without them there is nothing to search
+ * for, so the column is half-finished and the Run button must not count it.
+ */
+const isRunnable = (column: SheetColumn) => {
+  if (column.prompt === null) return false;
+  switch (column.node) {
+    case "ai":
+      return true;
+    case "google_search":
+      return (column.config?.sourceColumns?.length ?? 0) > 0;
+    default:
+      return false;
+  }
+};
 
 export function planRunTargets(
   columns: readonly SheetColumn[],

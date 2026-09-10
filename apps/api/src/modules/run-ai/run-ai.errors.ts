@@ -39,10 +39,28 @@ export class RunAiColumnNotRunnableError extends DomainError {
     const indexes = Array.isArray(columnIndex) ? columnIndex : [columnIndex];
     super(
       indexes.length === 1
-        ? `Column ${indexes[0]} is not an AI column with a prompt`
-        : `None of columns ${indexes.join(", ")} is an AI column with a prompt`,
+        ? `Column ${indexes[0]} is not a runnable node column`
+        : `None of columns ${indexes.join(", ")} is a runnable node column`,
     );
     this.name = "RunAiColumnNotRunnableError";
+  }
+}
+
+/**
+ * A Google Search cell whose configured source columns hold nothing for this
+ * row — every one was removed, blank, or the target itself. Per row, not per
+ * column: the column is runnable (`isRunnable` saw its config), this
+ * particular row just has no subject to search for, so it fails on its own
+ * and the rest of the wave goes on.
+ */
+export class RunAiNoSearchInputError extends DomainError {
+  readonly kind = "bad_request";
+  readonly code = "RUN_AI_NO_SEARCH_INPUT";
+  constructor(columnIndex: number) {
+    super(
+      `Column ${columnIndex} has no search input in this row: every source column is empty or gone`,
+    );
+    this.name = "RunAiNoSearchInputError";
   }
 }
 

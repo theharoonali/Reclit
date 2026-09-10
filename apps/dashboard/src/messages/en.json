@@ -127,6 +127,9 @@
       "node": "Node",
       "prompt": "Prompt",
       "promptPlaceholder": "What should this node do?",
+      "sourceColumns": "Search input",
+      "sourceColumnsHint": "The columns whose values are searched for, in the order you pick them. Nothing else in the row is sent.",
+      "sourceColumnsEmpty": "Add another column first — a search needs something to search for.",
       "add": "Add column",
       "reorder": "Drag and drop",
       "save": "Save",
@@ -135,7 +138,8 @@
     "nodes": {
       "none": "None",
       "ai": "AI",
-      "email": "Email"
+      "email": "Email",
+      "google_search": "Google Search"
     },
     "json": {
       "key": "Key",

@@ -11,7 +11,7 @@ import {
 } from "../spreadsheet/spreadsheet.schema";
 import { spreadsheetService } from "../spreadsheet/spreadsheet.service";
 import type { ColumnRecord } from "../spreadsheet/spreadsheet.shape";
-import { buildRowCells } from "../spreadsheet/spreadsheet.shape";
+import { buildRowCells, toNodeConfig } from "../spreadsheet/spreadsheet.shape";
 import {
   RunAiBatchTooLargeError,
   RunAiCellBusyError,
@@ -19,6 +19,7 @@ import {
   RunAiDispatchError,
   RunAiFinishedError,
   RunAiInvalidCellIdError,
+  RunAiNoSearchInputError,
 } from "./run-ai.errors";
 import type {
   RunAi,
@@ -33,11 +34,12 @@ import { runAiService } from "./run-ai.service";
 
 // Framework-free (docs/rules/BACKEND.md hard rule 1). Which cells a Run click
 // runs and in what order: `runCells` records the batch — one pending run per
-// selected row and AI column — and hands the worker its column waves through
-// the dispatcher hook; `prepare` builds one cell's input right before its
-// wave runs, so a later column sees the answers of the earlier ones. Reads
-// and writes go through runAiService and spreadsheetService; nothing here
-// touches prisma.
+// selected row and runnable node column — and hands the worker its column
+// waves through the dispatcher hook; `prepare` builds one cell's input right
+// before its wave runs, so a later column sees the answers of the earlier
+// ones, and how much of the row that input holds is the node's own rule.
+// Reads and writes go through runAiService and spreadsheetService; nothing
+// here touches prisma.
 
 /**
  * Asks the worker to execute a batch. Registered by src/jobs/run-ai-dispatch.ts
@@ -47,18 +49,65 @@ import { runAiService } from "./run-ai.service";
  */
 export type RunAiDispatcher = (batch: RunAiBatchJob) => Promise<void>;
 
-type RunnableColumn = ColumnRecord & { prompt: string };
+/**
+ * A column Run executes. `node` stays the database's uppercase word — the
+ * whole service reads it through `toWireNodeType` — so the guarantee this
+ * type carries is only "has a node and a prompt"; what else a given node
+ * needs is `isRunnable`'s business.
+ */
+type RunnableColumn = ColumnRecord & { node: string; prompt: string };
 
 /** One cell the batch will run, in series order: row ascending, then column sort order. */
 type Target = { rowIndex: number; column: RunnableColumn; cellId: string };
 
-/** An AI node with a prompt — the only column Run executes. */
+/**
+ * Which columns a Run click executes. Every runnable node needs a prompt (the
+ * instruction); a Google Search node needs source columns on top, because
+ * without them there is nothing to search for. A column that is *configured*
+ * short is skipped silently, exactly as a promptless AI column is — it is a
+ * half-finished column, not a client error.
+ */
 function isRunnable(column: ColumnRecord): column is RunnableColumn {
-  return (
-    column.node !== null &&
-    toWireNodeType(column.node) === "ai" &&
-    column.prompt !== null
-  );
+  if (column.node === null || column.prompt === null) return false;
+  switch (toWireNodeType(column.node)) {
+    case "ai":
+      return true;
+    case "google_search":
+      return sourceColumnsOf(column).length > 0;
+    // `email` is a registered node with no executor yet.
+    default:
+      return false;
+  }
+}
+
+/** A column's configured search inputs, or none when it has no usable config. */
+function sourceColumnsOf(column: ColumnRecord): number[] {
+  return toNodeConfig(column.config)?.sourceColumns ?? [];
+}
+
+/**
+ * The cells a Google Search column is given, resolved against this row **in
+ * the configured order** — the order is the client's, not the sheet's, so
+ * "Company, Country" reads that way in the prompt.
+ *
+ * Three kinds of entry are dropped: the target column itself (searching for
+ * the cell you are filling is circular), an index whose column has since been
+ * removed, and a cell that is blank for this row. What survives is what the
+ * model may see. Nothing surviving means this row has no subject to search
+ * for, and the caller turns that into a failed run.
+ */
+function searchInputs(
+  column: RunnableColumn,
+  rowCells: RunAiInputCell[],
+): RunAiInputCell[] {
+  const byIndex = new Map(rowCells.map((cell) => [cell.index, cell]));
+  const inputs = sourceColumnsOf(column)
+    .filter((index) => index !== column.index)
+    .map((index) => byIndex.get(index))
+    .filter((cell): cell is RunAiInputCell => cell !== undefined)
+    .filter((cell) => cell.value !== null && cell.value !== "");
+  if (inputs.length === 0) throw new RunAiNoSearchInputError(column.index);
+  return inputs;
 }
 
 /** The dispatcher payload: the targets regrouped by column, waves in sort order. */
@@ -125,6 +174,10 @@ export class RunAiBatchService {
    * a row on, the previous run's output as `previous`, and stores it on the
    * still-`pending` run. The orchestrator calls this right before the cell's
    * wave. A run that already finished is reported, never re-prepared.
+   *
+   * How much of the row goes in is the node's rule (`runAiInputSchema`): an
+   * `ai` cell gets the whole row, a `google_search` cell gets only the cells
+   * its `config.sourceColumns` names.
    */
   async prepare(
     runId: string,
@@ -139,12 +192,18 @@ export class RunAiBatchService {
       address.col,
     );
     if (!isRunnable(column)) throw new RunAiColumnNotRunnableError(address.col);
+    const node = toWireNodeType(column.node);
     const [{ columns, cells }, previous] = await Promise.all([
       spreadsheetService.rowCells(address.sheetId, address.row),
       previousRunId === undefined
         ? undefined
         : this.previousOutput(previousRunId),
     ]);
+    const rowCells = buildRowCells(columns, cells);
+    const search =
+      node === "google_search"
+        ? { sourceColumns: searchInputs(column, rowCells) }
+        : undefined;
     const input: RunAiInput = {
       prompt: column.prompt,
       target: {
@@ -152,12 +211,15 @@ export class RunAiBatchService {
         index: column.index,
         name: column.name,
         type: toWireColumnType(column.type),
+        node,
       },
       row: {
         id: shortRowId(address.row),
         index: address.row,
-        cells: buildRowCells(columns, cells),
+        // A search node is deliberately given no row context at all.
+        cells: search === undefined ? rowCells : [],
       },
+      ...(search !== undefined && { search }),
       ...(previous !== undefined && { previous }),
     };
     const prepared = await runAiService.setResult(runId, { input });
@@ -245,7 +307,16 @@ export class RunAiBatchService {
     if (target === undefined || output === undefined || output === null) {
       return undefined;
     }
-    return { ...target, value: output };
+    // Named rather than spread: a target carries the `node` that produced the
+    // value, and `previous` is a *cell* — where the value came from is not
+    // part of the shape, and spreading would smuggle it in.
+    return {
+      id: target.id,
+      index: target.index,
+      name: target.name,
+      type: target.type,
+      value: output,
+    };
   }
 }
 

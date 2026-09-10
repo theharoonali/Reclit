@@ -18,6 +18,7 @@ import type {
   FailRunAiInput,
   RunAi,
   RunAiResult,
+  RunAiResultInput,
   SetRunAiStatusInput,
 } from "./run-ai.schema";
 import {
@@ -64,12 +65,17 @@ function toRunAi(
   };
 }
 
-/** The optional fields a create or transition may carry. */
+/**
+ * The optional fields a create or transition may carry. `result` is the
+ * *input* shape: `create` takes `z.input` (its `credit` defaults), so a caller
+ * may hand over a result whose defaulted fields — `input.target.node` — are
+ * still absent. Either way it is written verbatim as JSON.
+ */
 function resultAndCredit({
   result,
   credit,
 }: {
-  result?: RunAiResult;
+  result?: RunAiResultInput;
   credit?: number;
 }): { result?: Prisma.InputJsonValue; credit?: number } {
   return {

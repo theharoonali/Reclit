@@ -4,6 +4,7 @@ import {
   cellValueSchema,
   columnTypeWire,
   gridIndex,
+  nodeTypeWire,
   sheetRowCellSchema,
 } from "../spreadsheet/spreadsheet.schema";
 
@@ -38,12 +39,23 @@ export const toWireRunAiStatus = (status: string): string =>
 
 /**
  * What a run is given: the column's prompt (the instruction), the target
- * column, and the whole row in the sheet's column sort order — every column,
- * blank cells as `null`, the target included with its current value. Audio
- * and file cells carry their URL as text. From the second AI column of a row
- * on, `previous` is the previous AI column with the value it produced. Built
- * by `RunAiBatchService.prepare` right before the cell runs, stored as
+ * column — including the **node** that decides which generator runs — and the
+ * row. From the second runnable column of a row on, `previous` is the
+ * previous column with the value it produced. Built by
+ * `RunAiBatchService.prepare` right before the cell runs, stored as
  * `result.input`, and sent to the worker as the job payload.
+ *
+ * How much of the row a node sees is the node's own rule:
+ *
+ * - `ai` fills `row.cells` with the **whole row** in the sheet's column sort
+ *   order — every column, blank cells as `null`, the target included with its
+ *   current value; audio and file cells carry their URL as text.
+ * - `google_search` leaves `row.cells` **empty** and fills `search` with just
+ *   the cells the column's `config.sourceColumns` names. A sheet has many
+ *   columns and only one of them is the search subject; sending the rest
+ *   would be noise the model has to filter and tokens paid for twice.
+ *
+ * One shape for both means one job payload, one task and one stream.
  */
 export const runAiInputSchema = z.object({
   prompt: z.string(),
@@ -52,12 +64,22 @@ export const runAiInputSchema = z.object({
     index: z.number().int(),
     name: z.string(),
     type: columnTypeWire,
+    /**
+     * Defaulted, not required: every run recorded before the Google Search
+     * node existed was an AI run, and `run-ai-cell` parses this payload at
+     * runtime — a job already queued when the worker deploys must stay valid.
+     */
+    node: nodeTypeWire.default("ai"),
   }),
   row: z.object({
     id: z.string(), // "row.<index>"
     index: z.number().int(),
     cells: z.array(sheetRowCellSchema),
   }),
+  /** `google_search` only: the cells that seed the query, in configured order. */
+  search: z
+    .object({ sourceColumns: z.array(sheetRowCellSchema).min(1) })
+    .optional(),
   previous: sheetRowCellSchema.optional(),
 });
 export type RunAiInput = z.infer<typeof runAiInputSchema>;
@@ -70,7 +92,7 @@ export const runAiJobPayloadSchema = z.object({
 });
 export type RunAiJobPayload = z.infer<typeof runAiJobPayloadSchema>;
 
-/** One column wave of a batch: the cells of one AI column, one per selected row. */
+/** One column wave of a batch: the cells of one runnable column, one per selected row. */
 const runAiWaveSchema = z.object({
   columnIndex: z.number().int(),
   columnName: z.string(),
@@ -92,20 +114,32 @@ export const runAiBatchJobSchema = z.object({
 export type RunAiBatchJob = z.infer<typeof runAiBatchJobSchema>;
 export type RunAiWave = z.infer<typeof runAiWaveSchema>;
 
+/** One Google search a run actually made, in the order it made them. */
+export const runAiSearchSchema = z.object({
+  query: z.string(),
+  resultCount: z.number().int(),
+});
+export type RunAiSearch = z.infer<typeof runAiSearchSchema>;
+
 /**
  * Free-form JSON object on the run. `input` is what the run was given
  * (written on create); `output`, when present, is the value the run produced
  * for its cell — a plain cell value — and `complete` writes it into the Cell
- * row. Everything else (`model`, `usage`, `error: { name, message }`) is
- * kept as-is.
+ * row. `searches` is what a `google_search` run asked Google — named rather
+ * than left to the catchall so it is part of the contract and visible when
+ * debugging a wrong answer. Everything else (`model`, `usage`,
+ * `error: { name, message }`) is kept as-is.
  */
 export const runAiResultSchema = z
   .object({
     input: runAiInputSchema.optional(),
     output: cellValueSchema.optional(),
+    searches: z.array(runAiSearchSchema).optional(),
   })
   .catchall(z.unknown());
 export type RunAiResult = z.infer<typeof runAiResultSchema>;
+/** The same before defaults are applied — what an in-process caller may pass. */
+export type RunAiResultInput = z.input<typeof runAiResultSchema>;
 
 /* -------------------------------------------------------------- outputs */
 

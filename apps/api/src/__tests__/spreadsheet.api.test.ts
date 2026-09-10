@@ -10,7 +10,8 @@
  *                index (identity: the pk suffix and Cell.columnIndex — never
  *                changes), sortOrder (display position, dense 0..n-1 per
  *                sheet), name, type ColumnType, node NodeType? (null = plain
- *                column), prompt String?, unique(spreadsheetId, index),
+ *                column), prompt String?, config Json? (per-node settings),
+ *                unique(spreadsheetId, index),
  *                index(spreadsheetId, sortOrder) — deliberately not unique,
  *                a reorder shifts a band in one statement
  *   Row          id (pk "<sheetId>.row.<index>"), spreadsheetId (fk cascade),
@@ -28,7 +29,12 @@
  *   SpreadsheetMeta = { id, name, totalRows, totalColumns, createdAt: Date,
  *                       updatedAt: Date }           (dates via superjson)
  *   SheetColumn  = { id: "col.<i>", index, sortOrder, name, type,
- *                    node: "ai" | "email" | null, prompt: string | null }
+ *                    node: "ai" | "email" | "google_search" | null,
+ *                    prompt: string | null, config: NodeConfig | null }
+ *   NodeConfig   = { sourceColumns?: number[] }  — extra settings whose
+ *                    meaning is decided by `node`; unknown keys are rejected.
+ *                    `sourceColumns` (1..8 column indexes) is google_search's:
+ *                    the columns whose values seed the search query.
  *   SheetRow     = { id: "row.<i>", index,
  *                    columns: { id: "col.<i>", name, value }[] } — one entry
  *                    per stored cell, in the sheet's column order (sortOrder,
@@ -57,8 +63,8 @@
  * | spreadsheet.appendRow    | mutation | { id; cells: {columnIndex; value}[] (min 1) }   | SheetRow          | NOT_FOUND, BAD_REQUEST (type), CONFLICT (retries exhausted) |
  * | spreadsheet.removeRow    | mutation | { id; rowIndex }                                | { id: "row.N" }   | NOT_FOUND (sheet)             |
  * | spreadsheet.removeRows   | mutation | { id; rowIndexes: number[] (1..10_000) }        | { ids: string[] } | NOT_FOUND (sheet), BAD_REQUEST|
- * | spreadsheet.createColumn | mutation | { id; name; type? (default "string"); node?; prompt? } | SheetColumn | NOT_FOUND, BAD_REQUEST  |
- * | spreadsheet.updateColumn | mutation | { id; columnIndex; name?; type?; node?; prompt? } | SheetColumn     | NOT_FOUND, BAD_REQUEST        |
+ * | spreadsheet.createColumn | mutation | { id; name; type? (default "string"); node?; prompt?; config? } | SheetColumn | NOT_FOUND, BAD_REQUEST  |
+ * | spreadsheet.updateColumn | mutation | { id; columnIndex; name?; type?; node?; prompt?; config? } | SheetColumn     | NOT_FOUND, BAD_REQUEST        |
  * | spreadsheet.reorderColumn| mutation | { id; columnIndex; newSortOrder: 0..n-1 }       | SheetColumn[] (the whole order) | NOT_FOUND, BAD_REQUEST |
  * | spreadsheet.removeColumn | mutation | { id; columnIndex }                             | { id: "col.N" }   | NOT_FOUND                     |
  *
@@ -126,10 +132,12 @@
  *   audio/file/url→http(s) URL string, email→email string,
  *   string/formula→string.
  * - updateColumn changing `type` does not convert or revalidate stored cells.
- * - `node`/`prompt` both default to null; a prompt without a node is
- *   BAD_REQUEST (create checks the payload, update checks the effective
- *   stored+incoming pair). On updateColumn, `undefined` leaves a field
- *   unchanged and `null` clears it; `node: null` also clears `prompt`.
+ * - `node`, `prompt` and `config` all default to null. `prompt` and `config`
+ *   belong to the node, so either without one is BAD_REQUEST
+ *   (`SPREADSHEET_PROMPT_WITHOUT_NODE` / `SPREADSHEET_CONFIG_WITHOUT_NODE`;
+ *   create checks the payload, update checks the effective stored+incoming
+ *   pair). On updateColumn, `undefined` leaves a field unchanged and `null`
+ *   clears it; `node: null` also clears BOTH `prompt` and `config`.
  *   Imported columns never carry a node.
  * - FORMULA is storage-only; nothing evaluates formulas.
  * - `rows` pagination counts *stored* rows: take limit+1, hasMore when the
@@ -334,6 +342,7 @@ describe.skipIf(!dbUp)("spreadsheet.createColumn", () => {
       type: "string",
       node: null,
       prompt: null,
+      config: null,
     });
     expect(second).toEqual({
       id: "col.1",
@@ -343,6 +352,7 @@ describe.skipIf(!dbUp)("spreadsheet.createColumn", () => {
       type: "number",
       node: null,
       prompt: null,
+      config: null,
     });
     const meta = await caller.spreadsheet.byId({ id: sheet.id });
     expect(meta.totalColumns).toBe(2);
@@ -362,6 +372,71 @@ describe.skipIf(!dbUp)("spreadsheet.createColumn", () => {
       columnIndex: 0,
     });
     expect(read).toMatchObject({ node: "ai", prompt: "Summarise the row" });
+  });
+
+  it("stores a node config and clears it with the node", async () => {
+    const sheet = await makeSheet("node config columns");
+    const subject = await caller.spreadsheet.createColumn({
+      id: sheet.id,
+      name: "Company",
+    });
+    const column = await caller.spreadsheet.createColumn({
+      id: sheet.id,
+      name: "Domain",
+      type: "url",
+      node: "google_search",
+      prompt: "the company's primary website domain",
+      config: { sourceColumns: [subject.index] },
+    });
+    expect(column.config).toEqual({ sourceColumns: [subject.index] });
+    const read = await caller.spreadsheet.column({
+      id: sheet.id,
+      columnIndex: column.index,
+    });
+    expect(read.config).toEqual({ sourceColumns: [subject.index] });
+
+    // The config belongs to the node, so losing the node loses it too.
+    const cleared = await caller.spreadsheet.updateColumn({
+      id: sheet.id,
+      columnIndex: column.index,
+      node: null,
+    });
+    expect(cleared).toMatchObject({ node: null, prompt: null, config: null });
+  });
+
+  it("rejects a config without a node, and an unknown config key", async () => {
+    const sheet = await makeSheet("bad config columns");
+    const plain = await caller.spreadsheet.createColumn({
+      id: sheet.id,
+      name: "Company",
+    });
+    await expectTRPCError(
+      caller.spreadsheet.createColumn({
+        id: sheet.id,
+        name: "Orphan",
+        config: { sourceColumns: [plain.index] },
+      }),
+      "BAD_REQUEST",
+    );
+    // The stored column has no node either, so the effective pair is refused.
+    await expectTRPCError(
+      caller.spreadsheet.updateColumn({
+        id: sheet.id,
+        columnIndex: plain.index,
+        config: { sourceColumns: [plain.index] },
+      }),
+      "BAD_REQUEST",
+    );
+    await expectTRPCError(
+      caller.spreadsheet.createColumn({
+        id: sheet.id,
+        name: "Typo",
+        node: "google_search",
+        prompt: "p",
+        config: { sourceColumn: 0 } as never,
+      }),
+      "BAD_REQUEST",
+    );
   });
 
   it("rejects a prompt without a node and an unknown node", async () => {
@@ -423,6 +498,7 @@ describe.skipIf(!dbUp)("spreadsheet.column", () => {
       type: "audio",
       node: null,
       prompt: null,
+      config: null,
     });
   });
 
@@ -462,6 +538,7 @@ describe.skipIf(!dbUp)("spreadsheet.updateColumn", () => {
       type: "number",
       node: null,
       prompt: null,
+      config: null,
     });
     const cell = await caller.spreadsheet.cell({
       id: sheet.id,
@@ -1258,6 +1335,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
       type: "number",
       node: null,
       prompt: null,
+      config: null,
     });
 
     // PATCH + GET a cell
@@ -1299,6 +1377,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
       type: "number",
       node: null,
       prompt: null,
+      config: null,
     });
 
     // PATCH /rows/:r + PATCH /columns/:c
@@ -1328,6 +1407,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
         type: "number",
         node: null,
         prompt: null,
+        config: null,
       },
     ]);
 
@@ -1487,6 +1567,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
         type: string;
         node: string | null;
         prompt: string | null;
+        config: Record<string, unknown> | null;
       }[];
     };
     expect(body.columns.map((column) => column.type)).toEqual([
@@ -1509,6 +1590,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
       type: "string",
       node: null,
       prompt: null,
+      config: null,
     });
     expect(body).toMatchObject({ rowCount: 2, cellCount: 20 });
     // The virtual grid height is not a row count and import does not touch it.

@@ -1,5 +1,6 @@
 import { logger, schemaTask } from "@trigger.dev/sdk";
 import { generateCellValue } from "../ai/cell-output";
+import { generateSearchCellValue } from "../ai/search-output";
 import { describeError } from "../common/errors";
 import {
   isTerminalRunAiStatus,
@@ -7,8 +8,9 @@ import {
 } from "../modules/run-ai/run-ai.schema";
 import { runAiService } from "../modules/run-ai/run-ai.service";
 
-// One AI cell, end to end — the unit of work `run-ai-batch` fans out. The
-// orchestrator has already recorded `result.input` on the `pending` run; this
+// One AI or Google Search cell, end to end — the unit of work `run-ai-batch`
+// fans out. The orchestrator has already recorded `result.input` on the
+// `pending` run, including the node that decides which generator runs; this
 // task moves it `running`, asks the model, and `complete`s it (the service
 // writes `result.output` into the cell before flipping the status) or
 // `fail`s it with the reason. Every transition fires the Postgres trigger, so
@@ -38,11 +40,23 @@ export const runAiCellTask = schemaTask({
     }
     await runAiService.markRunning(runId);
     try {
-      const { output, model, usage, attachments } =
-        await generateCellValue(input);
-      logger.info("cell generated", { runId, model, usage, attachments });
+      // The node decides which generator fills the cell; everything around
+      // this line — the transitions, the guards, the failure paths — is the
+      // same whichever one runs.
+      const { output, model, usage, attachments, ...extra } =
+        input.target.node === "google_search"
+          ? await generateSearchCellValue(input)
+          : await generateCellValue(input);
+      logger.info("cell generated", {
+        runId,
+        node: input.target.node,
+        model,
+        usage,
+        attachments,
+        ...extra,
+      });
       const completed = await runAiService.complete(runId, {
-        result: { input, output, model, usage, attachments },
+        result: { input, output, model, usage, attachments, ...extra },
       });
       return { runId, status: completed.status };
     } catch (error) {

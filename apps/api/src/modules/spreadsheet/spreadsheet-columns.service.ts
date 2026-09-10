@@ -1,5 +1,6 @@
-import { prisma } from "../../db/prisma";
+import { prisma, toNullableJsonInput } from "../../db/prisma";
 import {
+  SpreadsheetConfigWithoutNodeError,
   SpreadsheetPromptWithoutNodeError,
   SpreadsheetSortOrderOutOfRangeError,
 } from "./spreadsheet.errors";
@@ -12,7 +13,7 @@ import type {
 } from "./spreadsheet.schema";
 import { toDbColumnType, toDbNodeType } from "./spreadsheet.schema";
 import { columnSelect, spreadsheetService } from "./spreadsheet.service";
-import { toSheetColumn } from "./spreadsheet.shape";
+import { toNodeConfig, toSheetColumn } from "./spreadsheet.shape";
 
 // Framework-free (docs/rules/BACKEND.md hard rule 1). Every write to the
 // Column table. A column carries two numbers and confusing them is the
@@ -38,6 +39,7 @@ export class SpreadsheetColumnsService {
     type,
     node,
     prompt,
+    config,
   }: CreateColumnInput): Promise<SheetColumn> {
     await spreadsheetService.byId(id);
     const max = await prisma.column.aggregate({
@@ -55,6 +57,7 @@ export class SpreadsheetColumnsService {
         type: toDbColumnType(type),
         node: node === null ? null : toDbNodeType(node),
         prompt,
+        config: toNullableJsonInput(config),
       },
       select: columnSelect,
     });
@@ -64,7 +67,8 @@ export class SpreadsheetColumnsService {
   /**
    * Changing `type` does not convert or revalidate stored cells. `undefined`
    * leaves a field unchanged, `null` clears it; clearing `node` also clears
-   * `prompt`, and the effective pair may never be prompt-without-node.
+   * `prompt` **and** `config` — both belong to the node — and the effective
+   * pair may never be prompt-without-node or config-without-node.
    *
    * Position is deliberately not updatable here: moving a column is a
    * multi-row write, so it is `reorderColumn` and not a partial field update.
@@ -76,14 +80,24 @@ export class SpreadsheetColumnsService {
     type,
     node,
     prompt,
+    config,
   }: UpdateColumnInput): Promise<SheetColumn> {
     const stored = await spreadsheetService.columnOrThrow(id, columnIndex);
     const effectiveNode = node !== undefined ? node : stored.node;
     // An explicit prompt always counts; otherwise clearing the node clears it.
     const effectivePrompt =
       prompt !== undefined ? prompt : node === null ? null : stored.prompt;
+    const effectiveConfig =
+      config !== undefined
+        ? config
+        : node === null
+          ? null
+          : toNodeConfig(stored.config);
     if (effectiveNode === null && effectivePrompt !== null) {
       throw new SpreadsheetPromptWithoutNodeError();
+    }
+    if (effectiveNode === null && effectiveConfig !== null) {
+      throw new SpreadsheetConfigWithoutNodeError();
     }
     const record = await prisma.column.update({
       where: { id: columnId(id, columnIndex) },
@@ -94,7 +108,11 @@ export class SpreadsheetColumnsService {
           node: node === null ? null : toDbNodeType(node),
         }),
         ...(prompt !== undefined && { prompt }),
-        ...(node === null && { prompt: null }),
+        ...(config !== undefined && { config: toNullableJsonInput(config) }),
+        ...(node === null && {
+          prompt: null,
+          config: toNullableJsonInput(null),
+        }),
       },
       select: columnSelect,
     });

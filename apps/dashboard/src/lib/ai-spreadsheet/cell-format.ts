@@ -31,7 +31,7 @@ export const columnTypes: ColumnType[] = ALL_COLUMN_TYPES.filter(
 );
 
 /** The nodes a user may pick in the column form, in the API's order. */
-export const nodeTypes: NodeType[] = ["ai", "email"];
+export const nodeTypes: NodeType[] = ["ai", "email", "google_search"];
 
 /** Unknown server nodes degrade to a plain column rather than throwing. */
 export function toNodeType(raw: string | null): NodeType | null {
