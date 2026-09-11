@@ -28,7 +28,7 @@ apps/api (NestJS on Bun, port 4001)
         │
   Trigger.dev worker (src/trigger/, bundled by the Trigger CLI)
         ├── run-ai-batch: per runnable column (a wave) prepares the inputs, then batchTriggerAndWait →
-        └── run-ai-cell: calls the same services → Gemini (+ SerpAPI for a
+        └── run-ai-cell: calls the same services → Gemini (with the SDK Google Search tool for a
             google_search column) via src/ai/ → writes the run + cell
 
 packages/ui  → shared primitives + Tailwind preset, consumed by the dashboard
@@ -129,7 +129,6 @@ no Prisma code; `bunx turbo build` is the check.
 | `SUPABASE_URL`, `SUPABASE_KEY` | api | Supabase Storage for `POST /files`; unset → 503 on upload |
 | `TRIGGER_SECRET_KEY` | api | Trigger.dev environment key the api enqueues with (`src/jobs/run-ai-dispatch.ts`); the Trigger CLI reads it too |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | worker | Gemini key for the Vercel AI SDK (`src/ai/gemini.ts`); the local worker reads `apps/api/.env`, a deployed one its Trigger environment |
-| `SERPAPI_API_KEY` | worker | SerpAPI key for the `google_search` node (`src/ai/serpapi.ts`); same two places as the Gemini key |
 | `NEXT_PUBLIC_API_URL` | dashboard | browser tRPC target (default `http://localhost:4001`) |
 | `API_INTERNAL_URL` | dashboard | optional SSR-side override |
 
