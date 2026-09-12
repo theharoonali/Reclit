@@ -41,7 +41,6 @@ export const toModelColumn = (column: ApiColumn): SheetColumn => ({
   type: toColumnType(column.type),
   node: toNodeType(column.node),
   prompt: column.prompt,
-  config: column.config,
 });
 
 export function normalize(payload: SheetPayload): SheetModel {

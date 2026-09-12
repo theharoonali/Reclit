@@ -101,8 +101,8 @@ if (existingWorkspace || existingSheet) {
   const workspace = await workspaceService.create({ name: SHEET_NAME });
   const sheetId = workspace.spreadsheetId;
   if (!sheetId) throw new Error("workspace.create returned no spreadsheetId");
-  // Explicit node/prompt/config: this calls the service beneath the zod
-  // layer, so the schema defaults do not apply.
+  // Explicit node/prompt: this calls the service beneath the zod layer, so
+  // the schema defaults do not apply.
   for (const { name, type } of COLUMNS) {
     await spreadsheetColumnsService.createColumn({
       id: sheetId,
@@ -110,7 +110,6 @@ if (existingWorkspace || existingSheet) {
       type,
       node: null,
       prompt: null,
-      config: null,
     });
   }
   for (const [rowIndex, values] of ROWS.entries()) {

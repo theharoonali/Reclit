@@ -97,10 +97,12 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   one. Widths are uniform and fixed. Hovering a header shows a red × (delete)
   at the right and a six-dot grip (reorder) at the left; the grip's lane is
   reserved on every column so the name never shifts.
-- **Column nodes.** The form offers None / AI / Email; choosing a node reveals
-  a Prompt textarea. A column whose node has a glyph (`ai` → ✨,
-  `NODE_GLYPHS` in `paint-header.ts`) paints it before its name. An `ai`
-  column's prompt is what Run executes.
+- **Column nodes.** The form offers None / AI / Email / Google Search;
+  choosing a node reveals a Prompt textarea, the node's whole configuration.
+  A column whose node has a glyph (`ai` → ✨, `NODE_GLYPHS` in
+  `paint-header.ts`) paints it before its name. An `ai` or `google_search`
+  column's prompt is what Run executes; a Google Search column searches
+  Google about the row before answering.
 - **Run.** Runs the AI cells of the selected rectangle: plain columns inside
   it are ignored, every row is a series (its AI columns run in display order,
   each fed the previous answer) and the rows run as a batch, column by

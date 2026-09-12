@@ -16,12 +16,12 @@ import type { CellAttachmentNote } from "./cell-prompt";
 import { buildCellMessages, cellOutputSchema } from "./cell-prompt";
 import { gemini } from "./gemini";
 
-// The one model call behind an AI cell. The row's audio, file and website
-// cells are fetched and attached as file parts; the answer is structured
-// output typed by the column (`Output.object`), free JSON for a `json`
-// column (`Output.json`), and passes the same `cellValueMatchesType` check
-// the spreadsheet applies on write, so a run never completes with a value
-// its cell would refuse.
+// The one model call behind an AI cell, and the typed-output call every
+// generator ends on. The row's audio, file and website cells are fetched and
+// attached as file parts; the answer is structured output typed by the column
+// (`Output.object`), free JSON for a `json` column (`Output.json`), and
+// passes the same `cellValueMatchesType` check the spreadsheet applies on
+// write, so a run never completes with a value its cell would refuse.
 
 export type CellGeneration = {
   output: Exclude<CellValue, null>;
@@ -92,15 +92,26 @@ function userMessage(prompt: string, attachments: Attachments): ModelMessage {
   };
 }
 
-export async function generateCellValue(
-  input: RunAiInput,
-): Promise<CellGeneration> {
-  const attachments = await collectAttachments(input.row.cells);
-  const { system, prompt } = buildCellMessages(input, notesOf(attachments));
-  const messages = [userMessage(prompt, attachments)];
-  const schema = cellOutputSchema(input.target.type);
+/**
+ * One model call whose answer is shaped to a column type: `Output.object`
+ * with `cellOutputSchema` for a typed column, `Output.json` for a `json`
+ * column (Gemini rejects open objects), then `coerceCellValue`. Both
+ * generators end on it. Never give this call `tools`: Gemini refuses a JSON
+ * response schema alongside a tool in one request (400 INVALID_ARGUMENT —
+ * docs/plans/021-google-search-node.md), which is why a search cell grounds
+ * in one call and types its answer in this one.
+ */
+export async function generateTypedCellValue({
+  system,
+  messages,
+  type,
+}: {
+  system: string;
+  messages: ModelMessage[];
+  type: ColumnTypeWire;
+}): Promise<Pick<CellGeneration, "output" | "model" | "usage">> {
+  const schema = cellOutputSchema(type);
   const model = gemini();
-
   const result =
     schema === null
       ? await generateText({
@@ -115,21 +126,30 @@ export async function generateCellValue(
           messages,
           output: Output.object({ schema }),
         });
-
   const raw =
     schema === null
       ? result.output
       : (result.output as { value: unknown }).value;
-  const output = coerceCellValue(raw, input.target.type);
-
   return {
-    output,
+    output: coerceCellValue(raw, type),
     model: result.response.modelId,
     usage: {
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
       totalTokens: result.usage.totalTokens,
     },
-    attachments: summariseAttachments(attachments),
   };
+}
+
+export async function generateCellValue(
+  input: RunAiInput,
+): Promise<CellGeneration> {
+  const attachments = await collectAttachments(input.row.cells);
+  const { system, prompt } = buildCellMessages(input, notesOf(attachments));
+  const typed = await generateTypedCellValue({
+    system,
+    messages: [userMessage(prompt, attachments)],
+    type: input.target.type,
+  });
+  return { ...typed, attachments: summariseAttachments(attachments) };
 }

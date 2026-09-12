@@ -19,7 +19,7 @@ in its header. Do not duplicate them here.
 | `batchId` | `String` | required; every run one Run click created (`batch-<uuid>`); indexed |
 | `status` | `String` | uppercase word; `PENDING \| RUNNING \| COMPLETED \| FAILED` or a custom working stage; default `PENDING`; the two last are terminal |
 | `credit` | `Int` | default 0 (credit accounting is not implemented; token usage is in `result.usage`) |
-| `result` | `Json?` | null until the cell is prepared, then `input` (with `previous` from a row's second AI column on), `output`, `model`, `usage`, `attachments`, `error: { name, message }` — see the contract |
+| `result` | `Json?` | null until the cell is prepared, then `input` (with `previous` from a row's second AI column on), `output`, `model`, `usage`, `attachments`, `searches` (`google_search` only), `error: { name, message }` — see the contract |
 | `createdAt` | `DateTime` | `@default(now())`, indexed |
 | `updatedAt` | `DateTime` | `@updatedAt`; its ms value is the SSE event id |
 
@@ -63,12 +63,11 @@ Background jobs (outside the tRPC graph — [ARCHITECTURE.md](../../ARCHITECTURE
 | `apps/api/src/trigger/run-ai-cell.ts` | task `run-ai-cell` (`{ runId, input }`): `markRunning` → `generateCellValue` or `generateSearchCellValue` (`input.target.node` decides) → `complete` / `fail`, returns `{ runId, status }`; no retries; `onFailure` fails the run |
 | `apps/api/src/jobs/run-ai-dispatch.ts` | the API-side client: `registerRunAiDispatcher()` → `tasks.trigger("run-ai-batch", …, { idempotencyKey: batchId })`, the only `@trigger.dev/sdk` import on the API side; called from `src/main.ts` |
 | `apps/api/src/ai/gemini.ts` | `gemini(modelId?)` — the one Gemini provider for the Vercel AI SDK |
-| `apps/api/src/ai/google-search.ts` | `readGroundedSearch` validates provider grounding metadata and extracts distinct web sources and actual queries |
-| `apps/api/src/ai/search-prompt.ts` | Research and typed-answer prompts; only configured source cells reach either call |
-| `apps/api/src/ai/search-output.ts` | `generateSearchCellValue`: Gemini with `google.tools.googleSearch({})`, then a separate typed-output call |
-| `apps/api/src/ai/cell-prompt.ts` | pure: `buildCellMessages` (instruction + row as context + the previous step's output as the primary input), `cellOutputSchema` (answer shape per column type), `formatCellLine` |
+| `apps/api/src/ai/search-prompt.ts` | pure: `buildSearchExtractMessages` (the grounded text → the typed value), `searchRecordOf` (the grounded call's queries and pages, or `null` when it did not search), `MAX_SEARCH_SOURCES` |
+| `apps/api/src/ai/search-output.ts` | `generateSearchCellValue` — the `google_search` node: a grounded Gemini call with the `google_search` tool, the did-it-search check, then the typed extraction call |
+| `apps/api/src/ai/cell-prompt.ts` | pure: `buildCellMessages` (instruction + row as context + the previous step's output as the primary input; plus `SEARCH_RULES` for a `google_search` target), `cellOutputSchema` (answer shape per column type), `TYPE_RULES`, `formatCellLine` |
 | `apps/api/src/ai/cell-attachments.ts` | fetches the row's audio / file / url cells into file parts (`collectAttachments`; ≤ 15 MB, 30 s each); a failure is recorded, never thrown |
-| `apps/api/src/ai/cell-output.ts` | `generateCellValue` — `generateText` with the prompt plus the attached files, `Output.object` (or `Output.json` for `json` columns); `coerceCellValue`, the shared `cellValueMatchesType` guard both generators end on |
+| `apps/api/src/ai/cell-output.ts` | `generateCellValue` — the attached files plus `generateTypedCellValue`, the one typed-output call both generators end on (`Output.object`, or `Output.json` for `json` columns, then `coerceCellValue` / `cellValueMatchesType`) |
 
 ## Procedures
 
@@ -112,27 +111,28 @@ There is no REST face.
   wait costs no `maxDuration`. A cell whose outcome is not `completed` stops
   its row: the row's cells in the later waves are `failPending`ed with
   `RunAiSeriesStopped` and skipped.
-- **A Google Search column is fed one column, not the row.** `isRunnable`
-  is a per-node switch: an `ai` node needs a prompt, a `google_search` node
-  needs a prompt *and* `config.sourceColumns`, and `email` has no executor so
-  it is never runnable. For a search cell `prepare` resolves those indexes
-  against the row **in the configured order** — dropping the target column
-  itself, an index whose column is gone, and a cell blank in this row — and
-  writes them to `input.search.sourceColumns` with `input.row.cells` left
-  `[]`. Nothing resolving is `RunAiNoSearchInputError`, which fails that cell
-  and stops that row only. A sheet has many columns and one of them is the
-  search subject; the rest is noise the model would have to filter and tokens
-  paid for twice.
-- **Search uses the Google provider tool.** The research call enables
-  `google.tools.googleSearch({})` without structured output. The worker checks
-  non-empty text, `webSearchQueries` and HTTP(S) web grounding sources before
-  passing the research to a separate, tool-free typed-output call. This keeps
-  the existing Gemini model compatible with structured output. Missing grounding
-  fails the cell; there is no custom query generation or fallback retry.
-  `result.searches` records the actual provider queries. Each `resultCount`
-  counts distinct web sources for the whole response, since Google does not
-  expose per-query result counts. Attachments stay empty; usage sums both calls.
-  The existing `GOOGLE_GENERATIVE_AI_API_KEY` authenticates both calls.
+- **A Google Search column is fed the row, like an AI column.** `isRunnable`
+  is a per-node switch: `ai` and `google_search` need a prompt, `email` has
+  no executor so it is never runnable. `prepare` builds one input shape for
+  every node — the whole row plus `previous`; the prompt is the whole
+  configuration of a search column ("the official website of this company",
+  "top 10 companies working on SAP with their URLs"), so a blank row still
+  prepares.
+- **The search node is a grounded call plus an extraction call.** Gemini
+  rejects a tool alongside a JSON response schema on the model in use —
+  *"Function calling with a response mime type: 'application/json' is
+  unsupported"* (structured output with tools is a Gemini 3 preview) — so
+  `generateSearchCellValue` unrolls it: one `generateText` with the
+  provider's `google_search` tool and no output schema (`buildCellMessages`
+  adds `SEARCH_RULES` for a `google_search` target), then
+  `generateTypedCellValue` shapes the grounded text through the same
+  `cellOutputSchema` an `ai` cell uses (`buildSearchExtractMessages`). Gemini
+  decides whether to search and cannot be forced, so `searchRecordOf` reads
+  `groundingMetadata.webSearchQueries` and the `sources` first: nothing there
+  fails the cell — a Google Search cell never completes from memory. The
+  queries and pages land in `result.searches` (source URLs are Google
+  redirect links, `title` the domain); `result.attachments` is always `[]`
+  and `result.usage` is both calls summed.
 - **One working run per cell is a database rule**, not a service check: the
   partial unique index refuses the insert (or a transition that would revive
   a finished run while another works the cell) and `create` / `createMany` /
@@ -176,14 +176,17 @@ There is no REST face.
   rows; `run-ai-batch.ts` is the pattern for a parent task that prepares,
   fans out with `batchTriggerAndWait`, and reads per-run outcomes.
 - `gemini()` (`src/ai/gemini.ts`) for any service or task that needs a Gemini
-  model; add other providers beside it in `src/ai/`. `cellOutputSchema` /
-  `coerceCellValue` for any other producer of typed cell values;
-  `collectAttachments` for anything else that must hand a row's media to a
-  model.
-- `readGroundedSearch` validates Google grounding before a typed answer is generated.
+  model; add other providers beside it in `src/ai/`. `generateTypedCellValue`
+  / `cellOutputSchema` / `coerceCellValue` for any other producer of typed
+  cell values; `collectAttachments` for anything else that must hand a row's
+  media to a model.
+- `searchRecordOf` (`src/ai/search-prompt.ts`) — the shape for reading a
+  provider-executed tool's metadata: pure, structural over `result.sources`,
+  and answering "did it happen" so the caller can refuse an answer that
+  skipped the tool.
 - `input.target.node` + the switch in `run-ai-cell.ts` — the seam a third
   node type plugs into: register it in `NODE_TYPES_WIRE`, teach `isRunnable`
-  and `prepare` what it needs, add a generator returning `CellGeneration`.
+  what it needs, add a generator returning `CellGeneration`.
 
 ## Used by
 

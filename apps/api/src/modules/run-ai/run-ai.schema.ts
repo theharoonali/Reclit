@@ -45,17 +45,12 @@ export const toWireRunAiStatus = (status: string): string =>
  * `RunAiBatchService.prepare` right before the cell runs, stored as
  * `result.input`, and sent to the worker as the job payload.
  *
- * How much of the row a node sees is the node's own rule:
- *
- * - `ai` fills `row.cells` with the **whole row** in the sheet's column sort
- *   order — every column, blank cells as `null`, the target included with its
- *   current value; audio and file cells carry their URL as text.
- * - `google_search` leaves `row.cells` **empty** and fills `search` with just
- *   the cells the column's `config.sourceColumns` names. A sheet has many
- *   columns and only one of them is the search subject; sending the rest
- *   would be noise the model has to filter and tokens paid for twice.
- *
- * One shape for both means one job payload, one task and one stream.
+ * Whichever node runs, `row.cells` is the **whole row** in the sheet's column
+ * sort order — every column, blank cells as `null`, the target included with
+ * its current value; audio and file cells carry their URL as text. One shape
+ * for both nodes means one job payload, one task and one stream; what the
+ * node does with the row is the generator's business (an `ai` cell answers
+ * from it, a `google_search` cell searches about it).
  */
 export const runAiInputSchema = z.object({
   prompt: z.string(),
@@ -76,10 +71,6 @@ export const runAiInputSchema = z.object({
     index: z.number().int(),
     cells: z.array(sheetRowCellSchema),
   }),
-  /** `google_search` only: the cells that seed the query, in configured order. */
-  search: z
-    .object({ sourceColumns: z.array(sheetRowCellSchema).min(1) })
-    .optional(),
   previous: sheetRowCellSchema.optional(),
 });
 export type RunAiInput = z.infer<typeof runAiInputSchema>;
@@ -114,27 +105,38 @@ export const runAiBatchJobSchema = z.object({
 export type RunAiBatchJob = z.infer<typeof runAiBatchJobSchema>;
 export type RunAiWave = z.infer<typeof runAiWaveSchema>;
 
-/** One Google search a run actually made, in the order it made them. */
-export const runAiSearchSchema = z.object({
-  query: z.string(),
-  resultCount: z.number().int(),
+/** One page the grounded call cited: Google's redirect link and, as `title`, the site's domain. */
+const runAiSearchSourceSchema = z.object({
+  url: z.string(),
+  title: z.string().optional(),
 });
-export type RunAiSearch = z.infer<typeof runAiSearchSchema>;
+
+/**
+ * What a `google_search` run's grounded call did — the Google queries the
+ * model ran and the pages it grounded its answer on. Named in the result
+ * rather than left to the catchall so it is part of the contract and visible
+ * when a wrong answer is debugged. Absent on an `ai` run. Permissive on
+ * purpose (`queries` may be empty): the generator refuses to complete a run
+ * that did not search; the schema never refuses a debug record.
+ */
+export const runAiSearchesSchema = z.object({
+  queries: z.array(z.string()),
+  sources: z.array(runAiSearchSourceSchema),
+});
+export type RunAiSearches = z.infer<typeof runAiSearchesSchema>;
 
 /**
  * Free-form JSON object on the run. `input` is what the run was given
  * (written on create); `output`, when present, is the value the run produced
  * for its cell — a plain cell value — and `complete` writes it into the Cell
- * row. `searches` is what a `google_search` run asked Google — named rather
- * than left to the catchall so it is part of the contract and visible when
- * debugging a wrong answer. Everything else (`model`, `usage`,
- * `error: { name, message }`) is kept as-is.
+ * row. `searches` is what a `google_search` run searched and read. Everything
+ * else (`model`, `usage`, `error: { name, message }`) is kept as-is.
  */
 export const runAiResultSchema = z
   .object({
     input: runAiInputSchema.optional(),
     output: cellValueSchema.optional(),
-    searches: z.array(runAiSearchSchema).optional(),
+    searches: runAiSearchesSchema.optional(),
   })
   .catchall(z.unknown());
 export type RunAiResult = z.infer<typeof runAiResultSchema>;

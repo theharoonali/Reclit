@@ -43,7 +43,6 @@ export const columnSelect = {
   type: true,
   node: true,
   prompt: true,
-  config: true,
 } as const;
 
 export const cellSelect = {
