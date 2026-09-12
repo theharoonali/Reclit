@@ -79,27 +79,40 @@
  * - The worker runs a batch in column waves (`src/trigger/run-ai-batch.ts`):
  *   for each runnable column in sort order it first *prepares* every cell of
  *   that column — `result.input` is built from the database at that moment, so
- *   an `ai` cell's `input.row.cells` (every column of the sheet in display
- *   order, blank cells `value: null`, audio/file/url cells as their URL)
- *   already holds the answers of the earlier columns, and from a row's second
- *   runnable column on `input.previous` is the row's previous column with the
- *   value it produced — then runs the wave as one Trigger.dev batch of `run-ai-cell`
+ *   `input.row.cells` (every column of the sheet in display order, blank
+ *   cells `value: null`, audio/file/url cells as their URL — the transcript
+ *   is not stored on the run's input) already holds the answers of the
+ *   earlier columns, and from a row's second runnable column on
+ *   `input.previous` is the row's previous column with the value it
+ *   produced — then runs the wave as one Trigger.dev batch of `run-ai-cell`
  *   (a single run when the wave has one cell) and waits for it. Each cell
- *   (`src/trigger/run-ai-cell.ts`) moves its run to `running`, fetches every
- *   audio / file / url cell of the row (http(s) values, ≤ 15 MB, 30 s each)
- *   and attaches them to the model call as files — a link that cannot be
- *   fetched is noted in the prompt instead — asks Gemini with the column
- *   prompt as the instruction, the previous output as the primary input and
- *   the row as context, and `complete`s with
- *   `result: { input, output, model, usage, attachments }` (`attachments`:
- *   `{ columnId, filename, mediaType, bytes }` per fetched file,
- *   `{ columnId, url, error }` per failure) — `output` typed like the column
+ *   (`src/trigger/run-ai-cell.ts`) moves its run to `running`, resolves the
+ *   row's media, asks Gemini with the column prompt as the instruction, the
+ *   previous output as the primary input and the row as context, and
+ *   `complete`s with
+ *   `result: { input, output, model, usage, attachments, transcripts }`
+ *   (`searches` on a `google_search` run) — `output` typed like the column
  *   (string, number, boolean, ISO date string, JSON object, email, URL) —
  *   or `fail`s with `result: { input, error }`. A failed cell stops its row:
  *   the row's cells in the later waves are `failed` with
  *   `result.error: { name: "RunAiSeriesStopped", message }` without running;
  *   other rows are unaffected. `markRunning` never revives a finished run
  *   (`RUN_AI_FINISHED`, conflict).
+ * - **The row's media reaches the model two ways, and neither can fail a
+ *   run.** `file` and `url` cells holding an http(s) URL are fetched (≤ 15 MB,
+ *   30 s each) and attached to the model call as files; `audio` cells are
+ *   *transcribed* instead — ElevenLabs Speech-to-Text — and the transcript is
+ *   what the prompt carries. A transcript is stored in `ExternalApi` under the
+ *   audio cell's own id and its file URL, so the recording is sent once no
+ *   matter how many AI columns the row runs through, and clearing the cell
+ *   drops it (contract: external-api.api.test.ts). Either path failing is a
+ *   note in the prompt line ("could not be fetched" / "could not be
+ *   transcribed"), never a failed run. The completed run records both without
+ *   the content: `result.attachments` is
+ *   `{ columnId, filename, mediaType, bytes }` per fetched file and
+ *   `{ columnId, url, error }` per failure; `result.transcripts` is
+ *   `{ columnId, source, characters, reused }` per transcript (`reused`: a
+ *   stored one answered it) and `{ columnId, url, error }` per failure.
  * - A `google_search` column is runnable exactly like an `ai` column: a node
  *   and a prompt. `prepare` gives it the same input — the whole row in
  *   `input.row.cells`, plus `previous` — and the prompt is the instruction
@@ -170,12 +183,21 @@ import {
   SEARCH_RULES,
   TYPE_RULES,
 } from "../ai/cell-prompt";
+import type { TranscriptStore } from "../ai/cell-transcripts";
+import {
+  collectTranscripts,
+  isTranscribableCell,
+  summariseTranscripts,
+} from "../ai/cell-transcripts";
+import { type TranscribeFetch, transcribeAudio } from "../ai/elevenlabs";
 import {
   buildSearchExtractMessages,
   MAX_SEARCH_SOURCES,
   searchRecordOf,
 } from "../ai/search-prompt";
 import { pingDatabase, prisma } from "../db/prisma";
+import type { ExternalApi } from "../modules/external-api/external-api.schema";
+import { EXTERNAL_API_KINDS } from "../modules/external-api/external-api.schema";
 import {
   RunAiCellBusyError,
   RunAiColumnNotRunnableError,
@@ -1238,14 +1260,35 @@ describe("run-ai-cell task prompt (pure)", () => {
     ]);
   });
 
-  it("names an attached file, or says why a URL could not be fetched", () => {
+  it("names an attached file, carries a transcript, or says which step failed", () => {
     const voice = input.row.cells[4];
     if (!voice) throw new Error("fixture");
     expect(
       formatCellLine(voice, { kind: "attached", filename: "ada.mp3" }),
     ).toBe('Voice (audio): attached file "ada.mp3"');
-    expect(formatCellLine(voice, { kind: "failed", error: "HTTP 404" })).toBe(
+    expect(
+      formatCellLine(voice, {
+        kind: "transcribed",
+        text: "Hello, this is Ada.",
+      }),
+    ).toBe("Voice (audio): transcript of the audio: Hello, this is Ada.");
+    expect(
+      formatCellLine(voice, {
+        kind: "failed",
+        step: "fetch",
+        error: "HTTP 404",
+      }),
+    ).toBe(
       "Voice (audio): https://files.test/ada.mp3 (could not be fetched: HTTP 404)",
+    );
+    expect(
+      formatCellLine(voice, {
+        kind: "failed",
+        step: "transcribe",
+        error: "HTTP 401",
+      }),
+    ).toBe(
+      "Voice (audio): https://files.test/ada.mp3 (could not be transcribed: HTTP 401)",
     );
   });
 
@@ -1294,17 +1337,27 @@ describe("run-ai-cell task prompt (pure)", () => {
     expect(without.prompt).not.toContain("Output of the previous step");
   });
 
-  it("attaches audio, file and url cells that hold an http(s) URL — nothing else", () => {
+  it("attaches file and url cells that hold an http(s) URL; audio is transcribed instead", () => {
     const cell = (type: RunAiInput["target"]["type"], value: unknown) =>
       ({ id: "col.9", index: 9, name: "X", type, value }) as RunAiInputCell;
-    expect(isAttachableCell(cell("audio", "https://a.test/x.mp3"))).toBe(true);
     expect(isAttachableCell(cell("file", "http://a.test/x.pdf"))).toBe(true);
     expect(isAttachableCell(cell("url", "https://example.com/"))).toBe(true);
     expect(isAttachableCell(cell("string", "https://a.test/x.pdf"))).toBe(
       false,
     );
     expect(isAttachableCell(cell("file", "ftp://a.test/x.pdf"))).toBe(false);
-    expect(isAttachableCell(cell("audio", null))).toBe(false);
+    // Audio goes down the transcription path, never the attachment one.
+    expect(isAttachableCell(cell("audio", "https://a.test/x.mp3"))).toBe(false);
+    expect(isTranscribableCell(cell("audio", "https://a.test/x.mp3"))).toBe(
+      true,
+    );
+    expect(isTranscribableCell(cell("file", "https://a.test/x.mp3"))).toBe(
+      false,
+    );
+    expect(isTranscribableCell(cell("audio", "ftp://a.test/x.mp3"))).toBe(
+      false,
+    );
+    expect(isTranscribableCell(cell("audio", null))).toBe(false);
   });
 
   it("names the file after the URL's last segment and picks a media type", () => {
@@ -1365,8 +1418,8 @@ describe("run-ai-cell task prompt (pure)", () => {
       {
         id: "col.1",
         index: 1,
-        name: "Voice",
-        type: "audio",
+        name: "Notes",
+        type: "file",
         value: "https://files.test/ada.mp3",
       },
       {
@@ -1452,6 +1505,291 @@ describe("run-ai-cell task prompt (pure)", () => {
       );
     }
     expect(cellOutputSchema("json")).toBeNull();
+  });
+});
+
+describe("run-ai-cell task transcripts (pure)", () => {
+  const address = { sheetId: "sheet-1", row: 4, col: 2 };
+
+  const audioCell = (index: number, value: string | null): RunAiInputCell => ({
+    id: `col.${index}`,
+    index,
+    name: "Voice",
+    type: "audio",
+    value,
+  });
+
+  const mp3: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get: (name: string) => (name === "content-type" ? "audio/mpeg" : null),
+    },
+    arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer as ArrayBuffer,
+  });
+
+  /** A store that records what it was asked, and answers from a seeded map. */
+  function fakeStore(seed: Record<string, unknown> = {}) {
+    const rows = new Map(Object.entries(seed));
+    const keys: string[] = [];
+    const store: TranscriptStore = {
+      async resolve(key, produce, accept = () => true) {
+        const id = `${key.cellId}|${key.input}`;
+        keys.push(id);
+        const record = (output: unknown): ExternalApi => ({
+          id,
+          cellId: key.cellId,
+          input: key.input,
+          output: output as ExternalApi["output"],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        const cached = rows.get(id);
+        if (cached && accept(cached as ExternalApi["output"])) {
+          return { record: record(cached), reused: true };
+        }
+        const produced = await produce();
+        rows.set(id, produced);
+        return { record: record(produced), reused: false };
+      },
+    };
+    return { store, keys, rows };
+  }
+
+  const transcription = (text: string) => ({
+    text,
+    languageCode: "en",
+    model: "scribe_v1",
+    provider: "elevenlabs",
+  });
+
+  it("keys a transcript by the audio cell's own scoped id and its URL", async () => {
+    const { store, keys } = fakeStore();
+    const { texts, failures } = await collectTranscripts(
+      address,
+      [audioCell(7, "https://files.test/ada.mp3")],
+      {
+        store,
+        fetchImpl: mp3,
+        transcribe: async () => transcription("Hello, this is Ada."),
+      },
+    );
+    // The AI cell runs at sheet-1 row 4 col 2; the audio lives in col 7 of the
+    // same row, and that is the cell the stored result belongs to.
+    expect(keys).toEqual(["sheet-1.cell.4.7|https://files.test/ada.mp3"]);
+    expect(failures).toEqual([]);
+    expect(texts).toEqual([
+      {
+        columnId: "col.7",
+        source: "https://files.test/ada.mp3",
+        text: "Hello, this is Ada.",
+        reused: false,
+      },
+    ]);
+  });
+
+  it("reuses a stored transcript instead of calling the API again", async () => {
+    const stored = {
+      kind: EXTERNAL_API_KINDS.audioTranscription,
+      provider: "elevenlabs",
+      model: "scribe_v1",
+      text: "Stored transcript.",
+      languageCode: "en",
+      filename: "ada.mp3",
+      mediaType: "audio/mpeg",
+      bytes: 3,
+    };
+    const { store } = fakeStore({
+      "sheet-1.cell.4.7|https://files.test/ada.mp3": stored,
+    });
+    let calls = 0;
+    const { texts } = await collectTranscripts(
+      address,
+      [audioCell(7, "https://files.test/ada.mp3")],
+      {
+        store,
+        fetchImpl: mp3,
+        transcribe: async () => {
+          calls += 1;
+          return transcription("fresh");
+        },
+      },
+    );
+    expect(calls).toBe(0);
+    expect(texts[0]).toMatchObject({
+      text: "Stored transcript.",
+      reused: true,
+    });
+  });
+
+  it("records a failure instead of throwing when the file or the API fails", async () => {
+    const gone: FetchLike = async () => ({
+      ok: false,
+      status: 404,
+      headers: { get: () => null },
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+    const notFetched = await collectTranscripts(
+      address,
+      [audioCell(7, "https://files.test/ada.mp3")],
+      {
+        store: fakeStore().store,
+        fetchImpl: gone,
+        transcribe: async () => transcription("x"),
+      },
+    );
+    expect(notFetched.texts).toEqual([]);
+    expect(notFetched.failures).toEqual([
+      {
+        columnId: "col.7",
+        url: "https://files.test/ada.mp3",
+        error: "HTTP 404",
+      },
+    ]);
+
+    const notTranscribed = await collectTranscripts(
+      address,
+      [audioCell(7, "https://files.test/ada.mp3")],
+      {
+        store: fakeStore().store,
+        fetchImpl: mp3,
+        transcribe: async () => {
+          throw new Error("ElevenLabs speech-to-text failed: HTTP 401");
+        },
+      },
+    );
+    expect(notTranscribed.failures[0]?.error).toBe(
+      "ElevenLabs speech-to-text failed: HTTP 401",
+    );
+  });
+
+  it("ignores every cell that is not an audio cell holding an http(s) URL", async () => {
+    const { store, keys } = fakeStore();
+    const { texts, failures } = await collectTranscripts(
+      address,
+      [
+        { id: "col.0", index: 0, name: "Name", type: "string", value: "Ada" },
+        {
+          id: "col.1",
+          index: 1,
+          name: "CV",
+          type: "file",
+          value: "https://files.test/cv.pdf",
+        },
+        audioCell(7, null),
+      ],
+      { store, fetchImpl: mp3, transcribe: async () => transcription("x") },
+    );
+    expect(keys).toEqual([]);
+    expect(texts).toEqual([]);
+    expect(failures).toEqual([]);
+  });
+
+  it("summarises without the transcript text", () => {
+    expect(
+      summariseTranscripts({
+        texts: [
+          {
+            columnId: "col.7",
+            source: "https://files.test/ada.mp3",
+            text: "Hello, this is Ada.",
+            reused: true,
+          },
+        ],
+        failures: [
+          {
+            columnId: "col.8",
+            url: "https://files.test/x.mp3",
+            error: "HTTP 404",
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        columnId: "col.7",
+        source: "https://files.test/ada.mp3",
+        characters: 19,
+        reused: true,
+      },
+      { columnId: "col.8", url: "https://files.test/x.mp3", error: "HTTP 404" },
+    ]);
+  });
+});
+
+describe("ElevenLabs speech-to-text (pure)", () => {
+  const file = {
+    filename: "ada.mp3",
+    mediaType: "audio/mpeg",
+    data: new Uint8Array([1, 2, 3]),
+  };
+
+  // The key is read per call, so a fake one is enough to reach the fake fetch.
+  const originalKey = process.env.ELEVENLABS_API_KEY;
+  process.env.ELEVENLABS_API_KEY = "contract-test-key";
+  afterAll(() => {
+    if (originalKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = originalKey;
+  });
+
+  it("posts the file as multipart and reads text + language back", async () => {
+    let seen: { url: string; model: unknown; key?: string } | null = null;
+    const fakeFetch: TranscribeFetch = async (url, init) => {
+      seen = {
+        url,
+        model: init.body.get("model_id"),
+        key: init.headers["xi-api-key"],
+      };
+      return {
+        ok: true,
+        status: 200,
+        text: async () => "",
+        json: async () => ({
+          text: "Hello, this is Ada.",
+          language_code: "en",
+        }),
+      };
+    };
+    const result = await transcribeAudio(file, fakeFetch);
+    expect(result).toEqual({
+      text: "Hello, this is Ada.",
+      languageCode: "en",
+      model: "scribe_v1",
+      provider: "elevenlabs",
+    });
+    expect(seen).toMatchObject({
+      url: "https://api.elevenlabs.io/v1/speech-to-text",
+      model: "scribe_v1",
+      key: "contract-test-key",
+    });
+  });
+
+  it("has no language when the API does not report one", async () => {
+    const fakeFetch: TranscribeFetch = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => "",
+      json: async () => ({ text: "No language." }),
+    });
+    expect((await transcribeAudio(file, fakeFetch)).languageCode).toBeNull();
+  });
+
+  it("throws on an HTTP error and on an answer with no transcript", async () => {
+    const failing: TranscribeFetch = async () => ({
+      ok: false,
+      status: 401,
+      text: async () => "invalid api key",
+      json: async () => ({}),
+    });
+    await expectError(transcribeAudio(file, failing), Error);
+
+    const empty: TranscribeFetch = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => "",
+      json: async () => ({ text: "   " }),
+    });
+    const error = await expectError(transcribeAudio(file, empty), Error);
+    expect(error.message).toBe("ElevenLabs returned no transcript text");
   });
 });
 

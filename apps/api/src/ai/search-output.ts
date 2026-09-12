@@ -44,8 +44,8 @@ const sumUsage = (a: Usage, b: Usage): Usage => ({
 /**
  * One Google Search cell, end to end. Returns the same `CellGeneration` shape
  * as `generateCellValue` — plus what it searched — so `run-ai-cell` only has
- * to pick a function. `attachments` is always empty: the row's file cells
- * reach the model as text lines, nothing is fetched.
+ * to pick a function. `attachments` and `transcripts` are always empty: the
+ * row's file cells reach the model as text lines, nothing is fetched.
  */
 export async function generateSearchCellValue(
   input: RunAiInput,
@@ -89,6 +89,7 @@ export async function generateSearchCellValue(
       typed.usage,
     ),
     attachments: [],
+    transcripts: [],
     searches,
   };
 }

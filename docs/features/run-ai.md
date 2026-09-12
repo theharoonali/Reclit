@@ -19,7 +19,7 @@ in its header. Do not duplicate them here.
 | `batchId` | `String` | required; every run one Run click created (`batch-<uuid>`); indexed |
 | `status` | `String` | uppercase word; `PENDING \| RUNNING \| COMPLETED \| FAILED` or a custom working stage; default `PENDING`; the two last are terminal |
 | `credit` | `Int` | default 0 (credit accounting is not implemented; token usage is in `result.usage`) |
-| `result` | `Json?` | null until the cell is prepared, then `input` (with `previous` from a row's second AI column on), `output`, `model`, `usage`, `attachments`, `searches` (`google_search` only), `error: { name, message }` — see the contract |
+| `result` | `Json?` | null until the cell is prepared, then `input` (with `previous` from a row's second AI column on), `output`, `model`, `usage`, `attachments`, `transcripts`, `searches` (`google_search` only), `error: { name, message }` — see the contract |
 | `createdAt` | `DateTime` | `@default(now())`, indexed |
 | `updatedAt` | `DateTime` | `@updatedAt`; its ms value is the SSE event id |
 
@@ -60,14 +60,15 @@ Background jobs (outside the tRPC graph — [ARCHITECTURE.md](../../ARCHITECTURE
 | --- | --- |
 | `apps/api/trigger.config.ts` | Trigger.dev project config (`runtime: "bun"`, `dirs: ["./src/trigger"]`, `prismaExtension({ mode: "modern" })`) |
 | `apps/api/src/trigger/run-ai-batch.ts` | task `run-ai-batch` (`RunAiBatchJob`) — the skeleton of a Run click: per wave, `failPending` the cells of stopped rows → `prepare` the rest → `run-ai-cell` as `batchTriggerAndWait` (one cell: `triggerAndWait`) → a non-`completed` outcome stops the row; no retries; `onFailure` → `failPending` of every run |
-| `apps/api/src/trigger/run-ai-cell.ts` | task `run-ai-cell` (`{ runId, input }`): `markRunning` → `generateCellValue` or `generateSearchCellValue` (`input.target.node` decides) → `complete` / `fail`, returns `{ runId, status }`; no retries; `onFailure` fails the run |
+| `apps/api/src/trigger/run-ai-cell.ts` | task `run-ai-cell` (`{ runId, input }`): `markRunning` → `generateCellValue` (given the run's parsed cell address) or `generateSearchCellValue` (`input.target.node` decides) → `complete` / `fail`, returns `{ runId, status }`; no retries, `maxDuration` 300 s (a transcription may precede the model call); `onFailure` fails the run |
 | `apps/api/src/jobs/run-ai-dispatch.ts` | the API-side client: `registerRunAiDispatcher()` → `tasks.trigger("run-ai-batch", …, { idempotencyKey: batchId })`, the only `@trigger.dev/sdk` import on the API side; called from `src/main.ts` |
 | `apps/api/src/ai/gemini.ts` | `gemini(modelId?)` — the one Gemini provider for the Vercel AI SDK |
 | `apps/api/src/ai/search-prompt.ts` | pure: `buildSearchExtractMessages` (the grounded text → the typed value), `searchRecordOf` (the grounded call's queries and pages, or `null` when it did not search), `MAX_SEARCH_SOURCES` |
 | `apps/api/src/ai/search-output.ts` | `generateSearchCellValue` — the `google_search` node: a grounded Gemini call with the `google_search` tool, the did-it-search check, then the typed extraction call |
-| `apps/api/src/ai/cell-prompt.ts` | pure: `buildCellMessages` (instruction + row as context + the previous step's output as the primary input; plus `SEARCH_RULES` for a `google_search` target), `cellOutputSchema` (answer shape per column type), `TYPE_RULES`, `formatCellLine` |
-| `apps/api/src/ai/cell-attachments.ts` | fetches the row's audio / file / url cells into file parts (`collectAttachments`; ≤ 15 MB, 30 s each); a failure is recorded, never thrown |
-| `apps/api/src/ai/cell-output.ts` | `generateCellValue` — the attached files plus `generateTypedCellValue`, the one typed-output call both generators end on (`Output.object`, or `Output.json` for `json` columns, then `coerceCellValue` / `cellValueMatchesType`) |
+| `apps/api/src/ai/cell-prompt.ts` | pure: `buildCellMessages` (instruction + row as context + the previous step's output as the primary input; plus `SEARCH_RULES` for a `google_search` target), `cellOutputSchema` (answer shape per column type), `TYPE_RULES`, `formatCellLine`, `CellSourceNote` (attached / transcribed / failed) |
+| `apps/api/src/ai/cell-attachments.ts` | fetches the row's file / url cells into file parts (`collectAttachments`; ≤ 15 MB, 30 s each); a failure is recorded, never thrown. `isUrlCell`, `fetchAttachment`, `filenameOf` and `mediaTypeFor` are shared with the transcript path |
+| `apps/api/src/ai/cell-transcripts.ts` | resolves the row's audio cells to text through `ExternalApi` + ElevenLabs ([external-api.md](external-api.md)); a failure is recorded, never thrown |
+| `apps/api/src/ai/cell-output.ts` | `generateCellValue(input, address)` — attachments and transcripts in parallel, then `generateTypedCellValue`, the one typed-output call both generators end on (`Output.object`, or `Output.json` for `json` columns, then `coerceCellValue` / `cellValueMatchesType`) |
 
 ## Procedures
 
@@ -146,6 +147,17 @@ There is no REST face.
   spreadsheet's own rules apply and a refused write leaves the run untouched
   — so the `completed` event always describes a persisted cell and a partial
   failure is retry-safe. `fail` never touches the cell.
+- **The row's media takes two paths, and neither can fail a run.** `file` and
+  `url` cells are fetched and attached to the model call as files
+  (`collectAttachments`). `audio` cells are transcribed instead
+  (`collectTranscripts`): each one is resolved through
+  `externalApiService.resolve` under **its own** cell id — same sheet, same
+  row, its column, which is why the task parses the run's `cellId` — and its
+  file URL, so a stored transcript is reused and the recording is sent to
+  ElevenLabs once no matter how many AI columns the row runs through. The
+  prompt line then carries the transcript rather than the URL. Either path
+  failing becomes a note in that line, and the completed run records both
+  without their content (`result.attachments`, `result.transcripts`).
 - **The task owns every transition after `pending`** and has no retries: a
   retry after `fail` would revive a terminal row. `onFailure` covers the
   crash paths the catch cannot see (a `maxDuration` kill). The answer is
@@ -176,10 +188,12 @@ There is no REST face.
   rows; `run-ai-batch.ts` is the pattern for a parent task that prepares,
   fans out with `batchTriggerAndWait`, and reads per-run outcomes.
 - `gemini()` (`src/ai/gemini.ts`) for any service or task that needs a Gemini
-  model; add other providers beside it in `src/ai/`. `generateTypedCellValue`
-  / `cellOutputSchema` / `coerceCellValue` for any other producer of typed
+  model, `transcribeAudio` (`src/ai/elevenlabs.ts`) for speech-to-text; add
+  other providers beside them in `src/ai/`. `generateTypedCellValue` /
+  `cellOutputSchema` / `coerceCellValue` for any other producer of typed
   cell values; `collectAttachments` for anything else that must hand a row's
-  media to a model.
+  media to a model, and `externalApiService.resolve` ([external-api.md](external-api.md))
+  for anything that must not process the same source twice.
 - `searchRecordOf` (`src/ai/search-prompt.ts`) — the shape for reading a
   provider-executed tool's metadata: pure, structural over `result.sources`,
   and answering "did it happen" so the caller can refuse an answer that

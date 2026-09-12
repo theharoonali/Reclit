@@ -2,11 +2,13 @@ import { logger, schemaTask } from "@trigger.dev/sdk";
 import { generateCellValue } from "../ai/cell-output";
 import { generateSearchCellValue } from "../ai/search-output";
 import { describeError } from "../common/errors";
+import { RunAiInvalidCellIdError } from "../modules/run-ai/run-ai.errors";
 import {
   isTerminalRunAiStatus,
   runAiJobPayloadSchema,
 } from "../modules/run-ai/run-ai.schema";
 import { runAiService } from "../modules/run-ai/run-ai.service";
+import { parseCellId } from "../modules/spreadsheet/spreadsheet.ids";
 
 // One AI or Google Search cell, end to end — the unit of work `run-ai-batch`
 // fans out. The orchestrator has already recorded `result.input` on the
@@ -21,13 +23,18 @@ import { runAiService } from "../modules/run-ai/run-ai.service";
 // API already failed (a dispatch that timed out after the job was accepted)
 // is left alone, and `onFailure` covers the crash paths the catch cannot
 // reach — a maxDuration kill would otherwise leave the cell busy for good.
+//
+// The run's own `cellId` is parsed here because the row's audio cells are
+// transcribed under their *own* cell ids: same sheet, same row, their column
+// (`src/ai/cell-transcripts.ts`). The budget covers a transcription plus a
+// model call, so it is the config's 300 s rather than the model call's own.
 
 export type RunAiCellOutcome = { runId: string; status: string };
 
 export const runAiCellTask = schemaTask({
   id: "run-ai-cell",
   schema: runAiJobPayloadSchema,
-  maxDuration: 120,
+  maxDuration: 300,
   retry: { maxAttempts: 1 },
   run: async ({ runId, input }): Promise<RunAiCellOutcome> => {
     const run = await runAiService.byId(runId);
@@ -38,6 +45,8 @@ export const runAiCellTask = schemaTask({
       });
       return { runId, status: run.status };
     }
+    const address = parseCellId(run.cellId);
+    if (!address) throw new RunAiInvalidCellIdError(run.cellId);
     await runAiService.markRunning(runId);
     try {
       // The node decides which generator fills the cell; everything around
@@ -46,7 +55,7 @@ export const runAiCellTask = schemaTask({
       const { output, model, usage, attachments, ...extra } =
         input.target.node === "google_search"
           ? await generateSearchCellValue(input)
-          : await generateCellValue(input);
+          : await generateCellValue(input, address);
       logger.info("cell generated", {
         runId,
         node: input.target.node,

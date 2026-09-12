@@ -1,18 +1,22 @@
 import { describeError } from "../common/errors";
 import type { RunAiInputCell } from "../modules/run-ai/run-ai.schema";
 
-// The media a row points at — audio, file and website cells hold URLs — is
-// fetched and handed to the model as file parts, not described as text.
-// Fetching is done here rather than left to the SDK so the size cap, the
-// timeout and the media type are ours, and a link that cannot be fetched
-// degrades to a note in the prompt instead of failing the run.
+// The media a row points at — file and website cells hold URLs — is fetched
+// and handed to the model as file parts, not described as text. Fetching is
+// done here rather than left to the SDK so the size cap, the timeout and the
+// media type are ours, and a link that cannot be fetched degrades to a note in
+// the prompt instead of failing the run.
+//
+// Audio cells are NOT here: they are transcribed first and reach the model as
+// text (cell-transcripts.ts). `fetchAttachment`, `isUrlCell`, `filenameOf` and
+// `mediaTypeFor` are shared with that path.
 
 /** Gemini's inline-data ceiling is 20 MB per request; keep one file under it. */
 export const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 export const ATTACHMENT_TIMEOUT_MS = 30_000;
 
 /** Column types whose value is a URL the model should be given as a file. */
-const ATTACHABLE_TYPES = new Set(["audio", "file", "url"]);
+const ATTACHABLE_TYPES = new Set(["file", "url"]);
 const HTTP_URL_RE = /^https?:\/\/\S+$/i;
 
 export type Attachment = {
@@ -38,14 +42,25 @@ export type AttachmentSummary =
   | { columnId: string; filename: string; mediaType: string; bytes: number }
   | AttachmentFailure;
 
-export function isAttachableCell(
+/**
+ * A cell of one of `types` holding an http(s) URL — the shape both the
+ * attachment path and the transcription path start from.
+ */
+export function isUrlCell(
   cell: RunAiInputCell,
+  types: ReadonlySet<string>,
 ): cell is RunAiInputCell & { value: string } {
   return (
-    ATTACHABLE_TYPES.has(cell.type) &&
+    types.has(cell.type) &&
     typeof cell.value === "string" &&
     HTTP_URL_RE.test(cell.value)
   );
+}
+
+export function isAttachableCell(
+  cell: RunAiInputCell,
+): cell is RunAiInputCell & { value: string } {
+  return isUrlCell(cell, ATTACHABLE_TYPES);
 }
 
 const EXTENSION_MEDIA_TYPES: Record<string, string> = {
