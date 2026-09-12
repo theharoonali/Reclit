@@ -33,11 +33,11 @@ import { runAiService } from "./run-ai.service";
 
 // Framework-free (docs/rules/BACKEND.md hard rule 1). Which cells a Run click
 // runs and in what order: `runCells` records the batch — one pending run per
-// selected row and AI column — and hands the worker its column waves through
-// the dispatcher hook; `prepare` builds one cell's input right before its
-// wave runs, so a later column sees the answers of the earlier ones. Reads
-// and writes go through runAiService and spreadsheetService; nothing here
-// touches prisma.
+// selected row and runnable node column — and hands the worker its column
+// waves through the dispatcher hook; `prepare` builds one cell's input right
+// before its wave runs, so a later column sees the answers of the earlier
+// ones. Reads and writes go through runAiService and spreadsheetService;
+// nothing here touches prisma.
 
 /**
  * Asks the worker to execute a batch. Registered by src/jobs/run-ai-dispatch.ts
@@ -47,18 +47,30 @@ import { runAiService } from "./run-ai.service";
  */
 export type RunAiDispatcher = (batch: RunAiBatchJob) => Promise<void>;
 
-type RunnableColumn = ColumnRecord & { prompt: string };
+/**
+ * A column Run executes. `node` stays the database's uppercase word — the
+ * whole service reads it through `toWireNodeType`.
+ */
+type RunnableColumn = ColumnRecord & { node: string; prompt: string };
 
 /** One cell the batch will run, in series order: row ascending, then column sort order. */
 type Target = { rowIndex: number; column: RunnableColumn; cellId: string };
 
-/** An AI node with a prompt — the only column Run executes. */
+/**
+ * Which columns a Run click executes: a node with an executor, and a prompt
+ * (the instruction). A column that has a node but no prompt yet is skipped
+ * silently — it is a half-finished column, not a client error.
+ */
 function isRunnable(column: ColumnRecord): column is RunnableColumn {
-  return (
-    column.node !== null &&
-    toWireNodeType(column.node) === "ai" &&
-    column.prompt !== null
-  );
+  if (column.node === null || column.prompt === null) return false;
+  switch (toWireNodeType(column.node)) {
+    case "ai":
+    case "google_search":
+      return true;
+    // `email` is a registered node with no executor yet.
+    default:
+      return false;
+  }
 }
 
 /** The dispatcher payload: the targets regrouped by column, waves in sort order. */
@@ -124,7 +136,9 @@ export class RunAiBatchService {
    * every earlier column's answer persisted — plus, from the second step of
    * a row on, the previous run's output as `previous`, and stores it on the
    * still-`pending` run. The orchestrator calls this right before the cell's
-   * wave. A run that already finished is reported, never re-prepared.
+   * wave. A run that already finished is reported, never re-prepared. Every
+   * node gets the whole row (`runAiInputSchema`); what it does with it is
+   * the generator's business.
    */
   async prepare(
     runId: string,
@@ -152,6 +166,7 @@ export class RunAiBatchService {
         index: column.index,
         name: column.name,
         type: toWireColumnType(column.type),
+        node: toWireNodeType(column.node),
       },
       row: {
         id: shortRowId(address.row),
@@ -245,7 +260,16 @@ export class RunAiBatchService {
     if (target === undefined || output === undefined || output === null) {
       return undefined;
     }
-    return { ...target, value: output };
+    // Named rather than spread: a target carries the `node` that produced the
+    // value, and `previous` is a *cell* — where the value came from is not
+    // part of the shape, and spreading would smuggle it in.
+    return {
+      id: target.id,
+      index: target.index,
+      name: target.name,
+      type: target.type,
+      value: output,
+    };
   }
 }
 

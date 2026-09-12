@@ -55,8 +55,23 @@ export function selectionRect(
   };
 }
 
-const isRunnable = (column: SheetColumn) =>
-  column.node === "ai" && column.prompt !== null;
+/**
+ * Which columns a Run click would execute. A hand-kept mirror of `isRunnable`
+ * in the API's `run-ai-batch.service.ts` (the dashboard may not import API
+ * runtime values): a node with an executor, and a prompt — a column that has
+ * a node but no prompt yet is half-finished, and the Run button must not
+ * count it.
+ */
+const isRunnable = (column: SheetColumn) => {
+  if (column.prompt === null) return false;
+  switch (column.node) {
+    case "ai":
+    case "google_search":
+      return true;
+    default:
+      return false;
+  }
+};
 
 export function planRunTargets(
   columns: readonly SheetColumn[],

@@ -47,7 +47,9 @@ type AiSpreadsheetColumnFormProps = {
 
 /**
  * Name, type, node and — when a node is chosen — its prompt, for both adding
- * and editing a column. Every control is a shared `@reclit/ui` primitive — see
+ * and editing a column. The prompt is a node's whole configuration: an AI
+ * column answers it from the row, a Google Search column searches for it.
+ * Every control is a shared `@reclit/ui` primitive — see
  * `docs/rules/FRONTEND.md`.
  */
 export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {

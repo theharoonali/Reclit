@@ -28,9 +28,10 @@ apps/api (NestJS on Bun, port 4001)
         │  runAiBatchService.runCells → dispatcher hook → src/jobs/run-ai-dispatch.ts → tasks.trigger
         │
   Trigger.dev worker (src/trigger/, bundled by the Trigger CLI)
-        ├── run-ai-batch: per AI column (a wave) prepares the inputs, then batchTriggerAndWait →
+        ├── run-ai-batch: per runnable column (a wave) prepares the inputs, then batchTriggerAndWait →
         └── run-ai-cell: calls the same services → the row's audio through ElevenLabs
-                         (cached in ExternalApi) → Gemini via src/ai/ → writes the run + cell
+                         (cached in ExternalApi) → Gemini via src/ai/ (grounded
+                         with the google_search tool for a google_search column) → writes the run + cell
 
 packages/ui  → shared primitives + Tailwind preset, consumed by the dashboard
 ```
@@ -132,7 +133,7 @@ no Prisma code; `bunx turbo build` is the check.
 | `ALLOWED_API_ORIGINS` | api | CORS allowlist (default `http://localhost:4000`) |
 | `SUPABASE_URL`, `SUPABASE_KEY` | api | Supabase Storage for `POST /files`; unset → 503 on upload |
 | `TRIGGER_SECRET_KEY` | api | Trigger.dev environment key the api enqueues with (`src/jobs/run-ai-dispatch.ts`); the Trigger CLI reads it too |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | worker | Gemini key for the Vercel AI SDK (`src/ai/gemini.ts`); the local worker reads `apps/api/.env`, a deployed one its Trigger environment |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | worker | Gemini key for the Vercel AI SDK (`src/ai/gemini.ts`), including the `google_search` node's grounding; the local worker reads `apps/api/.env`, a deployed one its Trigger environment |
 | `NEXT_PUBLIC_API_URL` | dashboard | browser tRPC target (default `http://localhost:4001`) |
 | `API_INTERNAL_URL` | dashboard | optional SSR-side override |
 

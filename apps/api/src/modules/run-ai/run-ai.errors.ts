@@ -39,8 +39,8 @@ export class RunAiColumnNotRunnableError extends DomainError {
     const indexes = Array.isArray(columnIndex) ? columnIndex : [columnIndex];
     super(
       indexes.length === 1
-        ? `Column ${indexes[0]} is not an AI column with a prompt`
-        : `None of columns ${indexes.join(", ")} is an AI column with a prompt`,
+        ? `Column ${indexes[0]} is not a runnable node column`
+        : `None of columns ${indexes.join(", ")} is a runnable node column`,
     );
     this.name = "RunAiColumnNotRunnableError";
   }

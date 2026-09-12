@@ -21,14 +21,15 @@
  *                unique(spreadsheetId, rowIndex, columnIndex)
  *
  * ColumnType (db): STRING NUMBER BOOLEAN DATE JSON FORMULA AUDIO FILE EMAIL URL
- * NodeType (db): AI EMAIL — a column's automated-processing kind; null = none.
+ * NodeType (db): AI EMAIL GOOGLE_SEARCH — a column's automated-processing kind; null = none.
  * On the wire both vocabularies are lowercase ("string", "audio", "ai", ...).
  *
  * MODELS (wire — ids are always the short form)
  *   SpreadsheetMeta = { id, name, totalRows, totalColumns, createdAt: Date,
  *                       updatedAt: Date }           (dates via superjson)
  *   SheetColumn  = { id: "col.<i>", index, sortOrder, name, type,
- *                    node: "ai" | "email" | null, prompt: string | null }
+ *                    node: "ai" | "email" | "google_search" | null,
+ *                    prompt: string | null }
  *   SheetRow     = { id: "row.<i>", index,
  *                    columns: { id: "col.<i>", name, value }[] } — one entry
  *                    per stored cell, in the sheet's column order (sortOrder,
@@ -126,11 +127,12 @@
  *   audio/file/url→http(s) URL string, email→email string,
  *   string/formula→string.
  * - updateColumn changing `type` does not convert or revalidate stored cells.
- * - `node`/`prompt` both default to null; a prompt without a node is
- *   BAD_REQUEST (create checks the payload, update checks the effective
- *   stored+incoming pair). On updateColumn, `undefined` leaves a field
- *   unchanged and `null` clears it; `node: null` also clears `prompt`.
- *   Imported columns never carry a node.
+ * - `node` and `prompt` default to null. `prompt` belongs to the node, so a
+ *   prompt without one is BAD_REQUEST (`SPREADSHEET_PROMPT_WITHOUT_NODE`;
+ *   create checks the payload, update checks the effective stored+incoming
+ *   pair). On updateColumn, `undefined` leaves a field unchanged and `null`
+ *   clears it; `node: null` also clears `prompt`. Imported columns never
+ *   carry a node.
  * - FORMULA is storage-only; nothing evaluates formulas.
  * - `rows` pagination counts *stored* rows: take limit+1, hasMore when the
  *   extra record exists, nextCursor is its short row id.
@@ -362,6 +364,25 @@ describe.skipIf(!dbUp)("spreadsheet.createColumn", () => {
       columnIndex: 0,
     });
     expect(read).toMatchObject({ node: "ai", prompt: "Summarise the row" });
+
+    // A search node stores the same way: the prompt is its whole configuration.
+    const search = await caller.spreadsheet.createColumn({
+      id: sheet.id,
+      name: "Domain",
+      type: "url",
+      node: "google_search",
+      prompt: "the official website of this company",
+    });
+    expect(search).toMatchObject({
+      node: "google_search",
+      prompt: "the official website of this company",
+    });
+    const cleared = await caller.spreadsheet.updateColumn({
+      id: sheet.id,
+      columnIndex: search.index,
+      node: null,
+    });
+    expect(cleared).toMatchObject({ node: null, prompt: null });
   });
 
   it("rejects a prompt without a node and an unknown node", async () => {

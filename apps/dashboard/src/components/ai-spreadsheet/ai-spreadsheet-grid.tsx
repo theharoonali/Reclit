@@ -461,6 +461,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
                   none: t("nodes.none"),
                   ai: t("nodes.ai"),
                   email: t("nodes.email"),
+                  google_search: t("nodes.google_search"),
                 },
               }}
               onCancel={closePanel}

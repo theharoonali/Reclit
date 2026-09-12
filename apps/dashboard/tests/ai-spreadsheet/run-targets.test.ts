@@ -55,6 +55,33 @@ describe("selectionRect", () => {
   });
 });
 
+describe("planRunTargets runnability", () => {
+  // A Google Search column is runnable exactly like an AI one: the prompt is
+  // its whole configuration. Mirrors `isRunnable` in the API's
+  // run-ai-batch.service.ts.
+  const search = (over: Partial<SheetColumn>) =>
+    column("col.9", {
+      name: "Domain",
+      node: "google_search",
+      prompt: "the domain",
+      ...over,
+    });
+
+  const runnableCount = (one: SheetColumn) =>
+    planRunTargets([one], rect(0, 0, 0, 0), none).count;
+
+  test("counts a search column once it has a prompt", () => {
+    expect(runnableCount(search({}))).toBe(1);
+    expect(runnableCount(search({ prompt: null }))).toBe(0);
+  });
+
+  test("ignores a node with no executor", () => {
+    expect(
+      runnableCount(column("col.9", { node: "email", prompt: "hi" })),
+    ).toBe(0);
+  });
+});
+
 describe("planRunTargets", () => {
   test("keeps the runnable columns of the rectangle in display order, as wire indexes", () => {
     const plan = planRunTargets(columns, rect(0, 0, 0, 3), none);

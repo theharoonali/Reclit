@@ -38,7 +38,7 @@ export type ColumnType =
  * lockstep with `NODE_TYPES_WIRE` in the API's `spreadsheet.schema.ts`, the
  * same way `ColumnType` mirrors `COLUMN_TYPES_WIRE`.
  */
-export type NodeType = "ai" | "email";
+export type NodeType = "ai" | "email" | "google_search";
 
 export type JsonObject = Record<string, unknown>;
 

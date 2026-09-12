@@ -64,7 +64,8 @@ export class SpreadsheetColumnsService {
   /**
    * Changing `type` does not convert or revalidate stored cells. `undefined`
    * leaves a field unchanged, `null` clears it; clearing `node` also clears
-   * `prompt`, and the effective pair may never be prompt-without-node.
+   * `prompt` — it belongs to the node — and the effective pair may never be
+   * prompt-without-node.
    *
    * Position is deliberately not updatable here: moving a column is a
    * multi-row write, so it is `reorderColumn` and not a partial field update.

@@ -28,7 +28,7 @@ them here.
 | `createdAt` / `updatedAt` | `DateTime` | on all four models |
 
 `ColumnType`: `STRING NUMBER BOOLEAN DATE JSON FORMULA AUDIO FILE EMAIL URL` ·
-`NodeType`: `AI EMAIL` (both lowercase on the wire). Scoped pks are a recorded
+`NodeType`: `AI EMAIL GOOGLE_SEARCH` (both lowercase on the wire). Scoped pks are a recorded
 deviation from the uuid rule (docs/plans/005-spreadsheet-backend.md): they make
 the wire ids predictable (`row.0`, `col.1`, `cell.0.1`) and a cell write a
 single upsert by pk.
@@ -118,9 +118,10 @@ transpiles.
   old and new position by ±1 in one `updateMany`. `index` is append-only and
   its gaps are permanent, so index-derived ids never renumber and
   `Cell.columnIndex` never moves.
-- **`updateColumn` enforces prompt-requires-node on the effective pair**
-  (stored + incoming); `createColumn` gets it from the zod `.refine`. Neither
-  converts stored cells on a type change.
+- **`prompt` belongs to the node.** `updateColumn` enforces
+  prompt-requires-a-node on the effective pair (stored + incoming),
+  `createColumn` gets it from the zod `.refine`, and clearing `node` clears
+  the prompt. Neither mutation converts stored cells on a type change.
 - **Import is the only full-grid rebuild.** `replaceAll` deletes every Cell,
   Row and Column and `createMany`s the new grid (chunked for the 65535
   bind-parameter cap) inside one transaction, so a failure leaves the sheet

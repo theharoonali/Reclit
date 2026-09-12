@@ -17,6 +17,7 @@ datasource db {
 enum NodeType {
   AI
   EMAIL
+  GOOGLE_SEARCH
 }
 
 enum ColumnType {

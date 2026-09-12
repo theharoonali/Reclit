@@ -135,7 +135,8 @@
     "nodes": {
       "none": "None",
       "ai": "AI",
-      "email": "Email"
+      "email": "Email",
+      "google_search": "Google Search"
     },
     "json": {
       "key": "Key",

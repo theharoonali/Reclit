@@ -28,7 +28,7 @@ export const toWireColumnType = (type: string): ColumnTypeWire =>
   type.toLowerCase() as ColumnTypeWire;
 
 /** Automated-processing kinds a column may carry; null = plain column. */
-export const NODE_TYPES_WIRE = ["ai", "email"] as const;
+export const NODE_TYPES_WIRE = ["ai", "email", "google_search"] as const;
 
 export const nodeTypeWire = z.enum(NODE_TYPES_WIRE);
 export type NodeTypeWire = z.infer<typeof nodeTypeWire>;
