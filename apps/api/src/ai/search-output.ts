@@ -1,130 +1,94 @@
-import { generateText, Output } from "ai";
-import type { RunAiInput, RunAiSearch } from "../modules/run-ai/run-ai.schema";
+import { google } from "@ai-sdk/google";
+import { generateText } from "ai";
+import type {
+  RunAiInput,
+  RunAiSearches,
+} from "../modules/run-ai/run-ai.schema";
 import type { CellGeneration } from "./cell-output";
-import { coerceCellValue } from "./cell-output";
-import { cellOutputSchema } from "./cell-prompt";
+import { generateTypedCellValue } from "./cell-output";
+import { buildCellMessages } from "./cell-prompt";
 import { gemini } from "./gemini";
-import {
-  buildSearchAnswerMessages,
-  buildSearchQueryMessages,
-  fallbackQuery,
-  searchQuerySchema,
-} from "./search-prompt";
-import type { SearchFetch, SearchResponse } from "./serpapi";
-import { googleSearch } from "./serpapi";
+import { buildSearchExtractMessages, searchRecordOf } from "./search-prompt";
 
-// The `google_search` node: search Google for what the row's chosen columns
-// name, then read the answer out of the results, typed to the target column.
+// The `google_search` node: Gemini searches Google about the row, then the
+// answer it wrote from the results is typed to the target column.
 //
-// WHY TWO MODEL CALLS AND NOT A TOOL. The obvious shape is one `generateText`
-// with a search tool and `output: Output.object(...)` — the AI SDK types
-// allow it. Gemini does not: it answers
+// WHY TWO MODEL CALLS AND NOT ONE. The obvious shape is one `generateText`
+// with the search tool and `output: Output.object(...)` — the AI SDK types
+// allow it. Gemini does not, on the model in use: a JSON response schema
+// together with a tool is
 //
 //   400 INVALID_ARGUMENT
 //   "Function calling with a response mime type: 'application/json' is unsupported"
 //
-// and forcing the tool (`toolChoice: "required"`) is refused for the same
-// reason. So the loop is unrolled: the model writes the query, *we* run the
-// search, the model reads the answer. That is strictly better here anyway —
-// a tool call cannot be forced on Gemini, so a tool-shaped node could quietly
-// answer from memory without ever searching, which is the one thing a node
-// called "Google Search" must not do. This way the search always happens.
+// (structured output with tools exists only on Gemini 3 models, as a
+// preview). So the loop is unrolled: call 1 grounds — the `google_search`
+// tool, no output schema, free text; call 2 shapes that text with the same
+// typed-output call an `ai` cell ends on. And since Gemini decides whether to
+// use the tool and cannot be forced, the grounded call's metadata is read
+// before anything else: a cell whose model recorded no query and no web
+// source is failed, not completed from memory — the one thing a node called
+// "Google Search" must never do.
 
-/** A query the model wrote plus what it returned; the row of `result.searches`. */
-type Attempt = { search: SearchResponse; record: RunAiSearch };
-
-async function attempt(
-  query: string,
-  fetchImpl?: SearchFetch,
-): Promise<Attempt> {
-  const search = await googleSearch(query, fetchImpl);
-  return {
-    search,
-    record: { query, resultCount: search.results.length },
-  };
-}
-
-/** Step one: the query, written from the source cells alone. */
-async function writeQuery(input: RunAiInput) {
-  const { system, prompt } = buildSearchQueryMessages(input);
-  const result = await generateText({
-    model: gemini(),
-    system,
-    prompt,
-    output: Output.object({ schema: searchQuerySchema }),
-  });
-  return { query: result.output.query.trim(), usage: result.usage };
-}
-
-/** Step two: the value, read out of the results and typed to the column. */
-async function readAnswer(input: RunAiInput, searches: SearchResponse[]) {
-  const { system, prompt } = buildSearchAnswerMessages(input, searches);
-  const schema = cellOutputSchema(input.target.type);
-  const result =
-    schema === null
-      ? await generateText({
-          model: gemini(),
-          system,
-          prompt,
-          output: Output.json(),
-        })
-      : await generateText({
-          model: gemini(),
-          system,
-          prompt,
-          output: Output.object({ schema }),
-        });
-  const raw =
-    schema === null
-      ? result.output
-      : (result.output as { value: unknown }).value;
-  return {
-    output: coerceCellValue(raw, input.target.type),
-    model: result.response.modelId,
-    usage: result.usage,
-  };
-}
+type Usage = CellGeneration["usage"];
 
 const add = (a: number | undefined, b: number | undefined) =>
   a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
 
+const sumUsage = (a: Usage, b: Usage): Usage => ({
+  inputTokens: add(a.inputTokens, b.inputTokens),
+  outputTokens: add(a.outputTokens, b.outputTokens),
+  totalTokens: add(a.totalTokens, b.totalTokens),
+});
+
 /**
  * One Google Search cell, end to end. Returns the same `CellGeneration` shape
- * as `generateCellValue` — plus the queries it ran — so `run-ai-cell` only
- * has to pick a function.
- *
- * A query that comes back empty is retried once with the source values
- * verbatim (`fallbackQuery`): a model-written query can over-constrain, and
- * the bare subject is the query Google is best at. Both attempts are recorded.
+ * as `generateCellValue` — plus what it searched — so `run-ai-cell` only has
+ * to pick a function. `attachments` is always empty: the row's file cells
+ * reach the model as text lines, nothing is fetched.
  */
 export async function generateSearchCellValue(
   input: RunAiInput,
-  fetchImpl?: SearchFetch,
-): Promise<CellGeneration & { searches: RunAiSearch[] }> {
-  const written = await writeQuery(input);
-  const attempts = [await attempt(written.query, fetchImpl)];
-
-  const fallback = fallbackQuery(input);
-  if (attempts[0]?.search.results.length === 0 && fallback !== written.query) {
-    attempts.push(await attempt(fallback, fetchImpl));
+): Promise<CellGeneration & { searches: RunAiSearches }> {
+  // `buildCellMessages` reads `target.node` and adds SEARCH_RULES itself.
+  const { system, prompt } = buildCellMessages(input);
+  const grounded = await generateText({
+    model: gemini(),
+    system,
+    prompt,
+    // The key must be "google_search". The descriptor is static, so building
+    // it needs no API key — only the model call does.
+    tools: { google_search: google.tools.googleSearch({}) },
+  });
+  const searches = searchRecordOf(grounded.providerMetadata, grounded.sources);
+  if (searches === null) {
+    throw new Error(
+      `The Google Search cell for column "${input.target.name}" was answered without searching; refusing to complete it from memory`,
+    );
   }
-
-  const answer = await readAnswer(
-    input,
-    attempts.map((one) => one.search),
-  );
-
+  if (grounded.text.trim() === "") {
+    throw new Error(
+      `The Google Search cell for column "${input.target.name}" searched but produced no text to read a value from`,
+    );
+  }
+  const extract = buildSearchExtractMessages(input, grounded.text);
+  const typed = await generateTypedCellValue({
+    system: extract.system,
+    messages: [{ role: "user", content: extract.prompt }],
+    type: input.target.type,
+  });
   return {
-    output: answer.output,
-    model: answer.model,
-    usage: {
-      inputTokens: add(written.usage.inputTokens, answer.usage.inputTokens),
-      outputTokens: add(written.usage.outputTokens, answer.usage.outputTokens),
-      totalTokens: add(written.usage.totalTokens, answer.usage.totalTokens),
-    },
-    // A search node never fetches the row's files; the row is not even in the
-    // input.
+    output: typed.output,
+    model: typed.model,
+    usage: sumUsage(
+      {
+        inputTokens: grounded.usage.inputTokens,
+        outputTokens: grounded.usage.outputTokens,
+        totalTokens: grounded.usage.totalTokens,
+      },
+      typed.usage,
+    ),
     attachments: [],
-    searches: attempts.map((one) => one.record),
+    searches,
   };
 }

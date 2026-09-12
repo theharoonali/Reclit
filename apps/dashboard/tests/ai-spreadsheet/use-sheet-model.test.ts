@@ -13,7 +13,7 @@ const row = (
   ],
 ): ApiRow => ({ id: `row.${index}`, index, columns: entries });
 
-const plain = { node: null, prompt: null, config: null };
+const plain = { node: null, prompt: null };
 
 const payload = (overrides: Partial<SheetPayload> = {}): SheetPayload => ({
   spreadsheet: {
@@ -257,7 +257,6 @@ describe("normalize", () => {
             type: "string",
             node: "ai",
             prompt: "Summarise the row",
-            config: null,
           },
         ],
       }),
@@ -278,7 +277,6 @@ describe("normalize", () => {
             type: "string",
             node: "robot" as never,
             prompt: null,
-            config: null,
           },
         ],
       }),

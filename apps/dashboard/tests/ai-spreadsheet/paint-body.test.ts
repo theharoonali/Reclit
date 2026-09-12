@@ -34,7 +34,7 @@ const VIEWPORT: Viewport = {
   columnCount: 3,
 };
 
-const PLAIN = { node: null, prompt: null, config: null } as const;
+const PLAIN = { node: null, prompt: null } as const;
 
 const MODEL: SheetModel = {
   sheetId: "sheet_123",

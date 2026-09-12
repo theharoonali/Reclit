@@ -13,7 +13,6 @@ const column = (id: string, name: string) => ({
   type: "string" as const,
   node: null,
   prompt: null,
-  config: null,
 });
 
 function makeModel(args: {

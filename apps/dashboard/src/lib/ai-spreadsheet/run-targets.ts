@@ -58,17 +58,16 @@ export function selectionRect(
 /**
  * Which columns a Run click would execute. A hand-kept mirror of `isRunnable`
  * in the API's `run-ai-batch.service.ts` (the dashboard may not import API
- * runtime values): every runnable node needs a prompt, and a Google Search
- * node needs source columns on top — without them there is nothing to search
- * for, so the column is half-finished and the Run button must not count it.
+ * runtime values): a node with an executor, and a prompt — a column that has
+ * a node but no prompt yet is half-finished, and the Run button must not
+ * count it.
  */
 const isRunnable = (column: SheetColumn) => {
   if (column.prompt === null) return false;
   switch (column.node) {
     case "ai":
-      return true;
     case "google_search":
-      return (column.config?.sourceColumns?.length ?? 0) > 0;
+      return true;
     default:
       return false;
   }

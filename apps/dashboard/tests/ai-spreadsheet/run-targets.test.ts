@@ -13,7 +13,6 @@ const column = (id: string, over: Partial<SheetColumn> = {}): SheetColumn => ({
   type: "string",
   node: null,
   prompt: null,
-  config: null,
   ...over,
 });
 const ai = (id: string, name: string) =>
@@ -57,9 +56,9 @@ describe("selectionRect", () => {
 });
 
 describe("planRunTargets runnability", () => {
-  // A Google Search column needs source columns as well as a prompt: without
-  // them there is nothing to search for, so Run must not count it. Mirrors
-  // `isRunnable` in the API's run-ai-batch.service.ts.
+  // A Google Search column is runnable exactly like an AI one: the prompt is
+  // its whole configuration. Mirrors `isRunnable` in the API's
+  // run-ai-batch.service.ts.
   const search = (over: Partial<SheetColumn>) =>
     column("col.9", {
       name: "Domain",
@@ -71,13 +70,9 @@ describe("planRunTargets runnability", () => {
   const runnableCount = (one: SheetColumn) =>
     planRunTargets([one], rect(0, 0, 0, 0), none).count;
 
-  test("counts a search column only once it has source columns", () => {
-    expect(runnableCount(search({ config: { sourceColumns: [0] } }))).toBe(1);
-    expect(runnableCount(search({ config: null }))).toBe(0);
-    expect(runnableCount(search({ config: { sourceColumns: [] } }))).toBe(0);
-    expect(
-      runnableCount(search({ prompt: null, config: { sourceColumns: [0] } })),
-    ).toBe(0);
+  test("counts a search column once it has a prompt", () => {
+    expect(runnableCount(search({}))).toBe(1);
+    expect(runnableCount(search({ prompt: null }))).toBe(0);
   });
 
   test("ignores a node with no executor", () => {

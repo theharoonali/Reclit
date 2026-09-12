@@ -446,7 +446,6 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
           {shown.kind === "column" && (
             <AiSpreadsheetColumnForm
               column={editedColumn}
-              columns={columns}
               key={shown.columnId ?? "new"}
               labels={{
                 name: t("column.name"),
@@ -455,9 +454,6 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
                 node: t("column.node"),
                 prompt: t("column.prompt"),
                 promptPlaceholder: t("column.promptPlaceholder"),
-                sourceColumns: t("column.sourceColumns"),
-                sourceColumnsHint: t("column.sourceColumnsHint"),
-                sourceColumnsEmpty: t("column.sourceColumnsEmpty"),
                 submit: editedColumn ? t("column.save") : t("column.add"),
                 cancel: t("column.cancel"),
                 typeNames: labels.typeNames,

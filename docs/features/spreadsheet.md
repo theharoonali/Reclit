@@ -21,14 +21,13 @@ them here.
 | `Column.sortOrder` | `Int` | **position**: display order, always dense `0..n-1` per sheet. Indexed, deliberately not unique — see below |
 | `Column.node` | `NodeType?` | automated-processing kind; null = plain column |
 | `Column.prompt` | `String?` | the node's instruction; null without a node |
-| `Column.config` | `Json?` | extra per-node settings, shape `nodeConfigSchema`; null without a node. Today: `sourceColumns` (1-8 column indexes), the `google_search` node's search input |
 | `Row.id` | `String` | pk, scoped `"<sheetId>.row.<index>"`; rows are sparse |
 | `Cell.id` | `String` | pk, scoped `"<sheetId>.cell.<row>.<col>"` |
 | `Cell.value` | `Json?` | never stored null — clearing deletes the record |
 | `createdAt` / `updatedAt` | `DateTime` | on all four models |
 
 `ColumnType`: `STRING NUMBER BOOLEAN DATE JSON FORMULA AUDIO FILE EMAIL URL` ·
-`NodeType`: `AI EMAIL` (both lowercase on the wire). Scoped pks are a recorded
+`NodeType`: `AI EMAIL GOOGLE_SEARCH` (both lowercase on the wire). Scoped pks are a recorded
 deviation from the uuid rule (docs/plans/005-spreadsheet-backend.md): they make
 the wire ids predictable (`row.0`, `col.1`, `cell.0.1`) and a cell write a
 single upsert by pk.
@@ -118,12 +117,10 @@ transpiles.
   old and new position by ±1 in one `updateMany`. `index` is append-only and
   its gaps are permanent, so index-derived ids never renumber and
   `Cell.columnIndex` never moves.
-- **`prompt` and `config` belong to the node.** `updateColumn` enforces
-  both-require-a-node on the effective pair (stored + incoming),
-  `createColumn` gets it from the zod `.refine`s, and clearing `node` clears
-  both. `nodeConfigSchema` is `.strict()`, so a misspelled key is a
-  BAD_REQUEST rather than a setting that silently does nothing. Neither
-  mutation converts stored cells on a type change.
+- **`prompt` belongs to the node.** `updateColumn` enforces
+  prompt-requires-a-node on the effective pair (stored + incoming),
+  `createColumn` gets it from the zod `.refine`, and clearing `node` clears
+  the prompt. Neither mutation converts stored cells on a type change.
 - **Import is the only full-grid rebuild.** `replaceAll` deletes every Cell,
   Row and Column and `createMany`s the new grid (chunked for the 65535
   bind-parameter cap) inside one transaction, so a failure leaves the sheet

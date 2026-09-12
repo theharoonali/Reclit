@@ -33,7 +33,7 @@ const VIEWPORT: Viewport = {
   columnCount: 3,
 };
 
-const PLAIN = { node: null, prompt: null, config: null } as const;
+const PLAIN = { node: null, prompt: null } as const;
 
 const COLUMNS: SheetColumn[] = [
   { ...PLAIN, id: "col.0", name: "Name", type: "string" },

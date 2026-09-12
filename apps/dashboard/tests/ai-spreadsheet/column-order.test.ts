@@ -8,7 +8,6 @@ const column = (id: string): SheetColumn => ({
   type: "string",
   node: null,
   prompt: null,
-  config: null,
 });
 
 const COLUMNS = ["a", "b", "c", "d"].map(column);

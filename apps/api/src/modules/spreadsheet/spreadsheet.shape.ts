@@ -1,17 +1,12 @@
 import { shortCellId, shortColumnId, shortRowId } from "./spreadsheet.ids";
 import type {
   CellValue,
-  NodeConfig,
   SheetCell,
   SheetColumn,
   SheetRow,
   SheetRowCell,
 } from "./spreadsheet.schema";
-import {
-  nodeConfigSchema,
-  toWireColumnType,
-  toWireNodeType,
-} from "./spreadsheet.schema";
+import { toWireColumnType, toWireNodeType } from "./spreadsheet.schema";
 
 // Pure assembly from database records to the nested wire shapes. No prisma
 // imports — the services hand in already-selected records.
@@ -23,12 +18,6 @@ export type ColumnRecord = {
   type: string;
   node: string | null;
   prompt: string | null;
-  /**
-   * `Column.config` as the database holds it — validated on write, not here.
-   * Optional so a record built for a column that cannot carry one (an import)
-   * need not spell out an absence.
-   */
-  config?: unknown;
 };
 export type CellRecord = {
   rowIndex: number;
@@ -58,20 +47,7 @@ export function toSheetColumn(record: ColumnRecord): SheetColumn {
     type: toWireColumnType(record.type),
     node: record.node === null ? null : toWireNodeType(record.node),
     prompt: record.prompt,
-    config: toNodeConfig(record.config),
   };
-}
-
-/**
- * `Column.config` on its way out. It was validated by `nodeConfigSchema` on
- * write, so anything unreadable now is a hand-edited row or a config left
- * behind by an older shape — it degrades to `null` rather than failing the
- * whole sheet read.
- */
-export function toNodeConfig(config: unknown): NodeConfig | null {
-  if (config === null || config === undefined) return null;
-  const parsed = nodeConfigSchema.safeParse(config);
-  return parsed.success ? parsed.data : null;
 }
 
 /**

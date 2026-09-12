@@ -40,19 +40,6 @@ export type ColumnType =
  */
 export type NodeType = "ai" | "email" | "google_search";
 
-/**
- * Extra per-node settings on a column; which keys are meaningful is decided by
- * `node`. Mirrors `nodeConfigSchema` in the API's `spreadsheet.schema.ts`.
- *
- * `sourceColumns` is the Google Search node's: the *column indexes* whose
- * values seed the search query, in the order they should be read. Indexes, not
- * ids — the API addresses columns by index and a reorder must not change what
- * a search reads.
- */
-export type NodeConfig = {
-  sourceColumns?: number[];
-};
-
 export type JsonObject = Record<string, unknown>;
 
 export type CellValue = string | number | boolean | JsonObject | null;
@@ -80,7 +67,6 @@ export type SheetColumn = {
   type: ColumnType;
   node: NodeType | null;
   prompt: string | null;
-  config: NodeConfig | null;
 };
 
 /** What the column form submits — everything but the minted id. */
@@ -89,7 +75,6 @@ export type ColumnDraft = {
   type: ColumnType;
   node: NodeType | null;
   prompt: string | null;
-  config: NodeConfig | null;
 };
 
 /**

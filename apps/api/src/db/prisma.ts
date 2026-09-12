@@ -1,9 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { Prisma } from "../../generated/prisma/client";
-import {
-  PrismaClient,
-  Prisma as PrismaNamespace,
-} from "../../generated/prisma/client";
+import { PrismaClient } from "../../generated/prisma/client";
 
 // The ONLY Prisma client. Framework-free (docs/rules/BACKEND.md hard rule 1);
 // the Nest shutdown hook lives in prisma.module.ts.
@@ -53,18 +50,6 @@ export async function disconnectPrisma(): Promise<void> {
  */
 export const toJsonInput = (value: unknown): Prisma.InputJsonValue =>
   value as Prisma.InputJsonValue;
-
-/**
- * The same for a **nullable** JSON column, where a bare `null` is ambiguous:
- * Prisma needs `DbNull` to mean SQL NULL (`JsonNull` would store the JSON
- * value `null`). Clearing such a column always goes through here.
- */
-export const toNullableJsonInput = (
-  value: unknown,
-): Prisma.InputJsonValue | typeof PrismaNamespace.DbNull =>
-  value === null || value === undefined
-    ? PrismaNamespace.DbNull
-    : (value as Prisma.InputJsonValue);
 
 /** Cheap liveness probe used by GET /health. */
 export async function pingDatabase(): Promise<boolean> {

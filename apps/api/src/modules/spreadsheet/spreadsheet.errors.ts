@@ -42,16 +42,6 @@ export class SpreadsheetPromptWithoutNodeError extends DomainError {
   }
 }
 
-/** The `config` half of the same rule: node settings need a node to belong to. */
-export class SpreadsheetConfigWithoutNodeError extends DomainError {
-  readonly kind = "bad_request";
-  readonly code = "SPREADSHEET_CONFIG_WITHOUT_NODE";
-  constructor() {
-    super("A config requires a node; the column has none");
-    this.name = "SpreadsheetConfigWithoutNodeError";
-  }
-}
-
 /**
  * A reorder target outside the sheet's 0..n-1 range. Rejected rather than
  * clamped: an out-of-range position means the client's view of the column
