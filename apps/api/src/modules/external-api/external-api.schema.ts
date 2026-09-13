@@ -12,6 +12,8 @@ import { z } from "zod";
 export const EXTERNAL_API_KINDS = {
   /** ElevenLabs Speech-to-Text over an audio cell's file (`src/ai/cell-transcripts.ts`). */
   audioTranscription: "audio-transcription",
+  /** A Firecrawl crawl of a url cell's website (`src/ai/cell-crawls.ts`). */
+  websiteCrawl: "website-crawl",
 } as const;
 
 /**
@@ -42,6 +44,42 @@ export const audioTranscriptionOutputSchema = z.object({
 export type AudioTranscriptionOutput = z.infer<
   typeof audioTranscriptionOutputSchema
 >;
+
+/** One crawled page: the URL it ended up at (the "output url"), and its main content as markdown. */
+export const crawledPageSchema = z.object({
+  url: z.string(),
+  title: z.string().nullable(),
+  statusCode: z.number().int().nullable(),
+  characters: z.number().int(),
+  markdown: z.string(),
+});
+export type CrawledPage = z.infer<typeof crawledPageSchema>;
+
+/**
+ * What `src/ai/firecrawl.ts` stores for a url cell: the requested URL (the
+ * row's `input`), the options the crawl ran with, and every page it found.
+ * The pages are the point; the counters and `creditsUsed` say what the crawl
+ * cost, so a stored row can be judged without reading Firecrawl's dashboard.
+ */
+export const websiteCrawlOutputSchema = z.object({
+  kind: z.literal(EXTERNAL_API_KINDS.websiteCrawl),
+  provider: z.string(),
+  crawlId: z.string(),
+  url: z.string(),
+  options: z.object({
+    limit: z.number().int(),
+    maxDiscoveryDepth: z.number().int(),
+    allowSubdomains: z.boolean(),
+    crawlEntireDomain: z.boolean(),
+  }),
+  pages: z.array(crawledPageSchema),
+  total: z.number().int(),
+  completed: z.number().int(),
+  creditsUsed: z.number().int().nullable(),
+  /** ISO 8601. */
+  crawledAt: z.string(),
+});
+export type WebsiteCrawlOutput = z.infer<typeof websiteCrawlOutputSchema>;
 
 /* ---------------------------------------------------------------- outputs */
 
@@ -79,6 +117,13 @@ export const saveExternalApiInput = z.object({
   output: externalApiOutputSchema,
 });
 
+/**
+ * The `crawl-website` Trigger.dev task's payload (`src/trigger/crawl-website.ts`):
+ * the cell whose URL it is — the store key — and the URL to crawl.
+ */
+export const crawlWebsiteJobSchema = z.object({ cellId, url: input });
+
 export type ExternalApiCellInput = z.infer<typeof externalApiCellInput>;
 export type FindExternalApiInput = z.infer<typeof findExternalApiInput>;
 export type SaveExternalApiInput = z.infer<typeof saveExternalApiInput>;
+export type CrawlWebsiteJob = z.infer<typeof crawlWebsiteJobSchema>;

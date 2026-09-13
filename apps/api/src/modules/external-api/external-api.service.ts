@@ -19,6 +19,9 @@ import type {
 // cached row or a fresh one. Deletion is the database's job: `cellId` is a
 // foreign key with ON DELETE CASCADE.
 
+/** `resolve`'s knobs: `anyCell` reuses a result any cell holds for the same source. */
+export type ResolveOptions = { anyCell?: boolean };
+
 const externalApiSelect = {
   id: true,
   cellId: true,
@@ -50,6 +53,21 @@ export class ExternalApiService {
   }: FindExternalApiInput): Promise<ExternalApi | null> {
     const record = await prisma.externalApi.findFirst({
       where: { cellId, input },
+      orderBy: { createdAt: "desc" },
+      select: externalApiSelect,
+    });
+    return record ? toExternalApi(record) : null;
+  }
+
+  /**
+   * The newest result stored for this source in **any** cell, or null — the
+   * cross-cell half of `resolve`'s `anyCell` option, on the
+   * `[input, createdAt]` index. Newest wins regardless of kind; the caller's
+   * `accept` decides whether it is usable.
+   */
+  async findByInput(input: string): Promise<ExternalApi | null> {
+    const record = await prisma.externalApi.findFirst({
+      where: { input },
       orderBy: { createdAt: "desc" },
       select: externalApiSelect,
     });
@@ -122,15 +140,32 @@ export class ExternalApiService {
    * `accept` is what makes a stored row a *hit*: a record of another kind, or
    * of an older shape than the caller now understands, is re-produced and
    * replaced instead of being handed back. Without it any stored row wins.
+   *
+   * `anyCell` widens a miss to every cell: a result another cell already
+   * holds for the same source is **copied under this key** — so this cell
+   * still owns a row the cascade deletes with it — and counts as reused. Off
+   * by default: a transcript is cheap enough to re-make, a crawl is not.
    */
   async resolve(
     key: FindExternalApiInput,
     produce: () => Promise<ExternalApiOutput>,
     accept: (output: ExternalApiOutput) => boolean = () => true,
+    options: ResolveOptions = {},
   ): Promise<{ record: ExternalApi; reused: boolean }> {
     const cached = await this.find(key);
     if (cached && accept(cached.output))
       return { record: cached, reused: true };
+    if (options.anyCell) {
+      const elsewhere = await this.findByInput(key.input);
+      if (
+        elsewhere &&
+        elsewhere.cellId !== key.cellId &&
+        accept(elsewhere.output)
+      ) {
+        const copy = await this.save({ ...key, output: elsewhere.output });
+        return { record: copy, reused: true };
+      }
+    }
     const output = await produce();
     return { record: await this.save({ ...key, output }), reused: false };
   }

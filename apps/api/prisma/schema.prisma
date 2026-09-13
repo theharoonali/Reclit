@@ -186,4 +186,6 @@ model ExternalApi {
 
   @@index([cellId, input])
   @@index([cellId, createdAt])
+  /// The cross-cell lookup: "has any cell already processed this source?"
+  @@index([input, createdAt])
 }

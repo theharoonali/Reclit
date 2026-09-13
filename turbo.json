@@ -9,7 +9,9 @@
     "SUPABASE_URL",
     "SUPABASE_KEY",
     "TRIGGER_SECRET_KEY",
-    "GOOGLE_GENERATIVE_AI_API_KEY"
+    "GOOGLE_GENERATIVE_AI_API_KEY",
+    "ELEVENLABS_API_KEY",
+    "FIRECRAWL_API_KEY"
   ],
   "ui": "stream",
   "tasks": {

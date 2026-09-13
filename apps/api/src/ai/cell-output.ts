@@ -13,6 +13,8 @@ import {
 } from "../modules/spreadsheet/spreadsheet.schema";
 import type { AttachmentSummary, Attachments } from "./cell-attachments";
 import { collectAttachments, summariseAttachments } from "./cell-attachments";
+import type { CrawlResolver, CrawlSummary, Crawls } from "./cell-crawls";
+import { collectCrawls, summariseCrawls } from "./cell-crawls";
 import type { CellSourceNote } from "./cell-prompt";
 import { buildCellMessages, cellOutputSchema } from "./cell-prompt";
 import type {
@@ -24,13 +26,14 @@ import { collectTranscripts, summariseTranscripts } from "./cell-transcripts";
 import { gemini } from "./gemini";
 
 // The one model call behind an AI cell, and the typed-output call every
-// generator ends on. The row's file and website cells are fetched and
-// attached as file parts, its audio cells are resolved to transcripts
-// (cached in `ExternalApi`) and read as text — both in parallel, before the
-// prompt is built. The answer is structured output typed by the column
-// (`Output.object`), free JSON for a `json` column (`Output.json`), and
-// passes the same `cellValueMatchesType` check the spreadsheet applies on
-// write, so a run never completes with a value its cell would refuse.
+// generator ends on. The row's file cells are fetched and attached as file
+// parts, its audio cells are resolved to transcripts and its url cells to
+// crawled websites (both cached in `ExternalApi`) and read as text — all
+// three in parallel, before the prompt is built. The answer is structured
+// output typed by the column (`Output.object`), free JSON for a `json`
+// column (`Output.json`), and passes the same `cellValueMatchesType` check
+// the spreadsheet applies on write, so a run never completes with a value
+// its cell would refuse.
 
 export type CellGeneration = {
   output: Exclude<CellValue, null>;
@@ -44,6 +47,19 @@ export type CellGeneration = {
   attachments: AttachmentSummary[];
   /** What was transcribed, reused or not, and what could not — never the text. */
   transcripts: TranscriptSummary[];
+  /** What was crawled, reused or not, and what could not — never the pages. */
+  crawls: CrawlSummary[];
+};
+
+/**
+ * How the row's sources are resolved. Every entry is optional: the defaults
+ * are the real store and the real providers; the `run-ai-cell` task hands in
+ * a crawl resolver backed by the `crawl-website` task, and the contract test
+ * hands in fakes.
+ */
+export type CellSourceDeps = {
+  transcripts?: TranscriptDeps;
+  crawls?: CrawlResolver;
 };
 
 /**
@@ -76,7 +92,11 @@ export function coerceCellValue(
   return output;
 }
 
-function notesOf(attachments: Attachments, transcripts: Transcripts) {
+function notesOf(
+  attachments: Attachments,
+  transcripts: Transcripts,
+  crawls: Crawls,
+) {
   const notes = new Map<string, CellSourceNote>();
   for (const file of attachments.files) {
     notes.set(file.columnId, { kind: "attached", filename: file.filename });
@@ -98,6 +118,20 @@ function notesOf(attachments: Attachments, transcripts: Transcripts) {
     notes.set(failure.columnId, {
       kind: "failed",
       step: "transcribe",
+      error: failure.error,
+    });
+  }
+  for (const site of crawls.sites) {
+    notes.set(site.columnId, {
+      kind: "crawled",
+      pages: site.pages,
+      content: site.content,
+    });
+  }
+  for (const failure of crawls.failures) {
+    notes.set(failure.columnId, {
+      kind: "failed",
+      step: "crawl",
       error: failure.error,
     });
   }
@@ -171,20 +205,22 @@ export async function generateTypedCellValue({
 
 /**
  * `address` is the running cell's scoped address: its sheet and row are the
- * key the row's transcripts are cached under (cell-transcripts.ts).
+ * key the row's transcripts and crawls are cached under (cell-transcripts.ts,
+ * cell-crawls.ts).
  */
 export async function generateCellValue(
   input: RunAiInput,
   address: CellAddress,
-  transcriptDeps: TranscriptDeps = {},
+  deps: CellSourceDeps = {},
 ): Promise<CellGeneration> {
-  const [attachments, transcripts] = await Promise.all([
+  const [attachments, transcripts, crawls] = await Promise.all([
     collectAttachments(input.row.cells),
-    collectTranscripts(address, input.row.cells, transcriptDeps),
+    collectTranscripts(address, input.row.cells, deps.transcripts),
+    collectCrawls(address, input.row.cells, deps.crawls),
   ]);
   const { system, prompt } = buildCellMessages(
     input,
-    notesOf(attachments, transcripts),
+    notesOf(attachments, transcripts, crawls),
   );
   const typed = await generateTypedCellValue({
     system,
@@ -195,5 +231,6 @@ export async function generateCellValue(
     ...typed,
     attachments: summariseAttachments(attachments),
     transcripts: summariseTranscripts(transcripts),
+    crawls: summariseCrawls(crawls),
   };
 }

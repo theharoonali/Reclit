@@ -10,7 +10,8 @@
  *   output     Json      required object; `output.kind` names what produced it
  *   createdAt  DateTime  now()
  *   updatedAt  DateTime  @updatedAt
- *   Indexes: [cellId, input] (the lookup), [cellId, createdAt] (the list).
+ *   Indexes: [cellId, input] (the lookup), [cellId, createdAt] (the list),
+ *            [input, createdAt] (the cross-cell lookup).
  *
  * MODEL  ExternalApi = {
  *   id: string; cellId: string; input: string;
@@ -23,6 +24,11 @@
  * `modules/external-api/external-api.schema.ts`; a reader switches on `kind`.
  *   "audio-transcription"  { kind; provider; model; text; languageCode: string | null;
  *                            filename; mediaType; bytes }
+ *   "website-crawl"        { kind; provider; crawlId; url; options: { limit; maxDiscoveryDepth;
+ *                            allowSubdomains; crawlEntireDomain }; pages: { url; title: string | null;
+ *                            statusCode: number | null; characters; markdown }[]; total; completed;
+ *                            creditsUsed: number | null; crawledAt: ISO string }  — Firecrawl over a
+ *                            url cell's website (`src/ai/cell-crawls.ts`, the `crawl-website` task)
  *
  * PROCEDURES
  * | Procedure                | Kind  | Payload              | Response                | Errors                 |
@@ -32,7 +38,8 @@
  *
  * NOTES
  * - Read-only over tRPC. The writers are the processors inside the Trigger.dev
- *   worker; `src/ai/cell-transcripts.ts` is the only one today.
+ *   worker: `src/ai/cell-transcripts.ts` and `src/ai/cell-crawls.ts` (the
+ *   latter through the `crawl-website` task) today.
  * - `listByCell` is `createdAt` descending. An unknown or cell-less id returns
  *   `[]`, never NOT_FOUND — a cell that was cleared has no results by
  *   definition.
@@ -42,16 +49,21 @@
  *   deleting the column, deleting the sheet, or re-importing the sheet.
  * - Service surface (in-process callers — the worker):
  *     `find({ cellId, input })`      -> newest match or null
+ *     `findByInput(input)`           -> newest match for that source in ANY cell, or null
  *     `listByCell(cellId)`           -> the list above
  *     `byId(id)`                     -> EXTERNAL_API_NOT_FOUND when missing
  *     `save({ cellId, input, output })` -> replaces the newest match under that
  *                                       key, else creates; a cellId with no Cell
  *                                       row is EXTERNAL_API_CELL_NOT_FOUND
  *                                       (the foreign key)
- *     `resolve(key, produce, accept?)` -> `{ record, reused }`: the stored
- *                                       result when one exists and `accept`
- *                                       takes it, otherwise `produce()`'s,
- *                                       saved under the key
+ *     `resolve(key, produce, accept?, { anyCell? })` -> `{ record, reused }`:
+ *                                       the stored result when one exists and
+ *                                       `accept` takes it; with `anyCell`, else
+ *                                       an accepted result any other cell holds
+ *                                       for the same `input`, COPIED under the
+ *                                       key (so it cascades with this cell) and
+ *                                       reported as reused; otherwise
+ *                                       `produce()`'s, saved under the key
  * - `input` is a reference, never a payload: 2000 characters, blanks rejected.
  * - Every procedure is public; there is no auth yet.
  */
@@ -253,6 +265,77 @@ describe.skipIf(!dbUp)("ExternalApiService.resolve", () => {
 });
 
 describe.skipIf(!dbUp)("externalApi.listByCell", () => {
+  it("reuses another cell's result for the same source when asked, copying it under this cell's key", async () => {
+    // Two sheets, two cells, one source URL nobody else in this suite uses.
+    const url = `https://files.test/${crypto.randomUUID()}.mp3`;
+    const first = await makeSheetWithAudioCell(url);
+    const second = await makeSheetWithAudioCell(url);
+    await externalApiService.save({
+      cellId: first.cellId,
+      input: url,
+      output: transcript("from the first cell"),
+    });
+    let calls = 0;
+    const produce = async () => {
+      calls += 1;
+      return transcript("fresh");
+    };
+
+    const shared = await externalApiService.resolve(
+      { cellId: second.cellId, input: url },
+      produce,
+      () => true,
+      { anyCell: true },
+    );
+    expect(shared.reused).toBe(true);
+    expect(calls).toBe(0);
+    // A copy of its own, not a pointer at the other cell's row.
+    expect(shared.record.cellId).toBe(second.cellId);
+    expect(shared.record.output).toMatchObject({ text: "from the first cell" });
+    expect(
+      await externalApiService.find({ cellId: second.cellId, input: url }),
+    ).toMatchObject({ id: shared.record.id });
+    // The newest row for that source is now the copy.
+    expect(await externalApiService.findByInput(url)).toMatchObject({
+      cellId: second.cellId,
+    });
+    // A refused kind elsewhere is not a hit either.
+    const other = await makeSheetWithAudioCell(url);
+    const refused = await externalApiService.resolve(
+      { cellId: other.cellId, input: url },
+      produce,
+      () => false,
+      { anyCell: true },
+    );
+    expect(refused.reused).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  it("stays per cell unless asked", async () => {
+    const url = `https://files.test/${crypto.randomUUID()}.mp3`;
+    const first = await makeSheetWithAudioCell(url);
+    const second = await makeSheetWithAudioCell(url);
+    await externalApiService.save({
+      cellId: first.cellId,
+      input: url,
+      output: transcript("elsewhere"),
+    });
+    let calls = 0;
+    const own = await externalApiService.resolve(
+      { cellId: second.cellId, input: url },
+      async () => {
+        calls += 1;
+        return transcript("mine");
+      },
+    );
+    expect(own.reused).toBe(false);
+    expect(calls).toBe(1);
+    expect(own.record.output).toMatchObject({ text: "mine" });
+    expect(
+      await externalApiService.findByInput("https://never.test/x"),
+    ).toBeNull();
+  });
+
   it("lists a cell's results newest first", async () => {
     const cell = await makeSheetWithAudioCell();
     const older = await externalApiService.save({

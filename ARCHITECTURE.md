@@ -29,9 +29,11 @@ apps/api (NestJS on Bun, port 4001)
         │
   Trigger.dev worker (src/trigger/, bundled by the Trigger CLI)
         ├── run-ai-batch: per runnable column (a wave) prepares the inputs, then batchTriggerAndWait →
-        └── run-ai-cell: calls the same services → the row's audio through ElevenLabs
-                         (cached in ExternalApi) → Gemini via src/ai/ (grounded
-                         with the google_search tool for a google_search column) → writes the run + cell
+        ├── run-ai-cell: calls the same services → the row's audio through ElevenLabs,
+        │                its url cells through crawl-website (both cached in ExternalApi)
+        │                → Gemini via src/ai/ (grounded with the google_search tool for a
+        │                google_search column) → writes the run + cell
+        └── crawl-website: one site through Firecrawl → ExternalApi, reused from any cell
 
 packages/ui  → shared primitives + Tailwind preset, consumed by the dashboard
 ```
@@ -67,13 +69,17 @@ packages/ui  → shared primitives + Tailwind preset, consumed by the dashboard
   `src/jobs/<feature>-dispatch.ts` registers from `src/main.ts` — not from
   `bootstrap.ts`, so the test suite stays network-free.
 - `src/ai/` holds the model providers (`gemini.ts` for the Vercel AI SDK,
-  `elevenlabs.ts` for Speech-to-Text) and the helpers a task composes: the
-  prompt (`cell-prompt.ts`), the row's attachments (`cell-attachments.ts`) and
-  its audio transcripts (`cell-transcripts.ts`, cached in `ExternalApi` —
-  [docs/features/external-api.md](docs/features/external-api.md)).
+  `elevenlabs.ts` for Speech-to-Text, `firecrawl.ts` for crawling) and the
+  helpers a task composes: the prompt (`cell-prompt.ts`), the row's
+  attachments (`cell-attachments.ts`), its audio transcripts
+  (`cell-transcripts.ts`) and its crawled websites (`cell-crawls.ts`), the
+  last two cached in `ExternalApi` —
+  [docs/features/external-api.md](docs/features/external-api.md).
 - The jobs today are `run-ai-batch` (the orchestrator of one Run click: one
-  wave per AI column, prepared then fanned out) and `run-ai-cell` (one
-  cell); their lifecycle, table and stream are
+  wave per AI column, prepared then fanned out), `run-ai-cell` (one cell) and
+  `crawl-website` (one site through Firecrawl into the store — general, one
+  at a time, triggered by `run-ai-cell` for every url cell of a row); their
+  lifecycle, table and stream are
   [docs/features/run-ai.md](docs/features/run-ai.md).
 
 ## Live updates (tRPC subscriptions over SSE)
@@ -134,6 +140,8 @@ no Prisma code; `bunx turbo build` is the check.
 | `SUPABASE_URL`, `SUPABASE_KEY` | api | Supabase Storage for `POST /files`; unset → 503 on upload |
 | `TRIGGER_SECRET_KEY` | api | Trigger.dev environment key the api enqueues with (`src/jobs/run-ai-dispatch.ts`); the Trigger CLI reads it too |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | worker | Gemini key for the Vercel AI SDK (`src/ai/gemini.ts`), including the `google_search` node's grounding; the local worker reads `apps/api/.env`, a deployed one its Trigger environment |
+| `ELEVENLABS_API_KEY` | worker | ElevenLabs Speech-to-Text for audio cells (`src/ai/elevenlabs.ts`); same two places as the Gemini key; without it the prompt says the audio could not be transcribed |
+| `FIRECRAWL_API_KEY` | worker | Firecrawl for url cells (`src/ai/firecrawl.ts`, the `crawl-website` task); same two places; without it the prompt says the site could not be crawled |
 | `NEXT_PUBLIC_API_URL` | dashboard | browser tRPC target (default `http://localhost:4001`) |
 | `API_INTERNAL_URL` | dashboard | optional SSR-side override |
 

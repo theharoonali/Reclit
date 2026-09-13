@@ -67,24 +67,29 @@ export function cellOutputSchema(
 /**
  * How a URL cell reached the model, keyed by column id: as an attached file
  * (named so the line can point at it), as a transcript (an audio cell —
- * cell-transcripts.ts), or not at all, with the step that failed and why.
+ * cell-transcripts.ts), as a crawled website whose pages follow the row
+ * (a url cell — cell-crawls.ts), or not at all, with the step that failed
+ * and why.
  */
 export type CellSourceNote =
   | { kind: "attached"; filename: string }
   | { kind: "transcribed"; text: string }
-  | { kind: "failed"; step: "fetch" | "transcribe"; error: string };
+  | { kind: "crawled"; pages: number; content: string }
+  | { kind: "failed"; step: "fetch" | "transcribe" | "crawl"; error: string };
 export type CellSourceNotes = ReadonlyMap<string, CellSourceNote>;
 
 /** The reason half of a failed line: which step could not be done, and why. */
-const FAILED_STEPS: Record<"fetch" | "transcribe", string> = {
+const FAILED_STEPS: Record<"fetch" | "transcribe" | "crawl", string> = {
   fetch: "could not be fetched",
   transcribe: "could not be transcribed",
+  crawl: "could not be crawled",
 };
 
 /**
  * One cell as a prompt line: `Name (type): value`; blanks say so, JSON is
- * stringified, a cell whose file travels alongside names the file, and an
- * audio cell carries its transcript instead of its URL.
+ * stringified, a cell whose file travels alongside names the file, an audio
+ * cell carries its transcript instead of its URL, and a crawled website
+ * keeps its URL and points at the content block below the row.
  */
 export function formatCellLine(
   cell: RunAiInputCell,
@@ -95,24 +100,48 @@ export function formatCellLine(
       ? `attached file "${note.filename}"`
       : note?.kind === "transcribed"
         ? `transcript of the audio: ${note.text}`
-        : note?.kind === "failed"
-          ? `${String(cell.value)} (${FAILED_STEPS[note.step]}: ${note.error})`
-          : cell.value === null
-            ? "(empty)"
-            : typeof cell.value === "object"
-              ? JSON.stringify(cell.value)
-              : String(cell.value);
+        : note?.kind === "crawled"
+          ? `${String(cell.value)} (website crawled: ${note.pages} pages, its content is below)`
+          : note?.kind === "failed"
+            ? `${String(cell.value)} (${FAILED_STEPS[note.step]}: ${note.error})`
+            : cell.value === null
+              ? "(empty)"
+              : typeof cell.value === "object"
+                ? JSON.stringify(cell.value)
+                : String(cell.value);
   return `${cell.name} (${cell.type}): ${value}`;
+}
+
+/**
+ * The crawled websites as blocks after the row, one per url cell in row
+ * order — the row line only points at them, so a long site does not push the
+ * rest of the row out of sight.
+ */
+function crawledContentBlocks(
+  cells: RunAiInputCell[],
+  notes: CellSourceNotes,
+): string[] {
+  return cells.flatMap((cell) => {
+    const note = notes.get(cell.id);
+    return note?.kind === "crawled"
+      ? [
+          `Content of the website in column "${cell.name}" (${String(cell.value)}), ${note.pages} pages:`,
+          note.content,
+          "",
+        ]
+      : [];
+  });
 }
 
 /**
  * The instruction (`system`) and the context (`prompt`). The column's prompt
  * *is* the instruction; the row goes in as one line per column in the
  * sheet's sort order, then the target is named so the model knows which
- * cell it is filling. File and website cells are attached as files
- * (cell-attachments.ts) and their lines say so; audio cells arrive as the
- * transcript of their recording (cell-transcripts.ts). From the second AI
- * column of a row on, the previous step's output is named as the primary
+ * cell it is filling. File cells are attached as files (cell-attachments.ts)
+ * and their lines say so; audio cells arrive as the transcript of their
+ * recording (cell-transcripts.ts); url cells arrive as the crawled pages of
+ * their website, in blocks after the row (cell-crawls.ts). From the second
+ * AI column of a row on, the previous step's output is named as the primary
  * input. A `google_search` target gets `SEARCH_RULES` on top; everything
  * else is the same, so both nodes read the row the same way.
  */
@@ -125,6 +154,13 @@ export function buildCellMessages(
 } {
   const { prompt, target, row, previous } = input;
   const attached = [...notes.values()].some((n) => n.kind === "attached");
+  const crawled = [...notes.values()].some((n) => n.kind === "crawled");
+  const context = [
+    "Use the other cells of the row as context",
+    ...(attached ? [", including the attached files"] : []),
+    ...(crawled ? [", including the crawled website content"] : []),
+    ".",
+  ].join("");
   const system = [
     "You fill in one cell of a spreadsheet row.",
     `The cell belongs to the column "${target.name}" (type: ${target.type}).`,
@@ -132,7 +168,7 @@ export function buildCellMessages(
     prompt,
     "",
     ...(target.node === "google_search" ? [SEARCH_RULES, ""] : []),
-    `Answer with ${TYPE_RULES[target.type]}, and nothing else. Use the other cells of the row as context${attached ? ", including the attached files" : ""}.`,
+    `Answer with ${TYPE_RULES[target.type]}, and nothing else. ${context}`,
     ...(previous
       ? [
           `The previous step of this row filled the column "${previous.name}"; its output below is your primary input, the rest of the row is context.`,
@@ -146,6 +182,7 @@ export function buildCellMessages(
     `Row ${row.index + 1}:`,
     ...lines,
     "",
+    ...crawledContentBlocks(row.cells, notes),
     ...(previous
       ? ["Output of the previous step:", formatCellLine(previous), ""]
       : []),

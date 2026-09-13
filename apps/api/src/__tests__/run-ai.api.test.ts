@@ -90,7 +90,7 @@
  *   row's media, asks Gemini with the column prompt as the instruction, the
  *   previous output as the primary input and the row as context, and
  *   `complete`s with
- *   `result: { input, output, model, usage, attachments, transcripts }`
+ *   `result: { input, output, model, usage, attachments, transcripts, crawls }`
  *   (`searches` on a `google_search` run) — `output` typed like the column
  *   (string, number, boolean, ISO date string, JSON object, email, URL) —
  *   or `fail`s with `result: { input, error }`. A failed cell stops its row:
@@ -98,21 +98,30 @@
  *   `result.error: { name: "RunAiSeriesStopped", message }` without running;
  *   other rows are unaffected. `markRunning` never revives a finished run
  *   (`RUN_AI_FINISHED`, conflict).
- * - **The row's media reaches the model two ways, and neither can fail a
- *   run.** `file` and `url` cells holding an http(s) URL are fetched (≤ 15 MB,
- *   30 s each) and attached to the model call as files; `audio` cells are
+ * - **The row's media reaches the model three ways, and none can fail a
+ *   run.** `file` cells holding an http(s) URL are fetched (≤ 15 MB, 30 s
+ *   each) and attached to the model call as files; `audio` cells are
  *   *transcribed* instead — ElevenLabs Speech-to-Text — and the transcript is
- *   what the prompt carries. A transcript is stored in `ExternalApi` under the
- *   audio cell's own id and its file URL, so the recording is sent once no
- *   matter how many AI columns the row runs through, and clearing the cell
- *   drops it (contract: external-api.api.test.ts). Either path failing is a
- *   note in the prompt line ("could not be fetched" / "could not be
- *   transcribed"), never a failed run. The completed run records both without
- *   the content: `result.attachments` is
+ *   what the prompt carries; `url` cells are *crawled* — Firecrawl, up to 25
+ *   pages, depth 2, the whole domain with its subdomains — and the pages
+ *   follow the row in the prompt (60,000 characters per url cell, 8,000 per
+ *   page, the rest counted as omitted). A transcript or a crawl is stored in
+ *   `ExternalApi` under the source cell's own id and its URL, so the
+ *   recording or the site is paid for once no matter how many AI columns the
+ *   row runs through, and clearing the cell drops it; a crawl is also reused
+ *   from any other cell that already holds the same URL (contract:
+ *   external-api.api.test.ts). Each crawl runs in its own `crawl-website`
+ *   Trigger.dev run — one at a time, the Firecrawl free plan's limit — which
+ *   `run-ai-cell` waits for. Any path failing is a note in the prompt line
+ *   ("could not be fetched" / "could not be transcribed" / "could not be
+ *   crawled"), never a failed run. The completed run records all three
+ *   without the content: `result.attachments` is
  *   `{ columnId, filename, mediaType, bytes }` per fetched file and
  *   `{ columnId, url, error }` per failure; `result.transcripts` is
  *   `{ columnId, source, characters, reused }` per transcript (`reused`: a
- *   stored one answered it) and `{ columnId, url, error }` per failure.
+ *   stored one answered it) and `{ columnId, url, error }` per failure;
+ *   `result.crawls` is `{ columnId, source, pages, characters, reused }` per
+ *   crawled site and `{ columnId, url, error }` per failure.
  * - A `google_search` column is runnable exactly like an `ai` column: a node
  *   and a prompt. `prepare` gives it the same input — the whole row in
  *   `input.row.cells`, plus `previous` — and the prompt is the instruction
@@ -176,6 +185,17 @@ import {
   mediaTypeFor,
   summariseAttachments,
 } from "../ai/cell-attachments";
+import type { CrawlResolver, CrawlStore } from "../ai/cell-crawls";
+import {
+  collectCrawls,
+  formatCrawledPages,
+  isCrawlableCell,
+  MAX_CRAWL_PROMPT_CHARS,
+  MAX_PAGE_PROMPT_CHARS,
+  resolveCrawlRecord,
+  summariseCrawls,
+} from "../ai/cell-crawls";
+import type { CellSourceNote } from "../ai/cell-prompt";
 import {
   buildCellMessages,
   cellOutputSchema,
@@ -190,13 +210,27 @@ import {
   summariseTranscripts,
 } from "../ai/cell-transcripts";
 import { type TranscribeFetch, transcribeAudio } from "../ai/elevenlabs";
+import type { CrawlFetch } from "../ai/firecrawl";
+import {
+  CRAWL_OPTIONS,
+  crawlWebsite,
+  FIRECRAWL_API_URL,
+  FIRECRAWL_CRAWL_DEADLINE_MS,
+  FIRECRAWL_MAX_PAGES,
+  FIRECRAWL_POLL_SECONDS,
+  FirecrawlError,
+  startCrawl,
+} from "../ai/firecrawl";
 import {
   buildSearchExtractMessages,
   MAX_SEARCH_SOURCES,
   searchRecordOf,
 } from "../ai/search-prompt";
 import { pingDatabase, prisma } from "../db/prisma";
-import type { ExternalApi } from "../modules/external-api/external-api.schema";
+import type {
+  ExternalApi,
+  WebsiteCrawlOutput,
+} from "../modules/external-api/external-api.schema";
 import { EXTERNAL_API_KINDS } from "../modules/external-api/external-api.schema";
 import {
   RunAiCellBusyError,
@@ -1290,6 +1324,30 @@ describe("run-ai-cell task prompt (pure)", () => {
     ).toBe(
       "Voice (audio): https://files.test/ada.mp3 (could not be transcribed: HTTP 401)",
     );
+    // A crawled website keeps its URL on the line; the pages follow the row.
+    const site: RunAiInputCell = {
+      id: "col.8",
+      index: 8,
+      name: "Website",
+      type: "url",
+      value: "https://ada.test",
+    };
+    expect(
+      formatCellLine(site, {
+        kind: "crawled",
+        pages: 3,
+        content: "### https://ada.test/\nHi",
+      }),
+    ).toBe(
+      "Website (url): https://ada.test (website crawled: 3 pages, its content is below)",
+    );
+    expect(
+      formatCellLine(site, {
+        kind: "failed",
+        step: "crawl",
+        error: "HTTP 429",
+      }),
+    ).toBe("Website (url): https://ada.test (could not be crawled: HTTP 429)");
   });
 
   it("puts the column prompt in the instruction and the row in the context", () => {
@@ -1337,11 +1395,16 @@ describe("run-ai-cell task prompt (pure)", () => {
     expect(without.prompt).not.toContain("Output of the previous step");
   });
 
-  it("attaches file and url cells that hold an http(s) URL; audio is transcribed instead", () => {
+  it("attaches file cells that hold an http(s) URL; audio is transcribed and url crawled instead", () => {
     const cell = (type: RunAiInput["target"]["type"], value: unknown) =>
       ({ id: "col.9", index: 9, name: "X", type, value }) as RunAiInputCell;
     expect(isAttachableCell(cell("file", "http://a.test/x.pdf"))).toBe(true);
-    expect(isAttachableCell(cell("url", "https://example.com/"))).toBe(true);
+    // A website goes down the crawl path, never the attachment one.
+    expect(isAttachableCell(cell("url", "https://example.com/"))).toBe(false);
+    expect(isCrawlableCell(cell("url", "https://example.com/"))).toBe(true);
+    expect(isCrawlableCell(cell("file", "https://example.com/"))).toBe(false);
+    expect(isCrawlableCell(cell("url", "ftp://example.com/"))).toBe(false);
+    expect(isCrawlableCell(cell("url", null))).toBe(false);
     expect(isAttachableCell(cell("string", "https://a.test/x.pdf"))).toBe(
       false,
     );
@@ -1436,6 +1499,8 @@ describe("run-ai-cell task prompt (pure)", () => {
         type: "file",
         value: "https://files.test/huge.bin",
       },
+      // A url cell is crawled (cell-crawls.ts), never fetched here — even
+      // one that would refuse the connection is simply not this path's.
       {
         id: "col.4",
         index: 4,
@@ -1463,11 +1528,6 @@ describe("run-ai-cell task prompt (pure)", () => {
         columnId: "col.3",
         url: "https://files.test/huge.bin",
         error: `larger than ${MAX_ATTACHMENT_BYTES} bytes`,
-      },
-      {
-        columnId: "col.4",
-        url: "https://down.test/",
-        error: "connection refused",
       },
     ]);
     expect(summariseAttachments(attachments)[0]).toEqual({
@@ -2064,5 +2124,484 @@ describe("google_search node (pure)", () => {
       queries: [],
       sources: [{ url: page(1).url, title: "vercel.com" }],
     });
+  });
+});
+
+describe("Firecrawl crawl client (pure)", () => {
+  const page = (
+    url: string,
+    markdown: string,
+    title: string | null = null,
+  ) => ({
+    markdown,
+    metadata: { sourceURL: url, url, title, statusCode: 200 },
+  });
+
+  /** A Firecrawl that answers a scripted sequence of status reads. */
+  function fakeFirecrawl(
+    statuses: unknown[],
+    start: unknown = { success: true, id: "crawl-1" },
+  ) {
+    const calls: { method: string; url: string; body?: unknown }[] = [];
+    const queue = [...statuses];
+    const fetchImpl: CrawlFetch = async (url, init) => {
+      calls.push({
+        method: init.method,
+        url,
+        ...(init.body !== undefined && { body: JSON.parse(init.body) }),
+      });
+      const body =
+        init.method === "POST"
+          ? start
+          : init.method === "DELETE"
+            ? { success: true }
+            : (queue.shift() ?? statuses[statuses.length - 1]);
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify(body),
+        json: async () => body,
+      };
+    };
+    return { fetchImpl, calls };
+  }
+
+  const withKey = async <T>(run: () => Promise<T>): Promise<T> => {
+    const previous = process.env.FIRECRAWL_API_KEY;
+    process.env.FIRECRAWL_API_KEY = "KEY";
+    try {
+      return await run();
+    } finally {
+      if (previous === undefined) delete process.env.FIRECRAWL_API_KEY;
+      else process.env.FIRECRAWL_API_KEY = previous;
+    }
+  };
+
+  it("starts the crawl with the fixed options, waits between reads, and follows `next`", async () => {
+    const { fetchImpl, calls } = fakeFirecrawl([
+      {
+        status: "scraping",
+        total: 3,
+        completed: 1,
+        data: [page("https://a.test/", "partial")],
+      },
+      {
+        status: "completed",
+        total: 3,
+        completed: 3,
+        creditsUsed: 3,
+        next: "https://api.firecrawl.dev/v2/crawl/crawl-1?skip=2",
+        data: [
+          page("https://a.test/", "# Home", "A"),
+          page("https://a.test/", "a duplicate of the home page"),
+        ],
+      },
+      {
+        status: "completed",
+        total: 3,
+        completed: 3,
+        next: null,
+        data: [
+          page("https://docs.a.test/x", "# X"),
+          { markdown: "   ", metadata: { url: "https://a.test/empty" } },
+        ],
+      },
+    ]);
+    const slept: number[] = [];
+    const output = await withKey(() =>
+      crawlWebsite("https://a.test", {
+        fetchImpl,
+        sleep: async (seconds) => {
+          slept.push(seconds);
+        },
+        now: () => 0,
+      }),
+    );
+    expect(calls[0]).toMatchObject({
+      method: "POST",
+      url: `${FIRECRAWL_API_URL}/crawl`,
+      body: { url: "https://a.test", ...CRAWL_OPTIONS },
+    });
+    expect(calls.map((one) => one.method)).toEqual([
+      "POST",
+      "GET",
+      "GET",
+      "GET",
+    ]);
+    expect(calls[3]?.url).toBe(
+      "https://api.firecrawl.dev/v2/crawl/crawl-1?skip=2",
+    );
+    expect(slept).toEqual([FIRECRAWL_POLL_SECONDS]);
+    expect(output).toMatchObject({
+      kind: "website-crawl",
+      provider: "firecrawl",
+      crawlId: "crawl-1",
+      url: "https://a.test",
+      total: 3,
+      completed: 3,
+      creditsUsed: 3,
+      options: { limit: FIRECRAWL_MAX_PAGES, allowSubdomains: true },
+    });
+    // Deduped by URL, the empty page dropped, the subdomain page kept.
+    expect(output.pages.map((one) => one.url)).toEqual([
+      "https://a.test/",
+      "https://docs.a.test/x",
+    ]);
+    expect(output.pages[0]).toMatchObject({
+      title: "A",
+      characters: 6,
+      markdown: "# Home",
+      statusCode: 200,
+    });
+  });
+
+  it("throws on a crawl that fails, or that returns no page", async () => {
+    const failed = fakeFirecrawl([
+      { status: "failed", total: 0, completed: 0, data: [] },
+    ]);
+    await expect(
+      withKey(() =>
+        crawlWebsite("https://a.test", {
+          fetchImpl: failed.fetchImpl,
+          sleep: async () => {},
+        }),
+      ),
+    ).rejects.toThrow(/ended as "failed"/);
+    const empty = fakeFirecrawl([
+      { status: "completed", total: 1, completed: 1, data: [] },
+    ]);
+    await expect(
+      withKey(() =>
+        crawlWebsite("https://a.test", {
+          fetchImpl: empty.fetchImpl,
+          sleep: async () => {},
+        }),
+      ),
+    ).rejects.toThrow(/returned no pages/);
+  });
+
+  it("cancels and gives up past the deadline", async () => {
+    const { fetchImpl, calls } = fakeFirecrawl([
+      { status: "scraping", total: 9, completed: 1, data: [] },
+    ]);
+    let clock = 0;
+    await expect(
+      withKey(() =>
+        crawlWebsite("https://a.test", {
+          fetchImpl,
+          sleep: async () => {
+            clock += FIRECRAWL_CRAWL_DEADLINE_MS;
+          },
+          now: () => clock,
+        }),
+      ),
+    ).rejects.toThrow(/did not finish/);
+    expect(calls[calls.length - 1]).toMatchObject({
+      method: "DELETE",
+      url: `${FIRECRAWL_API_URL}/crawl/crawl-1`,
+    });
+  });
+
+  it("surfaces the HTTP status of a refusal, so a 429 can be retried", async () => {
+    const refusing: CrawlFetch = async () => ({
+      ok: false,
+      status: 429,
+      text: async () => "slow down",
+      json: async () => ({}),
+    });
+    const error = await withKey(() =>
+      crawlWebsite("https://a.test", { fetchImpl: refusing }).catch(
+        (thrown: unknown) => thrown,
+      ),
+    );
+    expect(error).toBeInstanceOf(FirecrawlError);
+    expect((error as FirecrawlError).status).toBe(429);
+    expect((error as Error).message).toMatch(/HTTP 429 — slow down/);
+  });
+
+  it("names the missing key rather than calling out", async () => {
+    const previous = process.env.FIRECRAWL_API_KEY;
+    delete process.env.FIRECRAWL_API_KEY;
+    try {
+      await expect(startCrawl("https://a.test")).rejects.toThrow(
+        /FIRECRAWL_API_KEY/,
+      );
+    } finally {
+      if (previous !== undefined) process.env.FIRECRAWL_API_KEY = previous;
+    }
+  });
+});
+
+describe("run-ai-cell task crawls (pure)", () => {
+  const address = { sheetId: "sheet-1", row: 4, col: 2 };
+
+  const urlCell = (
+    index: number,
+    value: RunAiInputCell["value"],
+    type: RunAiInputCell["type"] = "url",
+  ): RunAiInputCell => ({
+    id: `col.${index}`,
+    index,
+    name: "Website",
+    type,
+    value,
+  });
+
+  const crawl = (
+    url: string,
+    pages: [string, string][],
+  ): WebsiteCrawlOutput => ({
+    kind: "website-crawl",
+    provider: "firecrawl",
+    crawlId: "c",
+    url,
+    options: {
+      limit: 25,
+      maxDiscoveryDepth: 2,
+      allowSubdomains: true,
+      crawlEntireDomain: true,
+    },
+    pages: pages.map(([pageUrl, markdown]) => ({
+      url: pageUrl,
+      title: null,
+      statusCode: 200,
+      characters: markdown.length,
+      markdown,
+    })),
+    total: pages.length,
+    completed: pages.length,
+    creditsUsed: pages.length,
+    crawledAt: "2026-09-12T00:00:00.000Z",
+  });
+
+  const record = (
+    key: { cellId: string; url: string },
+    output: unknown,
+  ): ExternalApi => ({
+    id: `${key.cellId}|${key.url}`,
+    cellId: key.cellId,
+    input: key.url,
+    output: output as ExternalApi["output"],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  /** A resolver that answers from a seeded map and records what it was asked. */
+  function fakeResolver(seed: Record<string, WebsiteCrawlOutput> = {}) {
+    const keys: string[] = [];
+    const resolve: CrawlResolver = async (asked) =>
+      asked.map((key) => {
+        const id = `${key.cellId}|${key.url}`;
+        keys.push(id);
+        const stored = seed[id];
+        return stored
+          ? { record: record(key, stored), reused: true }
+          : { error: `no crawl for ${key.url}` };
+      });
+    return { resolve, keys };
+  }
+
+  it("keys a crawl by the url cell's own scoped id and its URL, and reads the pages back", async () => {
+    const markdown = "# Ada\nWe build things.";
+    const { resolve, keys } = fakeResolver({
+      "sheet-1.cell.4.7|https://ada.test": crawl("https://ada.test", [
+        ["https://ada.test/", markdown],
+      ]),
+    });
+    const { sites, failures } = await collectCrawls(
+      address,
+      [urlCell(0, "plain", "string"), urlCell(7, "https://ada.test")],
+      resolve,
+    );
+    // The running cell is col 2; the website is col 7 of the same row.
+    expect(keys).toEqual(["sheet-1.cell.4.7|https://ada.test"]);
+    expect(failures).toEqual([]);
+    expect(sites).toEqual([
+      {
+        columnId: "col.7",
+        source: "https://ada.test",
+        pages: 1,
+        characters: markdown.length,
+        content: `### https://ada.test/\n${markdown}`,
+        reused: true,
+      },
+    ]);
+  });
+
+  it("records a failure instead of throwing when a site cannot be crawled, or the resolver dies", async () => {
+    const { resolve } = fakeResolver();
+    const missing = await collectCrawls(
+      address,
+      [urlCell(7, "https://ada.test")],
+      resolve,
+    );
+    expect(missing.sites).toEqual([]);
+    expect(missing.failures).toEqual([
+      {
+        columnId: "col.7",
+        url: "https://ada.test",
+        error: "no crawl for https://ada.test",
+      },
+    ]);
+    const dead = await collectCrawls(
+      address,
+      [urlCell(7, "https://ada.test"), urlCell(8, "https://b.test")],
+      async () => {
+        throw new Error("worker down");
+      },
+    );
+    expect(dead.failures.map((one) => one.error)).toEqual([
+      "worker down",
+      "worker down",
+    ]);
+  });
+
+  it("ignores every cell that is not a url cell holding an http(s) URL", async () => {
+    const { resolve, keys } = fakeResolver();
+    const { sites, failures } = await collectCrawls(
+      address,
+      [
+        urlCell(1, "https://a.test", "string"),
+        urlCell(2, "https://a.test", "file"),
+        urlCell(3, "ftp://a.test"),
+        urlCell(4, null),
+      ],
+      resolve,
+    );
+    expect(keys).toEqual([]);
+    expect(sites).toEqual([]);
+    expect(failures).toEqual([]);
+  });
+
+  it("resolves through the store with any cell's copy allowed", async () => {
+    const asked: unknown[] = [];
+    let crawled = 0;
+    const store: CrawlStore = {
+      async resolve(key, produce, accept, options) {
+        asked.push({
+          key,
+          options,
+          accepts: [
+            accept?.(crawl("https://ada.test", [])),
+            accept?.({ kind: "something-else" }),
+          ],
+        });
+        const output = await produce();
+        return {
+          record: record({ cellId: key.cellId, url: key.input }, output),
+          reused: false,
+        };
+      },
+    };
+    const { record: got, reused } = await resolveCrawlRecord(
+      { cellId: "sheet-1.cell.4.7", url: "https://ada.test" },
+      {
+        store,
+        crawl: async (url) => {
+          crawled += 1;
+          return crawl(url, [["https://ada.test/", "hi"]]);
+        },
+      },
+    );
+    expect(asked).toEqual([
+      {
+        key: { cellId: "sheet-1.cell.4.7", input: "https://ada.test" },
+        options: { anyCell: true },
+        accepts: [true, false],
+      },
+    ]);
+    expect(crawled).toBe(1);
+    expect(reused).toBe(false);
+    expect(got.output).toMatchObject({ kind: "website-crawl" });
+  });
+
+  it("budgets the pages in the prompt and says what was left out", () => {
+    const long = "x".repeat(MAX_PAGE_PROMPT_CHARS + 100);
+    const many = Array.from(
+      { length: 12 },
+      (_, n) => [`https://a.test/p${n}`, long] as [string, string],
+    );
+    const text = formatCrawledPages(crawl("https://a.test", many));
+    expect(text.length).toBeLessThanOrEqual(MAX_CRAWL_PROMPT_CHARS + 100);
+    expect(text).toContain("### https://a.test/p0");
+    expect(text).toContain("[…]");
+    expect(text).toMatch(/\(\d+ more pages omitted\)$/);
+    expect(text).not.toContain("https://a.test/p11");
+    // A short site fits whole and says nothing about omissions.
+    const short = formatCrawledPages(
+      crawl("https://a.test", [["https://a.test/", "Hello"]]),
+    );
+    expect(short).toBe("### https://a.test/\nHello");
+  });
+
+  it("summarises without the content", () => {
+    expect(
+      summariseCrawls({
+        sites: [
+          {
+            columnId: "col.7",
+            source: "https://ada.test",
+            pages: 2,
+            characters: 40,
+            content: "secret",
+            reused: true,
+          },
+        ],
+        failures: [
+          { columnId: "col.8", url: "https://b.test", error: "HTTP 500" },
+        ],
+      }),
+    ).toEqual([
+      {
+        columnId: "col.7",
+        source: "https://ada.test",
+        pages: 2,
+        characters: 40,
+        reused: true,
+      },
+      { columnId: "col.8", url: "https://b.test", error: "HTTP 500" },
+    ]);
+  });
+
+  it("puts the crawled pages after the row and points the row line at them", () => {
+    const cells: RunAiInputCell[] = [
+      { id: "col.0", index: 0, name: "Company", type: "string", value: "Ada" },
+      urlCell(1, "https://ada.test"),
+    ];
+    const input: RunAiInput = {
+      prompt: "What does this company sell?",
+      target: {
+        id: "col.2",
+        index: 2,
+        name: "Summary",
+        type: "string",
+        node: "ai",
+      },
+      row: { id: "row.0", index: 0, cells },
+    };
+    const notes = new Map<string, CellSourceNote>([
+      [
+        "col.1",
+        {
+          kind: "crawled",
+          pages: 2,
+          content: "### https://ada.test/\nWe sell ada.",
+        },
+      ],
+    ]);
+    const { system, prompt } = buildCellMessages(input, notes);
+    expect(system).toContain("including the crawled website content");
+    expect(prompt).toContain(
+      "Website (url): https://ada.test (website crawled: 2 pages, its content is below)",
+    );
+    expect(prompt).toContain(
+      'Content of the website in column "Website" (https://ada.test), 2 pages:\n### https://ada.test/\nWe sell ada.',
+    );
+    expect(prompt.indexOf("Content of the website")).toBeGreaterThan(
+      prompt.indexOf("Website (url)"),
+    );
+    expect(prompt.indexOf("Content of the website")).toBeLessThan(
+      prompt.indexOf('Fill the column "Summary".'),
+    );
   });
 });

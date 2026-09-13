@@ -90,6 +90,7 @@ export async function generateSearchCellValue(
     ),
     attachments: [],
     transcripts: [],
+    crawls: [],
     searches,
   };
 }
