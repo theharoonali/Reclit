@@ -24,6 +24,7 @@ them here.
 | `Row.id` | `String` | pk, scoped `"<sheetId>.row.<index>"`; rows are sparse |
 | `Cell.id` | `String` | pk, scoped `"<sheetId>.cell.<row>.<col>"` |
 | `Cell.value` | `Json?` | never stored null — clearing deletes the record |
+| `Cell.externalApis` | `ExternalApi[]` | processed results keyed by this cell; cascade-deleted with it ([external-api.md](external-api.md)) |
 | `createdAt` / `updatedAt` | `DateTime` | on all four models |
 
 `ColumnType`: `STRING NUMBER BOOLEAN DATE JSON FORMULA AUDIO FILE EMAIL URL` ·
@@ -35,8 +36,8 @@ single upsert by pk.
 Indexes: `unique(spreadsheetId, index)` on Column/Row,
 `(spreadsheetId, sortOrder)` on Column,
 `unique(spreadsheetId, rowIndex, columnIndex)` + `(spreadsheetId, rowIndex)` on
-Cell · Relations: all cascade from Spreadsheet · Migrations:
-`apps/api/prisma/migrations/`
+Cell · Relations: all cascade from Spreadsheet; `ExternalApi` cascades from
+Cell · Migrations: `apps/api/prisma/migrations/`
 
 `sortOrder` is **not** unique on purpose. `reorderColumn` shifts a whole band of
 columns in one `updateMany`, and a Postgres unique index is checked per row
