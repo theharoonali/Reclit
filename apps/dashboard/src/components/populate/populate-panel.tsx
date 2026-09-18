@@ -2,46 +2,30 @@
 
 import { Button } from "@reclit/ui/button";
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { formPath } from "@/config/populate";
+import { PopulateApiCard } from "./populate-api-card";
+import { useCopy } from "./use-copy";
 
 /**
- * The two Populate cards: the public form link and the API placeholder.
- * The link's id is the active workspace's spreadsheet id, so switching
- * workspaces switches the form. Client component for the clipboard; the
- * absolute URL needs `location.origin`, so it starts as the bare path and
- * fills in after mount to keep hydration clean.
+ * The two Populate cards: the public form link and the API. Both address the
+ * active workspace's spreadsheet, so switching workspaces switches them.
+ * Client component for the clipboard; the absolute URL needs
+ * `location.origin`, so it starts as the bare path and fills in after mount to
+ * keep hydration clean.
  */
 export function PopulatePanel() {
   const t = useTranslations("populate");
   const { activeWorkspace } = useWorkspace();
   const [origin, setOrigin] = useState("");
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { copied, copy } = useCopy();
 
-  useEffect(() => {
-    setOrigin(window.location.origin);
-    return () => {
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    };
-  }, []);
+  useEffect(() => setOrigin(window.location.origin), []);
 
   const spreadsheetId = activeWorkspace?.spreadsheetId ?? null;
   const path = spreadsheetId ? formPath(spreadsheetId) : null;
   const url = path ? `${origin}${path}` : null;
-
-  const handleCopy = async () => {
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-      copiedTimer.current = setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard access denied — the visible URL is still selectable.
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -60,7 +44,7 @@ export function PopulatePanel() {
         <div className="flex gap-2">
           <Button
             disabled={!url}
-            onClick={() => void handleCopy()}
+            onClick={() => url && void copy(url)}
             type="button"
             variant="outline"
           >
@@ -80,11 +64,18 @@ export function PopulatePanel() {
         </div>
       </section>
 
-      <section className="space-y-1 rounded-sm border bg-card p-6">
-        <h2 className="text-heading">{t("api.title")}</h2>
-        <div className="text-subtitle text-muted-foreground">
-          {t("api.comingSoon")}
-        </div>
+      <section className="space-y-4 rounded-sm border bg-card p-6">
+        <header className="space-y-1">
+          <h2 className="text-heading">{t("api.title")}</h2>
+          <p className="text-body text-muted-foreground">
+            {t("api.description")}
+          </p>
+        </header>
+        {spreadsheetId ? (
+          <PopulateApiCard spreadsheetId={spreadsheetId} />
+        ) : (
+          <p className="text-body text-muted-foreground">{t("api.noSheet")}</p>
+        )}
       </section>
     </div>
   );

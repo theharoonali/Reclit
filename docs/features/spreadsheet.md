@@ -82,8 +82,8 @@ database one — tightening the index would break the reorder.
 | `spreadsheet.appendRow` | mutation | `SpreadsheetCellsService.appendRow` | NOT_FOUND, BAD_REQUEST, CONFLICT |
 | `spreadsheet.removeRow` | mutation | `SpreadsheetCellsService.removeRow` | NOT_FOUND |
 | `spreadsheet.removeRows` | mutation | `SpreadsheetCellsService.removeRows` | NOT_FOUND, BAD_REQUEST |
-| `spreadsheet.createColumn` | mutation | `SpreadsheetColumnsService.createColumn` | NOT_FOUND, BAD_REQUEST |
-| `spreadsheet.updateColumn` | mutation | `SpreadsheetColumnsService.updateColumn` | NOT_FOUND, BAD_REQUEST |
+| `spreadsheet.createColumn` | mutation | `SpreadsheetColumnsService.createColumn` | NOT_FOUND, BAD_REQUEST, CONFLICT |
+| `spreadsheet.updateColumn` | mutation | `SpreadsheetColumnsService.updateColumn` | NOT_FOUND, BAD_REQUEST, CONFLICT |
 | `spreadsheet.reorderColumn` | mutation | `SpreadsheetColumnsService.reorderColumn` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.removeColumn` | mutation | `SpreadsheetColumnsService.removeColumn` | NOT_FOUND |
 | `POST /spreadsheets/:id/import` | REST only | `SpreadsheetImportService.import` | NOT_FOUND, BAD_REQUEST |
@@ -118,6 +118,13 @@ transpiles.
   old and new position by ±1 in one `updateMany`. `index` is append-only and
   its gaps are permanent, so index-derived ids never renumber and
   `Cell.columnIndex` never moves.
+- **Column names are unique per sheet, case-insensitively.**
+  `assertNameFree` (a `findFirst` with `mode: "insensitive"`) guards
+  `createColumn` and a renaming `updateColumn`, which may keep its own name.
+  It is a service rule, not a unique index: sheets older than the rule may
+  hold duplicates and a migration would fail on them — so two concurrent
+  creates can still both pass. Import cannot collide: `inferSheet` numbers a
+  repeated header (`Name`, `Name (2)`).
 - **`prompt` belongs to the node.** `updateColumn` enforces
   prompt-requires-a-node on the effective pair (stored + incoming),
   `createColumn` gets it from the zod `.refine`, and clearing `node` clears
@@ -155,5 +162,6 @@ transpiles.
   input; `setCell` (through `complete`) to write its output.
 - `workspace.create`/`rename` write sheets directly inside their transactions
   ([workspace.md](workspace.md)).
-- `/form/[spreadsheetId]` ([route doc](../routes/form.md)) — `rows` (limit 1,
-  for name + columns) on load; `appendRow` on submit.
+- The `populate` feature ([populate.md](populate.md)) — `byId`, `columnsOf` and
+  `appendRow`; it is how `/form/[spreadsheetId]` and the Populate API write a
+  row.

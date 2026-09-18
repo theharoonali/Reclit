@@ -52,6 +52,7 @@ const buttonVariants = cva(
         sm: "h-control-sm px-control-x-sm text-caption",
         lg: "h-control-lg px-control-x-lg",
         icon: "h-control w-control",
+        "icon-sm": "h-control-sm w-control-sm",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

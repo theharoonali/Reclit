@@ -10,7 +10,7 @@ export const generateMetadata = () => pageMetadata("publicForm");
  * No server prefetch on purpose: this is a public URL, so unknown ids are an
  * expected input, and a dehydrated-pending query that rejects strands the
  * client in its loading state instead of surfacing the error. The panel
- * fetches client-side and owns loading/error/empty.
+ * fetches client-side and owns the header, loading/error/empty and `<main>`.
  */
 export default async function Page({
   params,
@@ -19,9 +19,5 @@ export default async function Page({
 }) {
   const { spreadsheetId } = await params;
 
-  return (
-    <main className="mx-auto w-full max-w-xl px-4 py-8">
-      <PublicFormPanel spreadsheetId={spreadsheetId} />
-    </main>
-  );
+  return <PublicFormPanel spreadsheetId={spreadsheetId} />;
 }

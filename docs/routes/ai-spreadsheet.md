@@ -26,7 +26,7 @@ change.
 | `…/ai-spreadsheet-json-editor.tsx` | client | the stacked key/value entries behind a JSON cell |
 | `…/ai-spreadsheet-date-editor.tsx` | client | UTC calendar behind a date cell |
 | `…/ai-spreadsheet-upload-editor.tsx` | client | upload panel behind file and audio cells (`POST /files`) |
-| `…/ai-spreadsheet-header-action.tsx` | client | one header control (`HeaderActions` + error + `Button`); every sheet control is an instance of it |
+| `…/ai-spreadsheet-header-action.tsx` | client | one header control (`HeaderActions` + error + `Button`, Hugeicons glyph); `iconOnly` moves the label to `aria-label` + a tooltip, `highlight` adds the breathing halo; every sheet control is an instance of it |
 | `…/ai-spreadsheet-import-button.tsx` | client | Import: the header action with a hidden file input (`useFilePicker`) |
 | `…/ai-spreadsheet-run-button.tsx` | client | Run: enabled only while the selection holds a runnable AI cell and none is working ("Run N cells" for more than one), filled with the live glyph while the sheet streams |
 | `…/ai-spreadsheet-selection-bar.tsx` | client | "N rows selected" + Delete; renders nothing without a selection |
@@ -42,7 +42,7 @@ change.
 | `…/use-sheet-import.ts` | hook | uploads a CSV/XLSX, then refreshes the grid without remounting it |
 | `…/use-sheet-audio.ts` | hook | one shared `Audio` element and which audio cell is playing |
 | `…/use-run-cells.ts` · `use-run-listening.ts` · `use-sheet-runs.ts` | hook | Run: what the selection would run (`planRunTargets`) + `runAi.runCells` · whether the sheet streams · the `runAi.onChange` subscription and the per-cell working-run map (`seed` takes the whole batch) |
-| `apps/dashboard/src/lib/ai-spreadsheet/*.ts` | pure | types, geometry (`HEADER_HEIGHT` from `@reclit/ui/tokens`), palette (`theme-colors.ts`, read from the CSS variables with a fallback built from `colors.light`), formatting, text metrics, five painters, `run-state.ts`, `run-status.ts`, `run-targets.ts` (`selectionRect`, `planRunTargets`, the run caps in lockstep with the contract), `short-ids.ts`, `export-csv.ts`, `fetch-all-rows.ts`, `import-file.ts`, `upload-file.ts` |
+| `apps/dashboard/src/lib/ai-spreadsheet/*.ts` | pure | types, geometry (`HEADER_HEIGHT` from `@reclit/ui/tokens`), palette (`theme-colors.ts`, read from the CSS variables with a fallback built from `colors.light`), formatting, text metrics, five painters, `run-state.ts`, `run-status.ts`, `run-targets.ts` (`selectionRect`, `planRunTargets`, the run caps in lockstep with the contract), `short-ids.ts`, `export-csv.ts`, `fetch-all-rows.ts`, `import-file.ts` (`uploadFile` lives in the shared `lib/upload-file.ts`) |
 | `apps/dashboard/src/hooks/use-canvas-surface.ts` · `use-file-picker.ts` · `use-latest-ref.ts` · `use-reseed.ts` | hook | feature-agnostic: DPR-correct canvas · hidden file input · latest-value ref · prop-following draft state |
 
 Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/textarea`,
@@ -158,6 +158,25 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   paint state only (`column-order.ts`); the pointer is captured, and holding
   within 48px of either edge autoscrolls. Dropping in place fires nothing.
   `touch-none` on the header strip makes it work on touch.
+- **The sheet is fetched on every visit.** Grid edits never write back to the
+  `spreadsheet.rows` query (the local-model deviation), so a cached payload is
+  a pre-edit snapshot. The loader's query therefore has `gcTime: 0` — the
+  entry dies with the page, and coming back refetches — plus
+  `staleTime: Infinity` and no focus/reconnect refetch, so nothing replaces the
+  payload under a mounted grid except an import's explicit invalidation.
+  Before this, a reordered column snapped back for up to two minutes after
+  leaving and returning.
+- **Column names are unique** per sheet, trimmed and case-insensitive
+  (`lib/ai-spreadsheet/column-names.ts` mirrors the backend rule). The column
+  form shows an inline error and disables Save for a taken name: adds and
+  renames are optimistic, so the refusal has to happen before the model
+  changes.
+- **Toolbar.** Import, Export, cell clear and row delete are icon-only
+  buttons (`size="icon-sm"`, label in `aria-label` and a tooltip). Run keeps
+  its label — it carries the cell count — and **lights up** while the
+  selection (a click, or shift-click for a range) holds runnable AI cells:
+  filled primary with a breathing halo (`animate-pulse`,
+  `motion-reduce:animate-none`).
 - **Import / Export.** Both are header actions. Import replaces the grid
   ("Importing…" while it runs, failure inline with the sheet untouched).
   Export downloads CSV (RFC 4180 quoting, UTF-8 BOM, filename from the sheet

@@ -1,33 +1,33 @@
 "use client";
 
-import { Button } from "@reclit/ui/button";
 import { Checkbox } from "@reclit/ui/checkbox";
+import { cn } from "@reclit/ui/cn";
 import { Input } from "@reclit/ui/input";
 import { Label } from "@reclit/ui/label";
 import { Textarea } from "@reclit/ui/textarea";
-import { useFilePicker } from "@/hooks/use-file-picker";
+import { useTranslations } from "next-intl";
+import { useId } from "react";
+import { FormField as LabelledField } from "@/components/common/form-field";
 import {
   emptyDraft,
   type FieldDraft,
-  type FormColumn,
   type FormDraft,
+  type FormField,
+  isWideField,
 } from "@/lib/public-form";
+import { PublicFormFileField } from "./public-form-file-field";
 
 type PublicFormFieldsProps = {
-  columns: FormColumn[];
+  fields: FormField[];
   draft: FormDraft;
   /** Per-column error message, keyed by column index. Already translated. */
   errors: Record<number, string>;
-  labels: {
-    choose: string;
-    chooseAudio: string;
-    replace: string;
-    remove: string;
-  };
   onChange: (columnIndex: number, field: FieldDraft) => void;
+  onPickFile: (columnIndex: number, file: File) => void;
+  onRemoveFile: (columnIndex: number) => void;
 };
 
-const INPUT_TYPES: Partial<Record<FormColumn["type"], string>> = {
+const INPUT_TYPES: Partial<Record<FormField["type"], string>> = {
   string: "text",
   number: "number",
   date: "date",
@@ -35,144 +35,102 @@ const INPUT_TYPES: Partial<Record<FormColumn["type"], string>> = {
   url: "url",
 };
 
+/** `string` is the fallback: it names the column ("Enter Company"). */
+const placeholderKey = (type: FormField["type"]) =>
+  type === "number" || type === "email" || type === "url" ? type : "string";
+
 /**
- * One field per column, keyed by the column's wire type. Presentational —
- * validation, upload, and copy all live in the panel; column names render
- * as-is (they are data, not copy).
+ * One field per column, two to a row from `md` up; JSON and file fields take
+ * the whole row. Column names render as-is (they are data, not copy).
  */
-export function PublicFormFields({
-  columns,
-  draft,
-  errors,
-  labels,
-  onChange,
-}: PublicFormFieldsProps) {
+export function PublicFormFields({ fields, ...rest }: PublicFormFieldsProps) {
   return (
-    <div className="space-y-5">
-      {columns.map((column) => {
-        const field = draft[column.index] ?? emptyDraft();
-        const error = errors[column.index];
-        const inputId = `field-${column.index}`;
-        const errorId = `field-${column.index}-error`;
-
-        return (
-          <div className="space-y-2" key={column.id}>
-            {column.type === "boolean" ? (
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  checked={field.checked}
-                  id={inputId}
-                  onCheckedChange={(checked) =>
-                    onChange(column.index, {
-                      ...field,
-                      checked: checked === true,
-                    })
-                  }
-                />
-                <Label htmlFor={inputId}>{column.name}</Label>
-              </div>
-            ) : (
-              <>
-                <Label htmlFor={inputId}>{column.name}</Label>
-                {column.type === "json" ? (
-                  <Textarea
-                    aria-describedby={error ? errorId : undefined}
-                    aria-invalid={error ? true : undefined}
-                    id={inputId}
-                    onChange={(event) =>
-                      onChange(column.index, {
-                        ...field,
-                        raw: event.target.value,
-                      })
-                    }
-                    placeholder='{"key": "value"}'
-                    value={field.raw}
-                  />
-                ) : column.type === "audio" || column.type === "file" ? (
-                  <FileField
-                    accept={column.type === "audio" ? "audio/*" : undefined}
-                    chooseLabel={
-                      column.type === "audio"
-                        ? labels.chooseAudio
-                        : labels.choose
-                    }
-                    field={field}
-                    inputId={inputId}
-                    labels={labels}
-                    onChange={(next) => onChange(column.index, next)}
-                  />
-                ) : (
-                  <Input
-                    aria-describedby={error ? errorId : undefined}
-                    aria-invalid={error ? true : undefined}
-                    id={inputId}
-                    onChange={(event) =>
-                      onChange(column.index, {
-                        ...field,
-                        raw: event.target.value,
-                      })
-                    }
-                    type={INPUT_TYPES[column.type] ?? "text"}
-                    value={field.raw}
-                  />
-                )}
-              </>
-            )}
-
-            {error && (
-              <p
-                className="text-caption text-destructive"
-                id={errorId}
-                role="alert"
-              >
-                {error}
-              </p>
-            )}
-          </div>
-        );
-      })}
+    <div className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+      {fields.map((field) => (
+        <PublicFormFieldItem field={field} key={field.columnIndex} {...rest} />
+      ))}
     </div>
   );
 }
 
-/** A picked-not-yet-uploaded file behind a button; the panel uploads on submit. */
-function FileField({
-  accept,
-  chooseLabel,
+function PublicFormFieldItem({
   field,
-  inputId,
-  labels,
+  draft,
+  errors,
   onChange,
-}: {
-  accept?: string;
-  chooseLabel: string;
-  field: FieldDraft;
-  inputId: string;
-  labels: { replace: string; remove: string };
-  onChange: (field: FieldDraft) => void;
-}) {
-  const picker = useFilePicker((file) => onChange({ ...field, file }));
+  onPickFile,
+  onRemoveFile,
+}: Omit<PublicFormFieldsProps, "fields"> & { field: FormField }) {
+  const t = useTranslations("publicForm.placeholders");
+  const inputId = useId();
+  const errorId = useId();
+  const { columnIndex, name, type } = field;
+  const value = draft[columnIndex] ?? emptyDraft();
+  const error = errors[columnIndex];
+  const invalid = {
+    "aria-describedby": error ? errorId : undefined,
+    "aria-invalid": error ? (true as const) : undefined,
+  };
+  const setRaw = (raw: string) => onChange(columnIndex, { ...value, raw });
+
+  if (type === "boolean") {
+    return (
+      // Sits on the control line of its neighbour, not on its label line.
+      <div className="flex h-control items-center gap-2 self-end">
+        <Checkbox
+          checked={value.checked}
+          id={inputId}
+          onCheckedChange={(checked) =>
+            onChange(columnIndex, { ...value, checked: checked === true })
+          }
+        />
+        <Label htmlFor={inputId}>{name}</Label>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <input accept={accept} id={inputId} {...picker.inputProps} />
-      <Button onClick={picker.open} type="button" variant="outline">
-        {field.file ? labels.replace : chooseLabel}
-      </Button>
-      {field.file && (
-        <>
-          <span className="truncate text-body text-muted-foreground">
-            {field.file.name}
-          </span>
-          <Button
-            onClick={() => onChange({ ...field, file: null })}
-            type="button"
-            variant="ghost"
+    <div className={cn(isWideField(type) && "md:col-span-2")}>
+      <LabelledField htmlFor={inputId} label={name}>
+        {type === "json" ? (
+          <Textarea
+            {...invalid}
+            id={inputId}
+            onChange={(event) => setRaw(event.target.value)}
+            placeholder={t("json")}
+            value={value.raw}
+          />
+        ) : type === "audio" || type === "file" ? (
+          <PublicFormFileField
+            audio={type === "audio"}
+            errorId={errorId}
+            inputId={inputId}
+            onPick={(file) => onPickFile(columnIndex, file)}
+            onRemove={() => onRemoveFile(columnIndex)}
+            state={value.upload}
+          />
+        ) : (
+          <Input
+            {...invalid}
+            id={inputId}
+            onChange={(event) => setRaw(event.target.value)}
+            placeholder={
+              type === "date" ? undefined : t(placeholderKey(type), { name })
+            }
+            type={INPUT_TYPES[type] ?? "text"}
+            value={value.raw}
+          />
+        )}
+        {error && (
+          <p
+            className="text-caption text-destructive"
+            id={errorId}
+            role="alert"
           >
-            {labels.remove}
-          </Button>
-        </>
-      )}
+            {error}
+          </p>
+        )}
+      </LabelledField>
     </div>
   );
 }

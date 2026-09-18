@@ -76,6 +76,9 @@
  *   `result.error: { name, message }` and the call is BAD_GATEWAY
  *   (`RUN_AI_DISPATCH_FAILED`). With no worker registered (tests, an api
  *   started without `TRIGGER_SECRET_KEY`'s dispatcher) the runs stay pending.
+ * - `runRow` (service only — reached through `populate.submit`) is `runCells`
+ *   for one row and every runnable column of the sheet; a sheet with no
+ *   runnable column answers `[]` instead of `RUN_AI_COLUMN_NOT_RUNNABLE`.
  * - The worker runs a batch in column waves (`src/trigger/run-ai-batch.ts`):
  *   for each runnable column in sort order it first *prepares* every cell of
  *   that column — `result.input` is built from the database at that moment, so
@@ -1086,6 +1089,29 @@ describe.skipIf(!dbUp)("runAi.runCells", () => {
         cells: [{ runId: only.id, rowIndex: 7 }],
       },
     ]);
+  });
+
+  describe("runRow (service)", () => {
+    it("runs every runnable column of the row, in display order", async () => {
+      const runs = await runAiBatchService.runRow(sheet, 8);
+      // Silent has a node but no prompt, so it is not among them.
+      expect(runs.map((run) => run.cellId)).toEqual([
+        cellOf(8, toneColumn),
+        cellOf(8, aiColumn),
+      ]);
+      expect(new Set(runs.map((run) => run.batchId)).size).toBe(1);
+    });
+
+    it("answers [] for a sheet with no runnable column", async () => {
+      const workspace = await makeWorkspace("run-ai runRow plain");
+      const plain = workspace.spreadsheetId ?? "";
+      try {
+        await caller.spreadsheet.createColumn({ id: plain, name: "Name" });
+        expect(await runAiBatchService.runRow(plain, 0)).toEqual([]);
+      } finally {
+        await removeWorkspace(workspace.id);
+      }
+    });
   });
 
   describe("prepare (service)", () => {

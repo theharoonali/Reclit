@@ -10,7 +10,8 @@ the doc is insufficient, then fix the doc.
 | workspace | [workspace.md](workspace.md) | `Workspace` | `workspace` | `apps/api/src/__tests__/workspace.api.test.ts` |
 | user | [user.md](user.md) | `User` | `user` | `apps/api/src/__tests__/user.api.test.ts` |
 | run-ai | [run-ai.md](run-ai.md) | `RunAi` | `runAi` | `apps/api/src/__tests__/run-ai.api.test.ts` |
-| file | [file.md](file.md) | — | — (REST `POST /files`) | `apps/api/src/__tests__/file.api.test.ts` |
+| file | [file.md](file.md) | — | — (REST `POST` / `DELETE /files`) | `apps/api/src/__tests__/file.api.test.ts` |
+| populate | [populate.md](populate.md) | — | `populate` (+ REST `/populate/:id`) | `apps/api/src/__tests__/populate.api.test.ts` |
 | external-api | [external-api.md](external-api.md) | `ExternalApi` | `externalApi` | `apps/api/src/__tests__/external-api.api.test.ts` |
 
 New feature? Copy [`_template.md`](_template.md), fill it in, add a row here.

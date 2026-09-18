@@ -45,7 +45,7 @@ The second migration holds what the Prisma schema cannot express (invisible to
 | `apps/api/src/modules/run-ai/run-ai.schema.ts` | schema | status rules (`isTerminalRunAiStatus`, wire/db case), `RunAi`, `RunAiInput` (+ `previous`), `RunAiJobPayload` (the cell task), `RunAiBatchJob` (the orchestrator: waves), `RunAiChange`, every input, the batch caps (`MAX_RUN_AI_BATCH_ROWS` 1000, `_COLUMNS` 256, `_CELLS` 5000) |
 | `apps/api/src/modules/run-ai/run-ai.errors.ts` | errors | `RunAiNotFoundError`, `RunAiCellBusyError` (`cellIds`), `RunAiInvalidCellIdError`, `RunAiColumnNotRunnableError`, `RunAiBatchTooLargeError`, `RunAiDispatchError`, `RunAiFinishedError` |
 | `apps/api/src/modules/run-ai/run-ai.service.ts` | service | the run lifecycle and the reads: `create`, `createMany`, `markRunning`, `setResult`, `setStatus`, `complete`, `fail`, `failPending`, `find`, `byId`, `listByBatch`, `listActiveBySpreadsheet`, `listChangedSince`, `latestEventId` |
-| `apps/api/src/modules/run-ai/run-ai-batch.service.ts` | service | the batch, prisma-free: `setDispatcher`, `runCells` (plan → busy pre-check → one insert → waves → dispatcher), `prepare` (one cell's input from the database now, plus `previous`) |
+| `apps/api/src/modules/run-ai/run-ai-batch.service.ts` | service | the batch, prisma-free: `setDispatcher`, `runCells` (plan → busy pre-check → one insert → waves → dispatcher), `runRow` (`runCells` for one row × every runnable column; `[]` when there is none), `prepare` (one cell's input from the database now, plus `previous`) |
 | `apps/api/src/modules/run-ai/run-ai-changes.service.ts` | service | the live stream: `changes` (the `onChange` generator), the per-process pump that resolves feed notices into rows, the snapshot |
 | `apps/api/src/modules/run-ai/run-ai.feed.ts` | feed | one `pg.Client` per process on `LISTEN run_ai_changed`; reconnects with backoff; framework-free |
 | `apps/api/src/modules/run-ai/run-ai.module.ts` | module | the feed's Nest lifecycle (start on boot, stop on shutdown); no controller |
@@ -216,6 +216,8 @@ There is no REST face.
 
 ## Used by
 
+- The `populate` feature ([populate.md](populate.md)) — `runRow` after a
+  submission saved its row, so a form or API submission fills its AI cells.
 - [`/ai-spreadsheet`](../routes/ai-spreadsheet.md) — the Run button calls
   `runCells` for the selected rectangle; `listActive` decides on load whether
   to stream; `runAi.onChange` paints the working-run capsules and applies

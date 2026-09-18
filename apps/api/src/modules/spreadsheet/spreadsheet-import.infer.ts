@@ -159,6 +159,20 @@ function inferColumn(values: string[]): ColumnTypeWire {
   return "string";
 }
 
+/**
+ * A sheet's column names are unique, case-insensitively (the columns
+ * service refuses a duplicate), and a file's headers need not be: a repeat
+ * becomes `Name (2)`, `Name (3)`, … Claims the name it returns.
+ */
+function uniqueName(name: string, taken: Set<string>): string {
+  let candidate = name;
+  for (let n = 2; taken.has(candidate.toLowerCase()); n += 1) {
+    candidate = `${name} (${n})`;
+  }
+  taken.add(candidate.toLowerCase());
+  return candidate;
+}
+
 export function inferSheet(grid: string[][]): InferredSheet {
   const header = grid[0];
   if (!header) throw new SpreadsheetImportEmptyError();
@@ -180,6 +194,7 @@ export function inferSheet(grid: string[][]): InferredSheet {
   );
 
   const columns: InferredColumn[] = [];
+  const takenNames = new Set<string>();
   const cells: (CellValue | undefined)[][] = rows.map(
     () => new Array<CellValue | undefined>(width),
   );
@@ -188,7 +203,10 @@ export function inferSheet(grid: string[][]): InferredSheet {
     const raw = rows.map((row) => row[column] ?? "");
     const type = inferColumn(raw.filter((value) => value !== ""));
     columns.push({
-      name: (header[column] ?? "").trim() || `Column ${column + 1}`,
+      name: uniqueName(
+        (header[column] ?? "").trim() || `Column ${column + 1}`,
+        takenNames,
+      ),
       type,
     });
     for (const [index, value] of raw.entries()) {

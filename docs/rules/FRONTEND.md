@@ -151,7 +151,7 @@ that queries, and `<feature>-list.tsx` / `<feature>-form.tsx` that render.
 | Import | Exports | Notes |
 | --- | --- | --- |
 | `@reclit/ui/avatar` | `Avatar`, `AvatarImage`, `AvatarFallback` | fallback shows until the image loads |
-| `@reclit/ui/button` | `Button`, `buttonVariants` | `variant`: `default` · `secondary` · `outline` · `ghost` · `destructive` · `destructive-outline` · `link`; `size`: `default` · `sm` · `lg` · `icon`; `asChild` |
+| `@reclit/ui/button` | `Button`, `buttonVariants` | `variant`: `default` · `secondary` · `outline` · `ghost` · `destructive` · `destructive-outline` · `link`; `size`: `default` · `sm` · `lg` · `icon` · `icon-sm`; `asChild` |
 | `@reclit/ui/calendar` | `Calendar` | inline month over `react-day-picker`, no popover |
 | `@reclit/ui/capsule-select` | `CapsuleSelect` | single-choice pill row, radiogroup semantics |
 | `@reclit/ui/checkbox` | `Checkbox` | Radix |
@@ -173,7 +173,10 @@ that queries, and `<feature>-list.tsx` / `<feature>-form.tsx` that render.
   destructive action that is not the surface's emphasis; `link` reads as text.
 - **An icon inside a `Button` gets no classes.** The base sizes any `svg`
   child and spaces it — `<Plus />`, never `<Plus className="mr-2 h-4 w-4" />`.
-  Icons are `lucide-react`.
+  Icons are `lucide-react` — except the sheet toolbar
+  (`ai-spreadsheet-header-action.tsx`), which takes Hugeicons glyphs
+  (`@hugeicons/react` + `@hugeicons/core-free-icons`) through its `icon` prop.
+  Do not mix the two sets inside one toolbar.
 - **Never hand-roll a form control.** A bare `<button>`, `<input>`, `<select>`
   or `<label>` with utility classes in a feature or chrome component is a bug.
   The only exception is a control the user never sees — the hidden file input
