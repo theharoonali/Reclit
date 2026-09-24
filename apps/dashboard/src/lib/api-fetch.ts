@@ -39,10 +39,18 @@ async function parseResponse<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** POSTs one file as multipart field "file" and returns the parsed JSON. */
-export async function postFile<T>(path: string, file: File): Promise<T> {
+/**
+ * POSTs one file as multipart field "file", plus any text `fields` beside it,
+ * and returns the parsed JSON.
+ */
+export async function postFile<T>(
+  path: string,
+  file: File,
+  fields: Record<string, string> = {},
+): Promise<T> {
   const form = new FormData();
   form.append("file", file, file.name);
+  for (const [name, value] of Object.entries(fields)) form.append(name, value);
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     body: form,

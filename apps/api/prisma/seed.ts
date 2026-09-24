@@ -80,6 +80,9 @@ if (existingUser) {
     name: USER_NAME,
     email: USER_EMAIL,
     imageUrl: null,
+    // The seed also creates the "Customers" workspace below, so the demo
+    // user starts past onboarding (docs/plans/027-onboarding.md).
+    onboardingCompleted: true,
   });
   console.log(`Seeded user "${USER_NAME}" (${user.id})`);
 }

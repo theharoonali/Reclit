@@ -15,6 +15,7 @@ const userSelect = {
   name: true,
   email: true,
   imageUrl: true,
+  onboardingCompleted: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -38,10 +39,25 @@ export class UserService {
     });
   }
 
+  /** Only `onboardingService.complete` calls this; `update` cannot set the flag. */
+  async completeOnboarding(): Promise<UserProfile> {
+    const { id } = await this.me();
+    return prisma.user.update({
+      where: { id },
+      data: { onboardingCompleted: true },
+      select: userSelect,
+    });
+  }
+
   /** Seed-only; there is no create procedure. */
   async create(input: CreateUserInput): Promise<UserProfile> {
     return prisma.user.create({
-      data: { name: input.name, email: input.email, imageUrl: input.imageUrl },
+      data: {
+        name: input.name,
+        email: input.email,
+        imageUrl: input.imageUrl,
+        onboardingCompleted: input.onboardingCompleted,
+      },
       select: userSelect,
     });
   }

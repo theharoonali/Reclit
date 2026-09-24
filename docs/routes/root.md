@@ -12,7 +12,8 @@ reports `/` as `ƒ (Dynamic)`.
 
 | Path | Kind | Responsibility |
 | --- | --- | --- |
-| `apps/dashboard/src/app/(app)/layout.tsx` | RSC | The **one** chrome mount point — renders `<WorkspaceProvider>` around `<AppShell>` (plus `<WorkspaceHeaderTitle>`) for every route in the group |
+| `apps/dashboard/src/app/(app)/layout.tsx` | RSC | The **one** chrome mount point — renders `<OnboardingGate area="app">` around `<WorkspaceProvider>` around `<AppShell>` (plus `<WorkspaceHeaderTitle>`) for every route in the group |
+| `apps/dashboard/src/components/onboarding/onboarding-gate.tsx` | client | Full-screen loader until `user.me` resolves; sends a user who has not onboarded to `/onboarding` ([onboarding.md](onboarding.md)) |
 | `apps/dashboard/src/app/(app)/page.tsx` | RSC | `PageShell` (title, subtitle) around one component |
 | `apps/dashboard/src/components/layout/app-shell.tsx` | RSC | Page geometry: sidebar beside a column of header + `main`. The only file that knows the layout |
 | `apps/dashboard/src/components/layout/app-sidebar.tsx` | client | Collapse state (`useState`, `w-sidebar` ↔ `w-sidebar-rail`), app name + current-plan capsule + collapse toggle, grouped nav, the credits block and account menu at the bottom. Active row from `usePathname()` |
@@ -40,7 +41,8 @@ Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/cn`,
 
 ## APIs called
 
-The page's body calls no procedure. The chrome does: `WorkspaceProvider`
+The page's body calls no procedure. The layout's `OnboardingGate` queries
+`user.me` before anything else mounts. The chrome does: `WorkspaceProvider`
 queries `workspace.list` (client-side, no prefetch on this page) so the
 sidebar menu and the header title can resolve the active workspace, the
 account menu queries `user.me` for its avatar/name/email trigger, and the
@@ -51,6 +53,10 @@ account menu's create dialog calls `workspace.create` (invalidating
 
 ## Behaviour
 
+- **First load shows a full-screen loader** (no chrome) while `user.me`
+  resolves. With `onboardingCompleted: false` the loader stays up while the
+  page redirects to `/onboarding`; otherwise the shell renders. The gate
+  wraps the whole `(app)` group, so this holds for every page in it.
 - **The sidebar and header are fixed; only the page area scrolls.** The shell
   fills the viewport and hides its own overflow, so chrome cannot scroll away.
   The sidebar's nav scrolls independently once the menu outgrows its column.
@@ -106,5 +112,8 @@ account menu's create dialog calls `workspace.create` (invalidating
   leaking ([../rules/FRONTEND.md](../rules/FRONTEND.md)).
 
 ## Linked routes
+
+- `/onboarding` ([onboarding.md](onboarding.md)) — where the gate sends a user
+  who has not onboarded; it sends them back here when they finish.
 
 - `/settings` ([settings.md](settings.md)) — reached from the account menu.

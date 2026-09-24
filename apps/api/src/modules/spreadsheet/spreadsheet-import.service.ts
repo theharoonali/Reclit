@@ -86,6 +86,31 @@ export class SpreadsheetImportService {
     mimeType: string,
   ): Promise<SheetImportResult> {
     const meta = await spreadsheetService.byId(id);
+    const plan = await this.parse(bytes, filename, mimeType);
+    const { rowCount, cellCount, columns } = await this.replaceAll(id, plan);
+    return {
+      id: meta.id,
+      name: meta.name,
+      // The sheet's virtual height is not a row count and an import does not
+      // change it; `rowCount` is what the file held.
+      totalRows: meta.totalRows,
+      totalColumns: columns.length,
+      rowCount,
+      cellCount,
+      columns,
+    };
+  }
+
+  /**
+   * Reads and types an upload without touching the database, so a caller can
+   * reject a bad file before writing anything (onboarding creates its
+   * workspace only after this passes).
+   */
+  async parse(
+    bytes: Uint8Array,
+    filename: string,
+    mimeType: string,
+  ): Promise<InferredSheet> {
     const format = detectFormat(filename, mimeType);
     if (!format) throw new SpreadsheetImportUnsupportedTypeError(filename);
 
@@ -104,19 +129,7 @@ export class SpreadsheetImportService {
         MAX_IMPORT_ROWS,
       );
     }
-
-    const { rowCount, cellCount, columns } = await this.replaceAll(id, plan);
-    return {
-      id: meta.id,
-      name: meta.name,
-      // The sheet's virtual height is not a row count and an import does not
-      // change it; `rowCount` is what the file held.
-      totalRows: meta.totalRows,
-      totalColumns: columns.length,
-      rowCount,
-      cellCount,
-      columns,
-    };
+    return plan;
   }
 
   /**

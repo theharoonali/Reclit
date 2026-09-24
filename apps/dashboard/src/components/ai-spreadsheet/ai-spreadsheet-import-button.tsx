@@ -2,6 +2,7 @@
 
 import { FileImportIcon } from "@hugeicons/core-free-icons";
 import { useFilePicker } from "@/hooks/use-file-picker";
+import { SHEET_FILE_ACCEPT } from "@/lib/ai-spreadsheet/import-file";
 import { AiSpreadsheetHeaderAction } from "./ai-spreadsheet-header-action";
 import type { ImportStatus } from "./use-sheet-import";
 
@@ -35,10 +36,7 @@ export function AiSpreadsheetImportButton(
       onClick={picker.open}
       variant="outline"
     >
-      <input
-        accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        {...picker.inputProps}
-      />
+      <input accept={SHEET_FILE_ACCEPT} {...picker.inputProps} />
     </AiSpreadsheetHeaderAction>
   );
 }

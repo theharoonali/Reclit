@@ -11,7 +11,8 @@ export async function pageMetadata(
     | "aiSpreadsheet"
     | "populate"
     | "settings"
-    | "publicForm",
+    | "publicForm"
+    | "onboarding",
 ): Promise<Metadata> {
   const t = await getTranslations(namespace);
   return { title: t("title"), description: t("description") };

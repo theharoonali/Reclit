@@ -7,12 +7,13 @@
  *   name       String    required, 1..200 (trimmed)
  *   email      String?   valid email, <= 320 (trimmed); null = no email
  *   imageUrl   String?   http(s) URL, <= 2048; null = no picture
+ *   onboardingCompleted Boolean  default false; set only by POST /onboarding
  *   createdAt  DateTime  now()
  *   updatedAt  DateTime  @updatedAt
  *
  * MODEL  UserProfile = {
  *   id: string; name: string; email: string | null; imageUrl: string | null;
- *   createdAt: Date; updatedAt: Date;
+ *   onboardingCompleted: boolean; createdAt: Date; updatedAt: Date;
  * }
  * Dates cross the wire as real Date objects (superjson).
  *
@@ -35,6 +36,10 @@
  *   (`bun run --filter=@reclit/api db:seed`) or the 013 backfill migration.
  * - The user owns workspaces (see the workspace contract); deleting the user
  *   would cascade them, which is why no remove procedure exists.
+ * - `onboardingCompleted` is read-only here: `update` ignores it (zod strips
+ *   unknown keys). Only `POST /onboarding` (see the onboarding contract)
+ *   flips it to true. The dashboard sends a user with `false` to
+ *   /onboarding.
  * - Every procedure is public; there is no auth yet.
  */
 
@@ -72,6 +77,7 @@ describe.skipIf(!dbUp)("user.me", () => {
     expect(typeof me.name).toBe("string");
     expect(me.email === null || typeof me.email === "string").toBe(true);
     expect(me.imageUrl === null || typeof me.imageUrl === "string").toBe(true);
+    expect(typeof me.onboardingCompleted).toBe("boolean");
     expectDate(me.createdAt);
     expectDate(me.updatedAt);
   });
@@ -103,6 +109,14 @@ describe.skipIf(!dbUp)("user.update", () => {
     expect(nameOnly.imageUrl).toBe("https://example.com/a.png");
     const cleared = await caller.user.update({ imageUrl: null });
     expect(cleared).toMatchObject({ name: "Partial Update", imageUrl: null });
+  });
+
+  it("cannot set onboardingCompleted", async () => {
+    const before = await caller.user.me();
+    const after = await caller.user.update({
+      onboardingCompleted: !before.onboardingCompleted,
+    } as Parameters<typeof caller.user.update>[0]);
+    expect(after.onboardingCompleted).toBe(before.onboardingCompleted);
   });
 
   it("rejects a blank name", async () => {

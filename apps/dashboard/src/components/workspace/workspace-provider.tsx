@@ -18,6 +18,18 @@ export type WorkspaceSummary = RouterOutputs["workspace"]["list"][number];
 /** Survives reloads; self-heals when the stored workspace no longer exists. */
 const STORAGE_KEY = "reclit.activeWorkspaceId";
 
+/**
+ * Persists the active workspace from outside the provider — onboarding picks
+ * the workspace it just created before the provider mounts.
+ */
+export function storeActiveWorkspaceId(id: string): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, id);
+  } catch {
+    // Not persisted; the provider falls back to the first workspace.
+  }
+}
+
 type WorkspaceContextValue = {
   workspaces: WorkspaceSummary[];
   /** null while loading, on error, or when no workspace exists. */
@@ -53,11 +65,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const setActiveWorkspaceId = useCallback((id: string) => {
     setStoredId(id);
-    try {
-      localStorage.setItem(STORAGE_KEY, id);
-    } catch {
-      // Not persisted; the choice still holds for this tab.
-    }
+    // Not persisted when storage is unavailable; the choice still holds for
+    // this tab.
+    storeActiveWorkspaceId(id);
   }, []);
 
   const value = useMemo<WorkspaceContextValue>(() => {

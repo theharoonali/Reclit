@@ -22,5 +22,9 @@ export type SheetImportResult = {
   columns: { id: string; index: number; name: string; type: ColumnType }[];
 };
 
+/** The file-picker filter for every CSV/XLSX upload (import, onboarding). */
+export const SHEET_FILE_ACCEPT =
+  ".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
 export const importSpreadsheet = (sheetId: string, file: File) =>
   postFile<SheetImportResult>(`/spreadsheets/${sheetId}/import`, file);

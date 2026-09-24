@@ -129,7 +129,11 @@ no Prisma code; `bunx turbo build` is the check.
   `httpSubscriptionLink` → `NEXT_PUBLIC_API_URL`). `src/trpc/server.tsx` —
   RSC-side proxy with `prefetch`/`HydrateClient` helpers (uses
   `API_INTERNAL_URL` when set).
-- No middleware/proxy file, no auth.
+- No middleware/proxy file, no auth. Routing on user state is client-side:
+  `components/onboarding/onboarding-gate.tsx` wraps the `(app)` and
+  `(onboarding)` route groups, shows a full-screen loader while `user.me`
+  resolves, and redirects on `onboardingCompleted`
+  ([docs/routes/onboarding.md](docs/routes/onboarding.md)).
 
 ## Environment
 

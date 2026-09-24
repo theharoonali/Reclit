@@ -178,13 +178,13 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import ExcelJS from "exceljs";
 import { pingDatabase } from "../db/prisma";
 import { spreadsheetService } from "../modules/spreadsheet/spreadsheet.service";
 import { makeWorkspace, removeWorkspace } from "./support/fixtures";
 import type { TestServer } from "./support/http";
 import { jsonInit, startTestServer } from "./support/http";
 import { caller, expectDate, expectTRPCError } from "./support/trpc";
+import { csvBody, xlsxBody } from "./support/upload";
 
 // Skips (rather than fails) when DATABASE_URL points nowhere, so a checkout
 // without a reachable database still passes CI.
@@ -1500,29 +1500,7 @@ describe.skipIf(!dbUp)("REST surface", () => {
 
   /* ------------------------------------------------------------- import */
 
-  // Fixtures are built in memory — no fixture file is added to the repo. The
-  // XLSX one is written with the same library the service reads with, so it is
-  // a real workbook rather than a hand-rolled zip.
-  const csvBody = (csv: string, name = "import.csv") => {
-    const form = new FormData();
-    form.append("file", new Blob([csv], { type: "text/csv" }), name);
-    return form;
-  };
-
-  async function xlsxBody(rows: unknown[][], name = "import.xlsx") {
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Sheet1");
-    for (const row of rows) sheet.addRow(row);
-    const bytes = new Uint8Array(
-      (await workbook.xlsx.writeBuffer()) as ArrayBuffer,
-    );
-    const form = new FormData();
-    const type =
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-    form.append("file", new Blob([bytes], { type }), name);
-    return form;
-  }
-
+  // csvBody / xlsxBody (support/upload.ts) build the files in memory.
   const importInto = (id: string, body: FormData) =>
     fetch(`${baseUrl}/spreadsheets/${id}/import`, { method: "POST", body });
 

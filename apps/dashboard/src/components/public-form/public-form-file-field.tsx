@@ -3,9 +3,9 @@
 import { Button } from "@reclit/ui/button";
 import { cn } from "@reclit/ui/cn";
 import { Spinner } from "@reclit/ui/spinner";
-import { FileAudio, FileText, Trash2, Upload } from "lucide-react";
+import { FileAudio, FileText, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { type DragEvent, useState } from "react";
+import { FileDropZone } from "@/components/common/file-drop-zone";
 import { useFilePicker } from "@/hooks/use-file-picker";
 import { formatFileSize } from "@/lib/format-file-size";
 import type { UploadState } from "@/lib/public-form";
@@ -23,7 +23,7 @@ type PublicFormFileFieldProps = {
 const FRAME = "flex items-center gap-3 rounded-sm border p-4";
 
 /**
- * The file selector of an audio/file column: a drop target that uploads the
+ * The file selector of an audio/file column: a `FileDropZone` that uploads the
  * moment a file is picked, then shows it with replace and remove. Removing
  * deletes the upload from storage (`usePublicFormUploads`).
  */
@@ -36,8 +36,9 @@ export function PublicFormFileField({
   onRemove,
 }: PublicFormFileFieldProps) {
   const t = useTranslations("publicForm.file");
+  // Drives "Replace" once a file is uploaded; the idle state picks through
+  // FileDropZone's own input.
   const picker = useFilePicker(onPick);
-  const [dragging, setDragging] = useState(false);
   const Icon = audio ? FileAudio : FileText;
   const input = (
     <input
@@ -90,54 +91,23 @@ export function PublicFormFileField({
     );
   }
 
-  const handleDrop = (event: DragEvent) => {
-    event.preventDefault();
-    setDragging(false);
-    const file = event.dataTransfer.files[0];
-    if (file) onPick(file);
-  };
-
   return (
-    // Drag-and-drop is an extra; the button inside is the keyboard path.
-    <div
-      className={cn(
-        "flex flex-col items-center gap-3 rounded-sm border border-dashed border-input p-6 text-center transition-colors",
-        dragging && "border-primary bg-accent",
-        state.status === "error" && "border-destructive",
-      )}
-      onDragLeave={() => setDragging(false)}
-      onDragOver={(event) => {
-        event.preventDefault();
-        setDragging(true);
-      }}
-      onDrop={handleDrop}
-    >
-      {input}
-      <span className="flex size-control-lg items-center justify-center rounded-full bg-primary/10 text-primary">
-        <Upload className="size-icon" />
-      </span>
-      <div className="space-y-1">
-        <p className="text-body">{audio ? t("dropAudio") : t("drop")}</p>
-        <p className="text-caption text-muted-foreground">
-          {t("maxSize", { size: formatFileSize(MAX_UPLOAD_BYTES) })}
-        </p>
-      </div>
-      <Button
-        aria-describedby={state.status === "error" ? errorId : undefined}
-        onClick={picker.open}
-        type="button"
-        variant="outline"
-      >
-        {audio ? t("chooseAudio") : t("choose")}
-      </Button>
-      {state.status === "error" && (
-        <p className="text-caption text-destructive" id={errorId} role="alert">
-          {t(state.reason === "tooLarge" ? "tooLarge" : "failed", {
-            name: state.fileName,
-            size: formatFileSize(MAX_UPLOAD_BYTES),
-          })}
-        </p>
-      )}
-    </div>
+    <FileDropZone
+      accept={audio ? "audio/*" : undefined}
+      chooseLabel={audio ? t("chooseAudio") : t("choose")}
+      error={
+        state.status === "error"
+          ? t(state.reason === "tooLarge" ? "tooLarge" : "failed", {
+              name: state.fileName,
+              size: formatFileSize(MAX_UPLOAD_BYTES),
+            })
+          : null
+      }
+      errorId={errorId}
+      hint={t("maxSize", { size: formatFileSize(MAX_UPLOAD_BYTES) })}
+      inputId={inputId}
+      onPick={onPick}
+      title={audio ? t("dropAudio") : t("drop")}
+    />
   );
 }

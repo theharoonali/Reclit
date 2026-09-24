@@ -133,7 +133,9 @@ component that only forwards props is deleted.
 `components/common/` today: `page-shell` (page frame + title), `form-field`
 (label stacked over one control), `loading-state` (fills its parent, centres
 the spinner, `label` for screen readers), `error-state` (`message`),
-`error-fallback` (the error boundaries' body). Reach for these before writing
+`error-fallback` (the error boundaries' body), `file-drop-zone` (dashed drop
+target + "choose" button; the public form and onboarding pick files through
+it). Reach for these before writing
 markup; the next shared piece (an `empty-state`, a `confirm-dialog`, a
 `data-table`) is born here the moment a second feature needs it.
 

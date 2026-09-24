@@ -20,6 +20,8 @@ export const userProfileSchema = z.object({
   name: z.string(),
   email: z.string().nullable(),
   imageUrl: z.string().nullable(),
+  /** false until `POST /onboarding` has created the first workspace. */
+  onboardingCompleted: z.boolean(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -32,5 +34,7 @@ export const createUserInput = z.object({
   name,
   email: email.nullable().default(null),
   imageUrl: z.string().url().max(2048).nullable().default(null),
+  // Omitted = the column default (false).
+  onboardingCompleted: z.boolean().optional(),
 });
 export type CreateUserInput = z.infer<typeof createUserInput>;

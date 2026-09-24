@@ -5,7 +5,14 @@ import { idInput } from "../../common/schema";
 // its name by design (docs/plans/013-workspaces.md), so the name rule mirrors
 // the spreadsheet's.
 
-const name = z.string().trim().min(1, "Name is required").max(200);
+/** Exported for onboarding, which names the workspace it creates. */
+export const WORKSPACE_NAME_MAX = 200;
+export const workspaceName = z
+  .string()
+  .trim()
+  .min(1, "Name is required")
+  .max(WORKSPACE_NAME_MAX);
+const name = workspaceName;
 
 export const createWorkspaceInput = z.object({ name });
 export const renameWorkspaceInput = idInput.extend({ name });

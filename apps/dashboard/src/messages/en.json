@@ -276,5 +276,25 @@
       "json": "'{\"key\": \"value\"}'"
     },
     "poweredBy": "Powered by {name}"
+  },
+  "onboarding": {
+    "title": "Create your first workspace",
+    "description": "Upload a CSV or Excel file. Its columns and rows become your first spreadsheet.",
+    "eyebrow": "Welcome to {name}",
+    "loading": "Loading your account...",
+    "loadError": "Your account could not be loaded. Refresh the page to try again.",
+    "drop": "Drag a .csv or .xlsx file here, or choose one",
+    "hint": "CSV or Excel (.xlsx), up to {size}",
+    "choose": "Choose file",
+    "replace": "Replace",
+    "nameLabel": "Workspace name",
+    "namePlaceholder": "Leave blank to use the file name",
+    "submit": "Create workspace",
+    "submitting": "Creating workspace...",
+    "error": "The workspace could not be created. Try again.",
+    "errorType": "Only .csv and .xlsx files can be imported.",
+    "errorEmpty": "That file has no header row or no data.",
+    "errorTooLarge": "That file has too many rows or columns to import.",
+    "errorName": "The workspace name must be 200 characters or fewer."
   }
 }

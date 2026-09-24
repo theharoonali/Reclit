@@ -35,14 +35,17 @@ enum ColumnType {
 
 /// The person using the app. There is no auth yet: exactly one user is seeded
 /// and every workspace belongs to them (docs/plans/013-workspaces.md).
+/// `onboardingCompleted` flips once `POST /onboarding` has created the user's
+/// first workspace from an upload (docs/plans/027-onboarding.md).
 model User {
-  id         String      @id @default(uuid())
-  name       String
-  email      String?
-  imageUrl   String?
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-  workspaces Workspace[]
+  id                  String      @id @default(uuid())
+  name                String
+  email               String?
+  imageUrl            String?
+  onboardingCompleted Boolean     @default(false)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  workspaces          Workspace[]
 }
 
 /// A workspace owns spreadsheets. The relation is one-to-many for future

@@ -22,7 +22,7 @@ never a bespoke layout inside `(app)` (FRONTEND.md).
 | `apps/dashboard/src/components/public-form/public-form-header.tsx` | RSC-safe | the sheet's name over a bottom border, in the app header's geometry |
 | `apps/dashboard/src/components/public-form/public-form.tsx` | client | the form card: draft, inline errors, `populate.submit` |
 | `apps/dashboard/src/components/public-form/public-form-fields.tsx` | client | the two-column grid, one control per column type, placeholders |
-| `apps/dashboard/src/components/public-form/public-form-file-field.tsx` | client | file selector: drop target → uploading → uploaded (replace / remove) → error |
+| `apps/dashboard/src/components/public-form/public-form-file-field.tsx` | client | file selector: drop target (`components/common/file-drop-zone.tsx`) → uploading → uploaded (replace / remove) → error |
 | `apps/dashboard/src/components/public-form/use-public-form-uploads.ts` | hook | upload on pick, delete on remove / replace |
 | `apps/dashboard/src/components/public-form/public-form-success.tsx` | client | confirmation + "Submit another response" |
 | `apps/dashboard/src/lib/public-form.ts` | lib | pure draft state, per-type validation mirroring the backend, `toSubmitFields` |

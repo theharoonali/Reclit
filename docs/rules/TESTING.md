@@ -87,6 +87,7 @@ Helpers come from `src/__tests__/support/` — never re-declared per file
 | `support/trpc.ts` | `caller`, `callerWithSignal(signal)`, `expectError(promise, Type)`, `expectTRPCError(promise, code)`, `expectDate`, `nextTracked` (subscription items) |
 | `support/http.ts` | `startTestServer()` → `{ baseUrl, close }` on an ephemeral port, `jsonInit(method, body)` |
 | `support/fixtures.ts` | `ensureUser`, `makeWorkspace`, `removeWorkspace`, `makeIsolatedOwnerWorkspace`, `removeUser` |
+| `support/upload.ts` | `csvBody(csv, name?)`, `xlsxBody(rows, name?)` — in-memory multipart bodies for the upload routes |
 
 A contract file's own setup is limited to its fixtures and its cleanup.
 
