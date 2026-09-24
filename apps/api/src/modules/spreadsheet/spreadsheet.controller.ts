@@ -11,6 +11,7 @@ import {
   UploadedFile,
 } from "@nestjs/common";
 import type { MulterFile } from "../../common/multipart";
+import { type Params, withParams } from "../../common/rest";
 import { requireFile, UploadFile } from "../../common/upload";
 import {
   appendRowInput,
@@ -36,14 +37,6 @@ import { spreadsheetImportService } from "./spreadsheet-import.service";
 // as trpc/routers/spreadsheet.ts. Path params arrive as strings and the
 // schemas coerce them; domain and Zod errors become HTTP statuses through the
 // global DomainErrorFilter (common/domain-error.filter.ts).
-
-type Params = Record<string, string>;
-
-/** Body plus route params as one object for `schema.parse`; the path wins. */
-const withParams = (params: Params, body: unknown = {}) => ({
-  ...(body as object),
-  ...params,
-});
 
 @Controller("spreadsheets")
 export class SpreadsheetController {

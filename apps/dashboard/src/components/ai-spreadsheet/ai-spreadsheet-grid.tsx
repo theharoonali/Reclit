@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Trash2 } from "lucide-react";
+import { Delete02Icon, FileExportIcon } from "@hugeicons/core-free-icons";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sheetToCsv } from "@/lib/ai-spreadsheet/export-csv";
@@ -346,7 +346,8 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
       />
 
       <AiSpreadsheetHeaderAction
-        icon={Download}
+        icon={FileExportIcon}
+        iconOnly
         label={t("export.label")}
         onClick={exportCsv}
         variant="outline"
@@ -380,7 +381,8 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
 
       {cellsSelected && (
         <AiSpreadsheetHeaderAction
-          icon={Trash2}
+          icon={Delete02Icon}
+          iconOnly
           label={t("cells.delete")}
           onClick={canvas.editor.clearSelectedCells}
           variant="destructive-outline"
@@ -450,6 +452,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
               labels={{
                 name: t("column.name"),
                 namePlaceholder: t("column.namePlaceholder"),
+                nameTaken: t("column.nameTaken"),
                 type: t("column.type"),
                 node: t("column.node"),
                 prompt: t("column.prompt"),
@@ -466,6 +469,9 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
               }}
               onCancel={closePanel}
               onSubmit={submitColumn}
+              otherNames={columns
+                .filter((column) => column.id !== shown.columnId)
+                .map((column) => column.name)}
             />
           )}
 

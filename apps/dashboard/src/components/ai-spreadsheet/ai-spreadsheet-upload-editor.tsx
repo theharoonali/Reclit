@@ -6,7 +6,7 @@ import { useFilePicker } from "@/hooks/use-file-picker";
 import { useReseed } from "@/hooks/use-reseed";
 import { fileLabel, isResourceUrl } from "@/lib/ai-spreadsheet/cell-format";
 import type { CellValue } from "@/lib/ai-spreadsheet/types";
-import { uploadFile } from "@/lib/ai-spreadsheet/upload-file";
+import { uploadFile } from "@/lib/upload-file";
 
 type AiSpreadsheetUploadEditorProps = {
   value: CellValue;

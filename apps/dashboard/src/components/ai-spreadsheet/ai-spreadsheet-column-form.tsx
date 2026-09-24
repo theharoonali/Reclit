@@ -14,6 +14,7 @@ import { Textarea } from "@reclit/ui/textarea";
 import { type FormEvent, useId, useState } from "react";
 import { FormField } from "@/components/common/form-field";
 import { columnTypes, nodeTypes } from "@/lib/ai-spreadsheet/cell-format";
+import { isColumnNameTaken } from "@/lib/ai-spreadsheet/column-names";
 import type {
   ColumnDraft,
   ColumnType,
@@ -29,9 +30,12 @@ type NodeChoice = NodeType | typeof NO_NODE;
 type AiSpreadsheetColumnFormProps = {
   /** Absent means "add a new column". One component, both jobs. */
   column?: SheetColumn;
+  /** The names of every *other* column — a column may keep its own. */
+  otherNames: readonly string[];
   labels: {
     name: string;
     namePlaceholder: string;
+    nameTaken: string;
     type: string;
     node: string;
     prompt: string;
@@ -62,11 +66,13 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
   const typeId = useId();
   const nodeId = useId();
   const promptId = useId();
+  const nameErrorId = useId();
+  const nameTaken = isColumnNameTaken(name, props.otherNames);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = name.trim();
-    if (trimmed === "") return;
+    if (trimmed === "" || nameTaken) return;
     const trimmedPrompt = prompt.trim();
     props.onSubmit({
       name: trimmed,
@@ -81,12 +87,23 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
     <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
       <FormField htmlFor={nameId} label={labels.name}>
         <Input
+          aria-describedby={nameTaken ? nameErrorId : undefined}
+          aria-invalid={nameTaken ? true : undefined}
           autoFocus
           id={nameId}
           onChange={(event) => setName(event.target.value)}
           placeholder={labels.namePlaceholder}
           value={name}
         />
+        {nameTaken && (
+          <p
+            className="text-caption text-destructive"
+            id={nameErrorId}
+            role="alert"
+          >
+            {labels.nameTaken}
+          </p>
+        )}
       </FormField>
 
       <FormField htmlFor={typeId} label={labels.type}>
@@ -132,7 +149,11 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
       )}
 
       <div className="flex gap-2">
-        <Button disabled={name.trim() === ""} type="submit" variant="default">
+        <Button
+          disabled={name.trim() === "" || nameTaken}
+          type="submit"
+          variant="default"
+        >
           {labels.submit}
         </Button>
         <Button onClick={props.onCancel} type="button" variant="ghost">

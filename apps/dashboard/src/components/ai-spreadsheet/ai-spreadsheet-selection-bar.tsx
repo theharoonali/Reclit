@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
+import { Delete02Icon } from "@hugeicons/core-free-icons";
 import { AiSpreadsheetHeaderAction } from "./ai-spreadsheet-header-action";
 
 type AiSpreadsheetSelectionBarProps = {
@@ -26,7 +26,8 @@ export function AiSpreadsheetSelectionBar(
     <AiSpreadsheetHeaderAction
       disabled={deleting}
       errorMessage={props.status === "error" ? props.labels.error : null}
-      icon={Trash2}
+      icon={Delete02Icon}
+      iconOnly
       label={deleting ? props.labels.deleting : props.labels.delete}
       onClick={props.onDelete}
       variant="destructive"

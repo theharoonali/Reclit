@@ -14,10 +14,11 @@ apps/dashboard (Next.js 16, port 4000)
 apps/api (NestJS on Bun, port 4001)
   ├── /trpc/*         tRPC 11 express adapter, mounted in src/bootstrap.ts
   │                   appRouter → spreadsheet.*, workspace.*, user.*, runAi.*
-  │                   (+ onChange over SSE), externalApi.*
+  │                   (+ onChange over SSE), externalApi.*, populate.*
   ├── /health         AppController (database reachability)
   ├── /spreadsheets/* SpreadsheetController (REST mirror + multipart import)
-  └── /files          FileController (multipart upload → Supabase Storage)
+  ├── /populate/*     PopulateController (the Populate API: fields + submit a row)
+  └── /files          FileController (multipart upload → Supabase Storage, delete)
         │
         ▼  services in src/modules/<feature>/ — the only DB callers
   src/db/prisma.ts (Prisma 7 + @prisma/adapter-pg)
@@ -150,5 +151,5 @@ Build-time pass-through vars live in `turbo.json`; add new ones there too.
 ## What is intentionally absent
 
 No auth, no logger package, no Docker files, no CI pipeline, and no REST
-beyond `GET /health`, the spreadsheet mirror and `POST /files`. Add them when a
+beyond `GET /health`, the spreadsheet mirror, the Populate API and `/files`. Add them when a
 feature needs them.

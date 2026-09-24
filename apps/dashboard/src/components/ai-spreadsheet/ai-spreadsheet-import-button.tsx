@@ -1,6 +1,6 @@
 "use client";
 
-import { Upload } from "lucide-react";
+import { FileImportIcon } from "@hugeicons/core-free-icons";
 import { useFilePicker } from "@/hooks/use-file-picker";
 import { AiSpreadsheetHeaderAction } from "./ai-spreadsheet-header-action";
 import type { ImportStatus } from "./use-sheet-import";
@@ -29,7 +29,8 @@ export function AiSpreadsheetImportButton(
     <AiSpreadsheetHeaderAction
       disabled={importing}
       errorMessage={props.errorMessage}
-      icon={Upload}
+      icon={FileImportIcon}
+      iconOnly
       label={importing ? props.labels.importing : props.labels.import}
       onClick={picker.open}
       variant="outline"

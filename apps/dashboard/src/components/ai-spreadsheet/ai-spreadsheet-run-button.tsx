@@ -1,6 +1,6 @@
 "use client";
 
-import { Play, Radio } from "lucide-react";
+import { AiMagicIcon, LiveStreaming02Icon } from "@hugeicons/core-free-icons";
 import { AiSpreadsheetHeaderAction } from "./ai-spreadsheet-header-action";
 import type { RunCellsStatus } from "./use-run-cells";
 
@@ -23,19 +23,25 @@ type AiSpreadsheetRunButtonProps = {
  * cell and none of them is already working. Filled with the live glyph while
  * the sheet streams, but never inert for that reason — other cells can be
  * run meanwhile, and the database refuses a second run on the same cell.
+ *
+ * It lights up — filled, with a breathing halo — the moment the selection
+ * (one click, or shift-click for a range) holds something it can run, so the
+ * control that was inert a second ago visibly answers the selection.
  */
 export function AiSpreadsheetRunButton(props: AiSpreadsheetRunButtonProps) {
   const busy = props.status === "running";
+  const ready = props.runnable && !busy;
 
   return (
     <AiSpreadsheetHeaderAction
       disabled={!props.runnable || busy}
       errorMessage={props.errorMessage}
-      icon={props.live ? Radio : Play}
+      highlight={ready}
+      icon={props.live ? LiveStreaming02Icon : AiMagicIcon}
       label={busy ? props.labels.running : props.labels.start}
       onClick={props.onRun}
       pressed={props.live}
-      variant={props.live ? "default" : "outline"}
+      variant={props.live || ready ? "default" : "outline"}
     />
   );
 }

@@ -1,5 +1,6 @@
 import { prisma } from "../../db/prisma";
 import {
+  SpreadsheetColumnNameTakenError,
   SpreadsheetPromptWithoutNodeError,
   SpreadsheetSortOrderOutOfRangeError,
 } from "./spreadsheet.errors";
@@ -27,6 +28,29 @@ import { toSheetColumn } from "./spreadsheet.shape";
 
 export class SpreadsheetColumnsService {
   /**
+   * A sheet's column names are unique, compared case-insensitively: a name is
+   * a form label and an API key (the populate feature), where `Company` beside
+   * `company` is a trap. Enforced here and not by an index — sheets older than
+   * the rule may already hold duplicates. `exceptIndex` is the column being
+   * renamed, which may keep its own name.
+   */
+  private async assertNameFree(
+    sheetId: string,
+    name: string,
+    exceptIndex?: number,
+  ): Promise<void> {
+    const taken = await prisma.column.findFirst({
+      where: {
+        spreadsheetId: sheetId,
+        name: { equals: name, mode: "insensitive" },
+        ...(exceptIndex !== undefined && { index: { not: exceptIndex } }),
+      },
+      select: { index: true },
+    });
+    if (taken) throw new SpreadsheetColumnNameTakenError(name);
+  }
+
+  /**
    * Append-only: the new column lands one past the highest stored index, and
    * one past the highest sort order. Its index is not the count — `remove`
    * leaves permanent gaps, and reusing a deleted index would resurrect its old
@@ -40,6 +64,7 @@ export class SpreadsheetColumnsService {
     prompt,
   }: CreateColumnInput): Promise<SheetColumn> {
     await spreadsheetService.byId(id);
+    await this.assertNameFree(id, name);
     const max = await prisma.column.aggregate({
       where: { spreadsheetId: id },
       _max: { index: true, sortOrder: true },
@@ -86,6 +111,7 @@ export class SpreadsheetColumnsService {
     if (effectiveNode === null && effectivePrompt !== null) {
       throw new SpreadsheetPromptWithoutNodeError();
     }
+    if (name !== undefined) await this.assertNameFree(id, name, columnIndex);
     const record = await prisma.column.update({
       where: { id: columnId(id, columnIndex) },
       data: {

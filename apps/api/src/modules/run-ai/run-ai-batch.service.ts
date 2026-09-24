@@ -132,6 +132,19 @@ export class RunAiBatchService {
   }
 
   /**
+   * Runs every runnable column of one row — what a populate submission
+   * triggers. A sheet with no runnable column answers `[]` instead of
+   * `RunAiColumnNotRunnableError`: nothing to run is not the caller's error.
+   */
+  async runRow(id: string, rowIndex: number): Promise<RunAi[]> {
+    const columnIndexes = (await spreadsheetService.columnsOf(id))
+      .filter(isRunnable)
+      .map((column) => column.index);
+    if (columnIndexes.length === 0) return [];
+    return this.runCells({ id, rowIndexes: [rowIndex], columnIndexes });
+  }
+
+  /**
    * Builds one cell's input from the database as it is *now* — the row with
    * every earlier column's answer persisted — plus, from the second step of
    * a row on, the previous run's output as `previous`, and stores it on the

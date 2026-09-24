@@ -58,8 +58,8 @@
  * | spreadsheet.appendRow    | mutation | { id; cells: {columnIndex; value}[] (min 1) }   | SheetRow          | NOT_FOUND, BAD_REQUEST (type), CONFLICT (retries exhausted) |
  * | spreadsheet.removeRow    | mutation | { id; rowIndex }                                | { id: "row.N" }   | NOT_FOUND (sheet)             |
  * | spreadsheet.removeRows   | mutation | { id; rowIndexes: number[] (1..10_000) }        | { ids: string[] } | NOT_FOUND (sheet), BAD_REQUEST|
- * | spreadsheet.createColumn | mutation | { id; name; type? (default "string"); node?; prompt? } | SheetColumn | NOT_FOUND, BAD_REQUEST  |
- * | spreadsheet.updateColumn | mutation | { id; columnIndex; name?; type?; node?; prompt? } | SheetColumn     | NOT_FOUND, BAD_REQUEST        |
+ * | spreadsheet.createColumn | mutation | { id; name; type? (default "string"); node?; prompt? } | SheetColumn | NOT_FOUND, BAD_REQUEST, CONFLICT (name taken) |
+ * | spreadsheet.updateColumn | mutation | { id; columnIndex; name?; type?; node?; prompt? } | SheetColumn     | NOT_FOUND, BAD_REQUEST, CONFLICT (name taken) |
  * | spreadsheet.reorderColumn| mutation | { id; columnIndex; newSortOrder: 0..n-1 }       | SheetColumn[] (the whole order) | NOT_FOUND, BAD_REQUEST |
  * | spreadsheet.removeColumn | mutation | { id; columnIndex }                             | { id: "col.N" }   | NOT_FOUND                     |
  *
@@ -126,6 +126,11 @@
  *   boolean→boolean, date→parseable ISO string, json→plain object,
  *   audio/file/url→http(s) URL string, email→email string,
  *   string/formula→string.
+ * - A sheet's column names are unique, compared trimmed and case-insensitively
+ *   ("Company" = "company"): createColumn, and an updateColumn that renames,
+ *   answer CONFLICT (`SPREADSHEET_COLUMN_NAME_TAKEN`, REST 409) and change
+ *   nothing. A column may be "renamed" to its own name, in any case. An import
+ *   never conflicts: a repeated header becomes "Name (2)", "Name (3)", ….
  * - updateColumn changing `type` does not convert or revalidate stored cells.
  * - `node` and `prompt` default to null. `prompt` belongs to the node, so a
  *   prompt without one is BAD_REQUEST (`SPREADSHEET_PROMPT_WITHOUT_NODE`;
@@ -421,6 +426,22 @@ describe.skipIf(!dbUp)("spreadsheet.createColumn", () => {
     );
   });
 
+  it("refuses a name the sheet already has, in any case (CONFLICT)", async () => {
+    const sheet = await makeSheet("duplicate column");
+    await caller.spreadsheet.createColumn({ id: sheet.id, name: "Company" });
+    for (const name of ["Company", "company", "  COMPANY "]) {
+      await expectTRPCError(
+        caller.spreadsheet.createColumn({ id: sheet.id, name }),
+        "CONFLICT",
+      );
+    }
+    const { columns } = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(columns.map((column) => column.name)).toEqual(["Company"]);
+    // Another sheet is another namespace.
+    const other = await makeSheet("duplicate column elsewhere");
+    await caller.spreadsheet.createColumn({ id: other.id, name: "Company" });
+  });
+
   it("returns NOT_FOUND for a missing sheet", async () => {
     await expectTRPCError(
       caller.spreadsheet.createColumn({ id: "does-not-exist", name: "x" }),
@@ -548,6 +569,31 @@ describe.skipIf(!dbUp)("spreadsheet.updateColumn", () => {
       }),
       "BAD_REQUEST",
     );
+  });
+
+  it("refuses a rename onto another column's name, but not onto its own (CONFLICT)", async () => {
+    const sheet = await makeSheet("rename collision");
+    await caller.spreadsheet.createColumn({ id: sheet.id, name: "Company" });
+    await caller.spreadsheet.createColumn({ id: sheet.id, name: "Website" });
+    await expectTRPCError(
+      caller.spreadsheet.updateColumn({
+        id: sheet.id,
+        columnIndex: 1,
+        name: "company",
+      }),
+      "CONFLICT",
+    );
+    expect(
+      (await caller.spreadsheet.column({ id: sheet.id, columnIndex: 1 })).name,
+    ).toBe("Website");
+    // Its own name — re-cased, or alongside another field — is not a collision.
+    const recased = await caller.spreadsheet.updateColumn({
+      id: sheet.id,
+      columnIndex: 1,
+      name: "WEBSITE",
+      type: "url",
+    });
+    expect(recased).toMatchObject({ name: "WEBSITE", type: "url" });
   });
 
   it("returns NOT_FOUND for a missing column", async () => {
@@ -1669,6 +1715,22 @@ describe.skipIf(!dbUp)("REST surface", () => {
       26,
       "2026-08-27T10:00:00.000Z",
       true,
+    ]);
+  });
+
+  it("numbers a repeated header instead of creating a duplicate column name", async () => {
+    const sheet = await makeSheet("import repeated headers");
+    const res = await importInto(
+      sheet.id,
+      csvBody("Name,name,Email,NAME\nAda,Lovelace,ada@x.test,Countess\n"),
+    );
+    expect(res.status).toBe(200);
+    const { columns } = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(columns.map((column) => column.name)).toEqual([
+      "Name",
+      "name (2)",
+      "Email",
+      "NAME (3)",
     ]);
   });
 

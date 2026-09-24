@@ -10,4 +10,15 @@ export const uploadedFileSchema = z.object({
   size: z.number().int(),
 });
 
+export const deleteFileInput = z.object({
+  url: z.string().trim().url().max(2000),
+});
+
+/** `removed` is false when nothing was stored at the URL (already deleted). */
+export const deletedFileSchema = z.object({
+  url: z.string(),
+  removed: z.boolean(),
+});
+
 export type UploadedFile = z.infer<typeof uploadedFileSchema>;
+export type DeletedFile = z.infer<typeof deletedFileSchema>;

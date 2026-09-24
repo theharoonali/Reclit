@@ -1,7 +1,7 @@
 /**
- * Multipart calls to the API's REST surface. Multipart deliberately does not go
- * over the tRPC link (see `docs/features/file.md`), so these endpoints are
- * reached with plain `fetch`.
+ * Calls to the API's REST surface. Multipart deliberately does not go over the
+ * tRPC link (see `docs/features/file.md`), so the file endpoints are reached
+ * with plain `fetch`.
  */
 
 export const API_BASE_URL =
@@ -24,14 +24,7 @@ export class ApiError extends Error {
   }
 }
 
-/** POSTs one file as multipart field "file" and returns the parsed JSON. */
-export async function postFile<T>(path: string, file: File): Promise<T> {
-  const form = new FormData();
-  form.append("file", file, file.name);
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method: "POST",
-    body: form,
-  });
+async function parseResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as {
       code?: string;
@@ -44,4 +37,29 @@ export async function postFile<T>(path: string, file: File): Promise<T> {
     );
   }
   return (await res.json()) as T;
+}
+
+/** POSTs one file as multipart field "file" and returns the parsed JSON. */
+export async function postFile<T>(path: string, file: File): Promise<T> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    body: form,
+  });
+  return parseResponse<T>(res);
+}
+
+/** Sends a JSON body with any method and returns the parsed JSON. */
+export async function sendJson<T>(
+  method: string,
+  path: string,
+  body: unknown,
+): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return parseResponse<T>(res);
 }

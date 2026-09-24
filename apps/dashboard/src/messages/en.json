@@ -123,6 +123,7 @@
     "column": {
       "name": "Name",
       "namePlaceholder": "Column name",
+      "nameTaken": "Another column already has this name.",
       "type": "Type",
       "node": "Node",
       "prompt": "Prompt",
@@ -204,7 +205,7 @@
   },
   "populate": {
     "title": "Populate",
-    "description": "Collect spreadsheet rows from a public form.",
+    "description": "Collect spreadsheet rows from a public form or the API.",
     "form": {
       "title": "Public form",
       "description": "Anyone with this link can submit a new row to the spreadsheet.",
@@ -215,7 +216,19 @@
     },
     "api": {
       "title": "API",
-      "comingSoon": "Coming soon"
+      "description": "Submit a row from your own code. It is the same submission the public form makes: the row is added, then the sheet's AI columns run for it.",
+      "endpoint": "Endpoint",
+      "example": "Example request",
+      "copy": "Copy",
+      "copied": "Copied",
+      "loading": "Loading API details...",
+      "loadError": "The API details could not be loaded.",
+      "noSheet": "Create a workspace to get an API endpoint.",
+      "fieldsNote": "Send values under \"fields\", keyed by column name. Every field is optional, but at least one needs a value. Formula and AI columns cannot be set.",
+      "responseNote": "A 201 response carries the saved row, the AI runs it started, and \"runError\" when they could not be started. The row is saved either way, so do not retry on \"runError\".",
+      "errorsNote": "A 400 response names the problem in \"code\" (an unknown column, a value of the wrong type); 404 means the spreadsheet does not exist.",
+      "filesNote": "File and audio columns take a public http(s) URL.",
+      "corsNote": "Call it from a server. Browsers on other origins are blocked unless the origin is allowed by the API."
     }
   },
   "publicForm": {
@@ -231,21 +244,36 @@
     "empty": "This form has no fields yet.",
     "success": {
       "title": "Response submitted",
-      "description": "Your entry was added.",
+      "description": "Your entry was added. Any AI columns are now being filled in for it.",
       "again": "Submit another response"
     },
     "errors": {
       "number": "Enter a valid number.",
       "email": "Enter a valid email address.",
       "url": "Enter a valid URL starting with http:// or https://.",
-      "json": "Enter a valid JSON object, e.g. {\"key\": \"value\"}.",
-      "upload": "The upload failed. Try again."
+      "json": "Enter a valid JSON object, e.g. '{\"key\": \"value\"}'."
     },
     "file": {
       "choose": "Choose file",
       "chooseAudio": "Choose audio file",
-      "replace": "Replace file",
-      "remove": "Remove file"
+      "drop": "Drag a file here, or choose one",
+      "dropAudio": "Drag an audio file here, or choose one",
+      "maxSize": "Up to {size}",
+      "uploading": "Uploading...",
+      "uploaded": "Uploaded · {size}",
+      "replace": "Replace",
+      "remove": "Remove file",
+      "failed": "{name} could not be uploaded. Try again.",
+      "tooLarge": "{name} is larger than {size}."
+    },
+    "heading": "New entry",
+    "aiNote": "Submitting adds your entry and runs the sheet's AI columns for it.",
+    "placeholders": {
+      "string": "Enter {name}",
+      "number": "0",
+      "email": "name@example.com",
+      "url": "https://example.com",
+      "json": "'{\"key\": \"value\"}'"
     },
     "poweredBy": "Powered by {name}"
   }

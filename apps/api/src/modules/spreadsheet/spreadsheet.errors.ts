@@ -56,6 +56,15 @@ export class SpreadsheetSortOrderOutOfRangeError extends DomainError {
   }
 }
 
+export class SpreadsheetColumnNameTakenError extends DomainError {
+  readonly kind = "conflict";
+  readonly code = "SPREADSHEET_COLUMN_NAME_TAKEN";
+  constructor(name: string) {
+    super(`A column named "${name}" already exists`);
+    this.name = "SpreadsheetColumnNameTakenError";
+  }
+}
+
 export class SpreadsheetRowExistsError extends DomainError {
   readonly kind = "conflict";
   readonly code = "SPREADSHEET_ROW_EXISTS";
