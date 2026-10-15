@@ -14,7 +14,7 @@ reports `/` as `ƒ (Dynamic)`.
 | --- | --- | --- |
 | `apps/dashboard/src/app/(app)/layout.tsx` | RSC | The **one** chrome mount point — renders `<OnboardingGate area="app">` around `<WorkspaceProvider>` around `<AppShell>` (plus `<WorkspaceHeaderTitle>`) for every route in the group |
 | `apps/dashboard/src/components/onboarding/onboarding-gate.tsx` | client | Full-screen loader until `user.me` resolves; sends a user who has not onboarded to `/onboarding` ([onboarding.md](onboarding.md)) |
-| `apps/dashboard/src/app/(app)/page.tsx` | RSC | `PageShell` (title, subtitle) around one component |
+| `apps/dashboard/src/app/(app)/page.tsx` | RSC | `PageShell wide` (title, subtitle) around `<DashboardGrid />` |
 | `apps/dashboard/src/components/layout/app-shell.tsx` | RSC | Page geometry: sidebar beside a column of header + `main`. The only file that knows the layout |
 | `apps/dashboard/src/components/layout/app-sidebar.tsx` | client | Collapse state (`useState`, `w-sidebar` ↔ `w-sidebar-rail`), app name + current-plan capsule + collapse toggle, grouped nav, the credits block and account menu at the bottom. Active row from `usePathname()` |
 | `apps/dashboard/src/components/layout/sidebar-credits.tsx` | client | Credits usage bar + used/total count above the account block, from the stub in `config/subscription.ts`. Hidden when collapsed |
@@ -24,7 +24,13 @@ reports `/` as `ƒ (Dynamic)`.
 | `apps/dashboard/src/components/workspace/account-menu.tsx` | client | The sidebar's bottom block: avatar/name/email trigger (`user.me`) with a menu listing workspaces, "new workspace", a `/settings` link and a UI-only "Log out" |
 | `apps/dashboard/src/components/workspace/create-workspace-dialog.tsx` | client | Name form → `workspace.create`; makes the new workspace active |
 | `apps/dashboard/src/components/workspace/workspace-header-title.tsx` | client | Portals the active workspace's name into the header title slot |
-| `apps/dashboard/src/components/dashboard/dashboard-empty.tsx` | RSC | The page's only body content |
+| `apps/dashboard/src/components/dashboard/dashboard-grid.tsx` | RSC | The page body: `getDashboard()` → `toRows` → one 12-column grid per row |
+| `apps/dashboard/src/components/dashboard/dashboard-widget.tsx` | RSC | One widget: a `Card` spanning `column`, with an exhaustive `switch` on `type` to its renderer |
+| `apps/dashboard/src/components/dashboard/widgets/*.tsx` | client / RSC | One renderer per type: `stat` · `area` · `bar` · `line` · `pie` · `radar` · `radial` (client, recharts) · `heatmap` · `table` (RSC) · `widget-footer` |
+| `apps/dashboard/src/dummy-data/dashboard.schema.ts` | data | The one dashboard type (zod): widget placement (`row`, `column`, `sort`), `type`, `variant`, `height`, `name`, `data`, plus its validation |
+| `apps/dashboard/src/dummy-data/dashboard.json` | data | The dashboard itself — every widget on the page |
+| `apps/dashboard/src/dummy-data/dashboard-store.ts` | data | `getDashboard()`: the only reader, validates once |
+| `apps/dashboard/src/lib/dashboard/layout.ts` | data | `toRows`, span / height / heatmap class maps, `toChartConfig`, `heatLevel` |
 | `apps/dashboard/src/config/nav.ts` | data | `navSections`, `APP_NAME`. Chrome never hardcodes a link |
 | `apps/dashboard/src/config/subscription.ts` | data | Stubbed plan/credits data for the sidebar credits block and `/settings` |
 | `apps/dashboard/src/app/layout.tsx` | RSC | Root layout: fonts (`Google_Sans` + `Geist_Mono`), `<html lang>` from `getLocale()`, `NextIntlClientProvider`, `Providers`, `pageMetadata("metadata")`. No chrome |
@@ -37,11 +43,14 @@ reports `/` as `ƒ (Dynamic)`.
 Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/cn`,
 `@reclit/ui/focus-ring`, `@reclit/ui/avatar`, `@reclit/ui/dropdown-menu`,
 `@reclit/ui/dialog`, `@reclit/ui/progress`, `components/common/page-shell.tsx`,
-`components/common/form-field.tsx`. Icons are `lucide-react`.
+`components/common/form-field.tsx`, `@reclit/ui/card`, `@reclit/ui/chart`,
+`@reclit/ui/table` (+ `recharts`). Icons are `lucide-react`.
 
 ## APIs called
 
-The page's body calls no procedure. The layout's `OnboardingGate` queries
+The page's body calls no procedure: the dashboard comes from
+`dummy-data/dashboard.json` through `getDashboard()` (there is no dashboard
+API yet; one would return the same `Dashboard` type). The layout's `OnboardingGate` queries
 `user.me` before anything else mounts. The chrome does: `WorkspaceProvider`
 queries `workspace.list` (client-side, no prefetch on this page) so the
 sidebar menu and the header title can resolve the active workspace, the
@@ -90,8 +99,21 @@ account menu's create dialog calls `workspace.create` (invalidating
 - Above the account block sits the credits meter: a usage bar with the
   stubbed `700/1000` count. The current plan sits next to the logo as a
   capsule. It disappears when collapsed.
-- The body is a single unconditional empty state. With no query there is no
-  loading or error state to handle.
+- **The body is driven entirely by `dashboard.json`.** Each widget sits in
+  its `row`; widgets in a row go left → right by `sort`, each spanning
+  `column` of 12. Every row is its own grid, so a row that fills fewer than
+  12 columns leaves the rest empty. Below `lg` every widget is full width.
+  `type` picks the renderer, `variant` its style, `height` the chart body
+  (`h-chart-sm/md/lg`). Changing the JSON is the whole job — no component
+  edit.
+- The JSON is validated on first read: an unknown type, a variant of
+  another type, a row over 12 columns, a duplicate `(row, sort)` or a
+  series key missing from the data throws, and the page shows the error
+  boundary rather than a blank card.
+- Widget titles, descriptions and table text are **data** in the JSON, not
+  `en.json` keys (like workspace names). The chart controls in the design
+  (period select, ⋯ menus, month pager, table search) are not built; the
+  table's action buttons have no handler yet.
 - **Every visible string comes from `src/messages/en.json`** — nav labels and
   section titles included, resolved from the `labelKey`/`titleKey` in
   `config/nav.ts`. The page title and description come from the same file via

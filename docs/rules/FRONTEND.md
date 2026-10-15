@@ -24,6 +24,7 @@ apps/dashboard/src/
 │   ├── workspace/                 # workspace-provider (useWorkspace) · account-menu · create-workspace-dialog · workspace-header-title
 │   └── <feature>/                 # this feature's components AND its hooks (use-*.ts), kebab-case
 ├── config/                        # nav.ts (menu data, keys not text) · populate.ts · subscription.ts (stubs)
+├── dummy-data/                    # app data with no API yet: dashboard.json + its zod schema + getDashboard() (not a test fixture)
 ├── hooks/use-*.ts                 # feature-agnostic hooks: use-canvas-surface · use-file-picker · use-latest-ref · use-reseed
 ├── i18n/                          # config.ts (locales) · request.ts (per-request locale) · metadata.ts (pageMetadata)
 ├── lib/                           # pure helpers and thin fetch wrappers (api-fetch.ts). No JSX
@@ -156,6 +157,8 @@ that queries, and `<feature>-list.tsx` / `<feature>-form.tsx` that render.
 | `@reclit/ui/button` | `Button`, `buttonVariants` | `variant`: `default` · `secondary` · `outline` · `ghost` · `destructive` · `destructive-outline` · `link`; `size`: `default` · `sm` · `lg` · `icon` · `icon-sm`; `asChild` |
 | `@reclit/ui/calendar` | `Calendar` | inline month over `react-day-picker`, no popover |
 | `@reclit/ui/capsule-select` | `CapsuleSelect` | single-choice pill row, radiogroup semantics |
+| `@reclit/ui/card` | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` | the boxed surface; `CardTitle` is an `h3` in `text-subheading` |
+| `@reclit/ui/chart` | `ChartContainer`, `ChartTooltip`, `ChartTooltipContent`, `ChartLegend`, `ChartLegendContent`, `ChartStyle`, `ChartConfig` | shadcn charts on recharts; colours are `hsl(var(--chart-N))`; pass `isAnimationActive={false}` on every series |
 | `@reclit/ui/checkbox` | `Checkbox` | Radix |
 | `@reclit/ui/dialog` | `Dialog`, `DialogTrigger`, `DialogContent`, `DialogHeader`, `DialogFooter`, `DialogTitle`, `DialogDescription`, `DialogClose` | Radix, unanimated |
 | `@reclit/ui/dropdown-menu` | `DropdownMenu`, `…Trigger`, `…Content`, `…Item`, `…CheckboxItem`, `…RadioGroup`, `…RadioItem`, `…Label`, `…Separator`, `…Sub*` | Radix, unanimated |
@@ -164,6 +167,7 @@ that queries, and `<feature>-list.tsx` / `<feature>-form.tsx` that render.
 | `@reclit/ui/progress` | `Progress` | `value`, `max`; plain divs |
 | `@reclit/ui/select` | `Select`, `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem`, `SelectGroup`, `SelectLabel`, `SelectSeparator` | Radix; the trigger is `Input`'s twin |
 | `@reclit/ui/spinner` | `Spinner` | `size`: `sm` · `default` · `lg`; decorative — the parent announces loading |
+| `@reclit/ui/table` | `Table`, `TableHeader`, `TableBody`, `TableFooter`, `TableRow`, `TableHead`, `TableCell`, `TableCaption` | plain HTML table; scrolls horizontally inside its wrapper |
 | `@reclit/ui/textarea` | `Textarea` | multi-line field |
 | `@reclit/ui/tooltip` | `Tooltip`, `TooltipTrigger`, `TooltipContent`, `TooltipProvider`, `TooltipPortal` | Radix, unanimated |
 | `@reclit/ui/cn` · `@reclit/ui/focus-ring` · `@reclit/ui/tokens` | `cn` · `focusRing`, `focusField`, `focusOutline` · the design tokens | helpers |
@@ -188,12 +192,18 @@ that queries, and `<feature>-list.tsx` / `<feature>-form.tsx` that render.
 
 ### shadcn
 
+- **The CLI works from `packages/ui`** (`packages/ui/components.json`):
+  `cd packages/ui && bunx shadcn@latest add <name>`. It detects Tailwind v3
+  and writes to `src/components/`; then apply the edits below and add the
+  `exports` entry. It imports `cn` from `@/utils/index` — change that to
+  `../utils`.
 - shadcn components are shared primitives: `packages/ui/src/components/<name>.tsx`
   plus `"./<name>": "./src/components/<name>.tsx"` in the `exports` map. Never
   copy one into `apps/dashboard`. Radix dependencies go in
   `packages/ui/package.json`, and only when a primitive genuinely needs one.
-- Keep the generated source except for two edits: import `cn` from `../utils`,
-  and **strip every enter/exit animation class** — a stuck exit animation
+- Keep the generated source except for these edits: import `cn` from `../utils`,
+  swap raw text/corner/arbitrary classes for the tokens (`text-caption`,
+  `rounded-sm`, `min-w-menu` …), and **strip every enter/exit animation class** — a stuck exit animation
   keeps the node mounted and swallows clicks. `@reclit/ui` is unanimated.
 - Variants are `cva` in the component file. A consumer that needs a new look
   gets a new variant there, not a `className` full of raw utilities.
@@ -226,11 +236,14 @@ Everything else derives from it:
 | `colors.light` / `colors.dark` | CSS variables `--<token>` on `:root` / `.dark`, emitted by the Tailwind preset, and the colour classes `bg-primary`, `text-muted-foreground`, `border-input`, `bg-overlay/overlay` … |
 | `radius` | `--radius` → the app's one corner, `rounded-sm` |
 | `fontSize` | the type scale, `text-display` … `text-eyebrow` |
-| `sizes` | every named length, usable after any length prefix: `h-control`, `h-control-sm`, `px-control-x`, `size-icon`, `px-field-x`, `size-checkbox`, `size-avatar`, `w-sidebar`, `w-sidebar-rail`, `w-panel`, `h-header`, `h-sheet-header` … |
+| `sizes` | every named length, usable after any length prefix: `h-control`, `h-control-sm`, `px-control-x`, `size-icon`, `px-field-x`, `size-checkbox`, `size-avatar`, `w-sidebar`, `w-sidebar-rail`, `w-panel`, `h-header`, `h-sheet-header`, `h-chart-sm` · `h-chart-md` · `h-chart-lg` (dashboard chart bodies) … |
 | `opacity.overlay` | the dialog scrim's alpha |
 | `motion` | `duration-smooth`, `ease-smooth` — the one motion setting |
 | `SHEET_HEADER_PX` | the canvas header height, shared by the DOM strip and the canvas geometry |
 
+- **Chart colours** are `chart-1` … `chart-5` (blues, a violet, and a quiet
+  neutral for targets/baselines). Data names a token, never a colour:
+  `bg-chart-1`, `hsl(var(--chart-1))`.
 - **Add a colour** = one key in `light` (the type forces `dark` to match).
   **Add a size** = one key in `sizes`. Nothing else needs to learn the name:
   the preset exposes it and `cn()` reads the same object, so overrides dedupe.

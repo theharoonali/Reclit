@@ -1,0 +1,507 @@
+{
+  "widgets": [
+    {
+      "id": "task-done-today",
+      "name": "Task Done Today",
+      "type": "stat",
+      "variant": "default",
+      "row": 0,
+      "column": 3,
+      "sort": 0,
+      "height": "sm",
+      "data": {
+        "valueKey": "done",
+        "series": [{ "key": "total", "label": "of" }],
+        "rows": [{ "done": 233, "total": 310 }],
+        "footer": "10% of yesterday",
+        "trend": "up"
+      }
+    },
+    {
+      "id": "ongoing-project",
+      "name": "Ongoing Project",
+      "type": "stat",
+      "variant": "default",
+      "row": 0,
+      "column": 3,
+      "sort": 1,
+      "height": "sm",
+      "data": {
+        "valueKey": "ongoing",
+        "series": [{ "key": "total", "label": "of" }],
+        "rows": [{ "ongoing": 124, "total": 140 }],
+        "footer": "5% of last month",
+        "trend": "up"
+      }
+    },
+    {
+      "id": "value-project",
+      "name": "Value Project",
+      "type": "stat",
+      "variant": "default",
+      "row": 0,
+      "column": 3,
+      "sort": 2,
+      "height": "sm",
+      "data": {
+        "valueKey": "value",
+        "series": [],
+        "rows": [{ "value": "$53,111" }],
+        "footer": "See analytics"
+      }
+    },
+    {
+      "id": "update",
+      "name": "Update",
+      "type": "stat",
+      "variant": "text",
+      "row": 0,
+      "column": 3,
+      "sort": 3,
+      "height": "sm",
+      "data": {
+        "valueKey": "message",
+        "series": [],
+        "rows": [{ "message": "Project revenue increased 12% in 1 week" }],
+        "footer": "See analytics"
+      }
+    },
+    {
+      "id": "daily-task-progress",
+      "name": "Track Daily Task Progress",
+      "description": "Overview of Daily Task Achievements",
+      "type": "bar",
+      "variant": "default",
+      "row": 1,
+      "column": 8,
+      "sort": 0,
+      "height": "lg",
+      "data": {
+        "categoryKey": "day",
+        "series": [
+          { "key": "done", "label": "Task Done", "color": "chart-1" },
+          { "key": "target", "label": "Task Target", "color": "chart-5" }
+        ],
+        "rows": [
+          { "day": "Mon", "done": 66, "target": 35 },
+          { "day": "Tue", "done": 43, "target": 61 },
+          { "day": "Fri", "done": 43, "target": 61 },
+          { "day": "Sat", "done": 43, "target": 23 },
+          { "day": "Sun", "done": 61, "target": 31 },
+          { "day": "Mon", "done": 43, "target": 55 },
+          { "day": "Tue", "done": 43, "target": 73 },
+          { "day": "Wed", "done": 43, "target": 89 },
+          { "day": "Fri", "done": 43, "target": 57 }
+        ]
+      }
+    },
+    {
+      "id": "employee-mood",
+      "name": "Employee Mood Insights",
+      "type": "pie",
+      "variant": "donut",
+      "row": 1,
+      "column": 4,
+      "sort": 1,
+      "height": "lg",
+      "data": {
+        "categoryKey": "mood",
+        "valueKey": "share",
+        "series": [
+          { "key": "happy", "label": "Happy", "color": "chart-1" },
+          { "key": "neutral", "label": "Neutral", "color": "chart-3" },
+          { "key": "other", "label": "Other", "color": "chart-4" }
+        ],
+        "rows": [
+          { "mood": "happy", "share": 62 },
+          { "mood": "neutral", "share": 28 },
+          { "mood": "other", "share": 10 }
+        ]
+      }
+    },
+    {
+      "id": "daily-task-analytics",
+      "name": "Daily Task Analytics",
+      "description": "June",
+      "type": "heatmap",
+      "variant": "default",
+      "row": 2,
+      "column": 5,
+      "sort": 0,
+      "height": "md",
+      "data": {
+        "categoryKey": "week",
+        "series": [
+          { "key": "mon", "label": "Mon", "color": "chart-1" },
+          { "key": "tue", "label": "Tue", "color": "chart-1" },
+          { "key": "wed", "label": "Wed", "color": "chart-1" },
+          { "key": "thu", "label": "Thu", "color": "chart-1" },
+          { "key": "fri", "label": "Fri", "color": "chart-1" },
+          { "key": "sat", "label": "Sat", "color": "chart-1" },
+          { "key": "sun", "label": "Sun", "color": "chart-1" }
+        ],
+        "rows": [
+          {
+            "week": "Week 1",
+            "mon": 15,
+            "tue": 45,
+            "wed": 40,
+            "thu": 50,
+            "fri": 20,
+            "sat": 90,
+            "sun": 55
+          },
+          {
+            "week": "Week 2",
+            "mon": 15,
+            "tue": 85,
+            "wed": 50,
+            "thu": 10,
+            "fri": 10,
+            "sat": 55,
+            "sun": 55
+          },
+          {
+            "week": "Week 3",
+            "mon": 15,
+            "tue": 50,
+            "wed": 15,
+            "thu": 50,
+            "fri": 10,
+            "sat": 85,
+            "sun": 55
+          },
+          {
+            "week": "Week 4",
+            "mon": 15,
+            "tue": 50,
+            "wed": 15,
+            "thu": 50,
+            "fri": 10,
+            "sat": 90,
+            "sun": 15
+          }
+        ]
+      }
+    },
+    {
+      "id": "employee-analysis",
+      "name": "Employee Analysis",
+      "description": "Need Renewable Contract By Division",
+      "type": "table",
+      "variant": "default",
+      "row": 2,
+      "column": 7,
+      "sort": 1,
+      "height": "md",
+      "data": {
+        "categoryKey": "id",
+        "series": [
+          {
+            "key": "name",
+            "label": "Employee",
+            "kind": "person",
+            "detailKey": "role"
+          },
+          { "key": "projects", "label": "Project", "kind": "number" },
+          { "key": "team", "label": "Team", "kind": "number" },
+          { "key": "action", "label": "", "kind": "action" }
+        ],
+        "rows": [
+          {
+            "id": "e1",
+            "name": "Bambang Sugeni",
+            "role": "Project Manager IT",
+            "projects": 12,
+            "team": 65,
+            "action": "Contact"
+          },
+          {
+            "id": "e2",
+            "name": "Anjani Rana",
+            "role": "Project Manager Sales",
+            "projects": 11,
+            "team": 45,
+            "action": "Contact"
+          },
+          {
+            "id": "e3",
+            "name": "Moray Livon",
+            "role": "Chief Technology Officer",
+            "projects": 8,
+            "team": 120,
+            "action": "Contact"
+          }
+        ]
+      }
+    },
+    {
+      "id": "revenue-trend",
+      "name": "Revenue Trend",
+      "description": "Revenue against expenses, last 6 months",
+      "type": "area",
+      "variant": "gradient",
+      "row": 3,
+      "column": 6,
+      "sort": 0,
+      "height": "md",
+      "data": {
+        "categoryKey": "month",
+        "series": [
+          { "key": "revenue", "label": "Revenue", "color": "chart-1" },
+          { "key": "expenses", "label": "Expenses", "color": "chart-4" }
+        ],
+        "rows": [
+          { "month": "Jan", "revenue": 186, "expenses": 80 },
+          { "month": "Feb", "revenue": 305, "expenses": 200 },
+          { "month": "Mar", "revenue": 237, "expenses": 120 },
+          { "month": "Apr", "revenue": 173, "expenses": 190 },
+          { "month": "May", "revenue": 209, "expenses": 130 },
+          { "month": "Jun", "revenue": 264, "expenses": 140 }
+        ],
+        "footer": "Trending up by 5.2% this month",
+        "trend": "up"
+      }
+    },
+    {
+      "id": "active-users",
+      "name": "Active Users",
+      "description": "Web and mobile, last 6 months",
+      "type": "line",
+      "variant": "dots",
+      "row": 3,
+      "column": 6,
+      "sort": 1,
+      "height": "md",
+      "data": {
+        "categoryKey": "month",
+        "series": [
+          { "key": "web", "label": "Web", "color": "chart-1" },
+          { "key": "mobile", "label": "Mobile", "color": "chart-3" }
+        ],
+        "rows": [
+          { "month": "Jan", "web": 120, "mobile": 80 },
+          { "month": "Feb", "web": 160, "mobile": 110 },
+          { "month": "Mar", "web": 140, "mobile": 150 },
+          { "month": "Apr", "web": 190, "mobile": 170 },
+          { "month": "May", "web": 210, "mobile": 160 },
+          { "month": "Jun", "web": 250, "mobile": 200 }
+        ]
+      }
+    },
+    {
+      "id": "team-skills",
+      "name": "Team Skills",
+      "description": "Current level against target",
+      "type": "radar",
+      "variant": "default",
+      "row": 4,
+      "column": 4,
+      "sort": 0,
+      "height": "md",
+      "data": {
+        "categoryKey": "skill",
+        "series": [
+          { "key": "current", "label": "Current", "color": "chart-1" },
+          { "key": "target", "label": "Target", "color": "chart-4" }
+        ],
+        "rows": [
+          { "skill": "Design", "current": 80, "target": 90 },
+          { "skill": "Frontend", "current": 95, "target": 90 },
+          { "skill": "Backend", "current": 70, "target": 85 },
+          { "skill": "QA", "current": 60, "target": 80 },
+          { "skill": "DevOps", "current": 55, "target": 75 },
+          { "skill": "Product", "current": 75, "target": 70 }
+        ]
+      }
+    },
+    {
+      "id": "sprint-completion",
+      "name": "Sprint Completion",
+      "description": "Sprint 14",
+      "type": "radial",
+      "variant": "stacked",
+      "row": 4,
+      "column": 4,
+      "sort": 1,
+      "height": "md",
+      "data": {
+        "categoryKey": "sprint",
+        "series": [
+          { "key": "done", "label": "Done", "color": "chart-1" },
+          { "key": "open", "label": "Open", "color": "chart-5" }
+        ],
+        "rows": [{ "sprint": "Sprint 14", "done": 68, "open": 32 }]
+      }
+    },
+    {
+      "id": "tasks-by-workspace",
+      "name": "Tasks by Workspace",
+      "description": "Open tasks per workspace",
+      "type": "bar",
+      "variant": "horizontal",
+      "row": 4,
+      "column": 4,
+      "sort": 2,
+      "height": "md",
+      "data": {
+        "categoryKey": "workspace",
+        "series": [{ "key": "tasks", "label": "Tasks", "color": "chart-1" }],
+        "rows": [
+          { "workspace": "Pertamina", "tasks": 42 },
+          { "workspace": "SCBD Tower", "tasks": 28 },
+          { "workspace": "Bets Hotel", "tasks": 17 }
+        ]
+      }
+    },
+    {
+      "id": "hours-logged",
+      "name": "Hours Logged",
+      "description": "By discipline, last 6 weeks",
+      "type": "area",
+      "variant": "stacked",
+      "row": 5,
+      "column": 8,
+      "sort": 0,
+      "height": "md",
+      "data": {
+        "categoryKey": "week",
+        "series": [
+          { "key": "design", "label": "Design", "color": "chart-4" },
+          { "key": "engineering", "label": "Engineering", "color": "chart-1" },
+          { "key": "qa", "label": "QA", "color": "chart-2" }
+        ],
+        "rows": [
+          { "week": "W1", "design": 40, "engineering": 120, "qa": 30 },
+          { "week": "W2", "design": 55, "engineering": 110, "qa": 35 },
+          { "week": "W3", "design": 35, "engineering": 140, "qa": 40 },
+          { "week": "W4", "design": 60, "engineering": 130, "qa": 45 },
+          { "week": "W5", "design": 50, "engineering": 150, "qa": 38 },
+          { "week": "W6", "design": 45, "engineering": 160, "qa": 50 }
+        ]
+      }
+    },
+    {
+      "id": "traffic-sources",
+      "name": "Traffic Sources",
+      "type": "pie",
+      "variant": "label",
+      "row": 6,
+      "column": 4,
+      "sort": 0,
+      "height": "md",
+      "data": {
+        "categoryKey": "source",
+        "valueKey": "visits",
+        "series": [
+          { "key": "search", "label": "Search", "color": "chart-1" },
+          { "key": "direct", "label": "Direct", "color": "chart-2" },
+          { "key": "social", "label": "Social", "color": "chart-3" },
+          { "key": "referral", "label": "Referral", "color": "chart-4" }
+        ],
+        "rows": [
+          { "source": "search", "visits": 420 },
+          { "source": "direct", "visits": 260 },
+          { "source": "social", "visits": 180 },
+          { "source": "referral", "visits": 90 }
+        ]
+      }
+    },
+    {
+      "id": "goal-progress",
+      "name": "Goal Progress",
+      "description": "Quarterly revenue goal",
+      "type": "radial",
+      "variant": "text",
+      "row": 6,
+      "column": 4,
+      "sort": 1,
+      "height": "md",
+      "data": {
+        "categoryKey": "goal",
+        "valueKey": "percent",
+        "series": [
+          { "key": "revenue", "label": "Revenue goal", "color": "chart-1" }
+        ],
+        "rows": [{ "goal": "revenue", "percent": 72 }]
+      }
+    },
+    {
+      "id": "deployments",
+      "name": "Deployments",
+      "description": "Per week",
+      "type": "line",
+      "variant": "step",
+      "row": 6,
+      "column": 4,
+      "sort": 2,
+      "height": "md",
+      "data": {
+        "categoryKey": "week",
+        "series": [
+          { "key": "deploys", "label": "Deploys", "color": "chart-3" }
+        ],
+        "rows": [
+          { "week": "W1", "deploys": 4 },
+          { "week": "W2", "deploys": 7 },
+          { "week": "W3", "deploys": 5 },
+          { "week": "W4", "deploys": 9 },
+          { "week": "W5", "deploys": 6 },
+          { "week": "W6", "deploys": 11 }
+        ]
+      }
+    },
+    {
+      "id": "tickets-by-status",
+      "name": "Tickets by Status",
+      "description": "Opened, in progress and closed per month",
+      "type": "bar",
+      "variant": "stacked",
+      "row": 7,
+      "column": 6,
+      "sort": 0,
+      "height": "md",
+      "data": {
+        "categoryKey": "month",
+        "series": [
+          { "key": "closed", "label": "Closed", "color": "chart-1" },
+          { "key": "progress", "label": "In progress", "color": "chart-2" },
+          { "key": "opened", "label": "Opened", "color": "chart-5" }
+        ],
+        "rows": [
+          { "month": "Jan", "closed": 40, "progress": 20, "opened": 15 },
+          { "month": "Feb", "closed": 52, "progress": 18, "opened": 22 },
+          { "month": "Mar", "closed": 47, "progress": 25, "opened": 12 },
+          { "month": "Apr", "closed": 60, "progress": 15, "opened": 18 },
+          { "month": "May", "closed": 55, "progress": 22, "opened": 20 },
+          { "month": "Jun", "closed": 70, "progress": 12, "opened": 10 }
+        ]
+      }
+    },
+    {
+      "id": "workspace-health",
+      "name": "Workspace Health",
+      "description": "Scores across the three workspaces",
+      "type": "radar",
+      "variant": "dots",
+      "row": 7,
+      "column": 6,
+      "sort": 1,
+      "height": "md",
+      "data": {
+        "categoryKey": "metric",
+        "series": [
+          { "key": "pertamina", "label": "Pertamina", "color": "chart-1" },
+          { "key": "scbd", "label": "SCBD Tower", "color": "chart-4" }
+        ],
+        "rows": [
+          { "metric": "Budget", "pertamina": 80, "scbd": 60 },
+          { "metric": "Schedule", "pertamina": 65, "scbd": 85 },
+          { "metric": "Quality", "pertamina": 90, "scbd": 70 },
+          { "metric": "Scope", "pertamina": 70, "scbd": 75 },
+          { "metric": "Team", "pertamina": 85, "scbd": 65 }
+        ]
+      }
+    }
+  ]
+}

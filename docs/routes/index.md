@@ -5,7 +5,7 @@ every file and API behind the page and what it does today.
 
 | Route | Doc | Purpose |
 | --- | --- | --- |
-| `/` | [root.md](root.md) | The dashboard and the app shell — sidebar + header. Calls no API |
+| `/` | [root.md](root.md) | The JSON-driven dashboard (every shadcn chart, stat cards, heatmap, table from `dummy-data/dashboard.json`) and the app shell — sidebar + header. Calls no dashboard API |
 | `/ai-spreadsheet` | [ai-spreadsheet.md](ai-spreadsheet.md) | A canvas spreadsheet: endless rows, typed columns, canvas-drawn editing. Persists through the spreadsheet API + `POST /files` uploads |
 | `/populate` | [populate.md](populate.md) | The public form link + the Populate API (endpoint and curl). Calls `populate.form` |
 | `/settings` | [settings.md](settings.md) | Display-only user profile + stubbed subscription cards. Calls `user.me` |

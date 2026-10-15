@@ -71,12 +71,7 @@
   },
   "dashboard": {
     "title": "Dashboard",
-    "subtitle": "An overview of your workspace.",
-    "empty": {
-      "title": "Nothing here yet",
-      "description": "Widgets you add to this dashboard will show up here. Nothing is connected to the API yet.",
-      "action": "Add a widget"
-    }
+    "subtitle": "An overview of your workspace."
   },
   "metadata": {
     "title": "Dashboard",

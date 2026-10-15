@@ -49,6 +49,16 @@ const light = {
   ring: "20 90% 55%",
   /** The dialog scrim; its alpha is `opacity.overlay`. */
   overlay: "0 0% 0%",
+  /**
+   * Data-visualisation series, in order. Charts and dashboard widgets name
+   * these (`chart-1` … `chart-5`) instead of colours; `chart-5` is the quiet
+   * neutral for a comparison series (a target, a baseline).
+   */
+  "chart-1": "225 90% 62%",
+  "chart-2": "218 92% 78%",
+  "chart-3": "230 55% 42%",
+  "chart-4": "262 70% 66%",
+  "chart-5": "220 9% 84%",
 };
 
 export type ColorToken = keyof typeof light;
@@ -76,6 +86,11 @@ const dark: Record<ColorToken, string> = {
   input: "216 7% 26%",
   ring: "20 90% 58%",
   overlay: "0 0% 0%",
+  "chart-1": "225 90% 66%",
+  "chart-2": "218 80% 72%",
+  "chart-3": "230 60% 56%",
+  "chart-4": "262 70% 70%",
+  "chart-5": "220 7% 40%",
 };
 
 export const colors = { light, dark };
@@ -173,6 +188,12 @@ export const sizes = {
   "sidebar-rail": "4rem",
   panel: "20rem",
   "sheet-header": `${SHEET_HEADER_PX}px`,
+
+  // Dashboard widgets — the body height of a chart card (`height` in the
+  // dashboard JSON: sm | md | lg).
+  "chart-sm": "10rem",
+  "chart-md": "16rem",
+  "chart-lg": "20rem",
 };
 
 export const opacity = {
