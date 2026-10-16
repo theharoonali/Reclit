@@ -1,5 +1,6 @@
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { createTRPCRouter } from "../init";
+import { assistantRouter } from "./assistant";
 import { dashboardRouter } from "./dashboard";
 import { externalApiRouter } from "./external-api";
 import { populateRouter } from "./populate";
@@ -9,6 +10,7 @@ import { userRouter } from "./user";
 import { workspaceRouter } from "./workspace";
 
 export const appRouter = createTRPCRouter({
+  assistant: assistantRouter,
   dashboard: dashboardRouter,
   externalApi: externalApiRouter,
   populate: populateRouter,

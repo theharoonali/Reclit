@@ -144,6 +144,12 @@ export class SpreadsheetService {
     };
   }
 
+  /** How many rows hold something — the sheet's data size, not `totalRows`. */
+  async countRows(id: string): Promise<number> {
+    await this.byId(id);
+    return prisma.row.count({ where: { spreadsheetId: id } });
+  }
+
   /** A row that was never written comes back blank: `columns: []`. */
   async row(id: string, rowIndex: number): Promise<SheetRow> {
     await this.byId(id);

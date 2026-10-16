@@ -189,6 +189,13 @@ export const sizes = {
   panel: "20rem",
   "sheet-header": `${SHEET_HEADER_PX}px`,
 
+  // The assistant island — the capsule's width per mode, and its orb.
+  "island-closed": "3.25rem",
+  "island-action": "10rem",
+  island: "24rem",
+  "island-wide": "30rem",
+  orb: "1.75rem",
+
   // Dashboard widgets — the body height of a chart card (`height` in the
   // dashboard JSON: sm | md | lg).
   "chart-sm": "10rem",

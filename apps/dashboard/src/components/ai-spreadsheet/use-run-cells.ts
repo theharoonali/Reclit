@@ -32,6 +32,8 @@ export type RunCellsApi = {
   errorCode: string | null;
   /** Recompute `runnable` and `count` — after the selection, the runs, or the columns change. */
   refresh: () => void;
+  /** Drops the last refusal (the user dismissed it). */
+  clearError: () => void;
   /** Run the selected cells. */
   run: () => Promise<void>;
 };
@@ -136,5 +138,10 @@ export function useRunCells(args: RunCellsArgs): RunCellsApi {
     seedRuns,
   ]);
 
-  return { runnable, count, status, errorCode, refresh, run };
+  const clearError = useCallback(() => {
+    setErrorCode(null);
+    setStatus((current) => (current === "error" ? "idle" : current));
+  }, []);
+
+  return { runnable, count, status, errorCode, refresh, clearError, run };
 }

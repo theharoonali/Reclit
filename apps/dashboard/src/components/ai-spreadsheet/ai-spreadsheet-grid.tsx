@@ -2,7 +2,7 @@
 
 import { Delete02Icon, FileExportIcon } from "@hugeicons/core-free-icons";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sheetToCsv } from "@/lib/ai-spreadsheet/export-csv";
 import type {
   ColumnDraft,
@@ -19,10 +19,11 @@ import { AiSpreadsheetHeaderAction } from "./ai-spreadsheet-header-action";
 import { AiSpreadsheetImportButton } from "./ai-spreadsheet-import-button";
 import { AiSpreadsheetInputProxy } from "./ai-spreadsheet-input-proxy";
 import { AiSpreadsheetJsonEditor } from "./ai-spreadsheet-json-editor";
-import { AiSpreadsheetRunButton } from "./ai-spreadsheet-run-button";
 import { AiSpreadsheetSelectionBar } from "./ai-spreadsheet-selection-bar";
 import { AiSpreadsheetSidePanel } from "./ai-spreadsheet-side-panel";
 import { AiSpreadsheetUploadEditor } from "./ai-spreadsheet-upload-editor";
+import { useAssistantRefresh } from "./use-assistant-refresh";
+import { useAssistantRunAction } from "./use-assistant-run-action";
 import { useColumnRemove } from "./use-column-remove";
 import { useColumnReorder } from "./use-column-reorder";
 import { useRunCells } from "./use-run-cells";
@@ -190,6 +191,57 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   const refreshRunCells = runCells.refresh;
   useEffect(() => refreshRunCells(), [columnsVersion, refreshRunCells]);
 
+  // Run lives in the header's assistant capsule, as its right-hand pill,
+  // only while the selection holds runnable AI cells (or a refusal to show).
+  // The words are resolved here, where the sheet's strings live; the capsule
+  // only displays them: the pill reads "Run AI", its tooltip carries the
+  // count.
+  const runText = t("listen.start");
+  const runDescription =
+    runCells.status === "running"
+      ? t("listen.running")
+      : runCells.count > 1
+        ? t("listen.startMany", { count: runCells.count })
+        : t("listen.start");
+  const runErrorMessage =
+    runCells.errorCode === null
+      ? null
+      : runCells.errorCode === "CONFLICT"
+        ? t("listen.errorBusy")
+        : // After the plan's own check, a size cap is the only BAD_REQUEST a
+          // click can provoke.
+          runCells.errorCode === "TOO_LARGE" ||
+            runCells.errorCode === "BAD_REQUEST"
+          ? t("listen.errorTooLarge")
+          : t("listen.error");
+  const runReady = runCells.runnable && !runListening.isResolving;
+  const runBusy = runCells.status === "running";
+  const { run: runSelection, clearError: clearRunError } = runCells;
+  useAssistantRunAction(
+    useMemo(
+      () =>
+        runReady || runErrorMessage !== null
+          ? {
+              label: runText,
+              description: runDescription,
+              busy: runBusy,
+              errorMessage: runErrorMessage,
+              onRun: runSelection,
+              onDismissError: clearRunError,
+            }
+          : null,
+      [
+        runReady,
+        runText,
+        runDescription,
+        runBusy,
+        runErrorMessage,
+        runSelection,
+        clearRunError,
+      ],
+    ),
+  );
+
   const exportCsv = useCallback(() => {
     const model = modelRef.current;
     if (!model) return;
@@ -207,14 +259,24 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     URL.revokeObjectURL(url);
   }, [modelRef]);
 
+  // The active cell may be in a column the refreshed sheet does not have.
+  const resetEditor = () => {
+    canvas.editor.cancel();
+    canvas.editor.selectCell(0, 0);
+  };
+
   const importer = useSheetImport({
     sheetId: payload.spreadsheet.id,
     discardPending: sync.discardPending,
-    onBeforeRefresh: () => {
-      // The active cell may be in a column the imported sheet does not have.
-      canvas.editor.cancel();
-      canvas.editor.selectCell(0, 0);
-    },
+    onBeforeRefresh: resetEditor,
+  });
+
+  // The header's assistant edits this sheet from the worker; the grid flushes
+  // before a run and refetches after its changes (use-assistant-refresh.ts).
+  useAssistantRefresh({
+    sheetId: payload.spreadsheet.id,
+    flushPending: sync.flushPending,
+    onBeforeRefresh: resetEditor,
   });
 
   const importError =
@@ -351,32 +413,6 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
         label={t("export.label")}
         onClick={exportCsv}
         variant="outline"
-      />
-
-      <AiSpreadsheetRunButton
-        errorMessage={
-          runCells.errorCode === null
-            ? null
-            : runCells.errorCode === "CONFLICT"
-              ? t("listen.errorBusy")
-              : // After the button's own check, a size cap is the only
-                // BAD_REQUEST a click can provoke.
-                runCells.errorCode === "TOO_LARGE" ||
-                  runCells.errorCode === "BAD_REQUEST"
-                ? t("listen.errorTooLarge")
-                : t("listen.error")
-        }
-        labels={{
-          start:
-            runCells.count > 1
-              ? t("listen.startMany", { count: runCells.count })
-              : t("listen.start"),
-          running: t("listen.running"),
-        }}
-        live={runListening.listening}
-        onRun={runCells.run}
-        runnable={runCells.runnable && !runListening.isResolving}
-        status={runCells.status}
       />
 
       {cellsSelected && (

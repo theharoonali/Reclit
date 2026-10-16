@@ -14,7 +14,7 @@ client because the active workspace is client state (localStorage).
 
 | Path | Kind | Responsibility |
 | --- | --- | --- |
-| `apps/dashboard/src/app/(app)/layout.tsx` | RSC | The **one** chrome mount point — renders `<OnboardingGate area="app">` around `<WorkspaceProvider>` around `<AppShell>` (plus `<WorkspaceHeaderTitle>`) for every route in the group |
+| `apps/dashboard/src/app/(app)/layout.tsx` | RSC | The **one** chrome mount point — renders `<OnboardingGate area="app">` around `<WorkspaceProvider>` around `<AssistantProvider>` around `<AppShell>` (plus `<WorkspaceHeaderTitle>` and `<AssistantIsland>`) for every route in the group |
 | `apps/dashboard/src/components/onboarding/onboarding-gate.tsx` | client | Full-screen loader until `user.me` resolves; sends a user who has not onboarded to `/onboarding` ([onboarding.md](onboarding.md)) |
 | `apps/dashboard/src/app/(app)/page.tsx` | RSC | `<DashboardPanel title subtitle>` with the message-key defaults |
 | `apps/dashboard/src/components/dashboard/dashboard-panel.tsx` | client | `useWorkspace()` → `dashboard.byWorkspace` → `<PageShell wide>` (title / subtitle from the config when set) around loading / error / `<DashboardEmpty>` / `<DashboardGrid>`; mounts `<DashboardHeaderActions>` |
@@ -33,8 +33,17 @@ client because the active workspace is client state (localStorage).
 | `apps/dashboard/src/components/layout/app-shell.tsx` | RSC | Page geometry: sidebar beside a column of header + `main`. The only file that knows the layout |
 | `apps/dashboard/src/components/layout/app-sidebar.tsx` | client | Collapse state (`useState`, `w-sidebar` ↔ `w-sidebar-rail`), app name + current-plan capsule + collapse toggle, grouped nav, the credits block and account menu at the bottom. Active row from `usePathname()` |
 | `apps/dashboard/src/components/layout/sidebar-credits.tsx` | client | Credits usage bar + used/total count above the account block, from the stub in `config/subscription.ts`. Hidden when collapsed |
-| `apps/dashboard/src/components/layout/app-header.tsx` | RSC | Takes `title`/`actions` slots as props and mounts the two portal outlets (title left, actions right). Has no interactive element, so it is not a client component |
-| `apps/dashboard/src/components/layout/header-actions.tsx` | client | The header's two portal slots: `HeaderActions` (right) and `HeaderTitle` (left), one implementation |
+| `apps/dashboard/src/components/layout/app-header.tsx` | RSC | Takes `title`/`actions` slots as props and mounts the three portal outlets (title left, centre laid over the bar, actions right). `relative` for the centre outlet. Has no interactive element, so it is not a client component |
+| `apps/dashboard/src/components/layout/header-actions.tsx` | client | The header's three portal slots: `HeaderActions` (right), `HeaderTitle` (left) and `HeaderCenter` (absolutely centred, `pointer-events-none` outlet, hidden below `md`), one implementation |
+| `apps/dashboard/src/components/assistant/assistant-provider.tsx` | client | `useAssistant()` — the assistant run for the app (`run`, `lastTerminal`, `isSubmitting`, `errorKey`, `start` / `cancel` / `respond` / `dismiss`), the scope from `scopeForPath(usePathname())`, and `registerPage(scope, { beforeStart?, refresh })` for a page's handlers; invalidates the dashboard's caches after a run's changes |
+| `…/use-assistant-run.ts` | client hook | The run layer: `assistant.active` on load (`staleTime: 0`), the `assistant.onChange` subscription while a run is alive (newer row wins; `closed` ends it), `assistant.start` (subscribes first) / `cancel` / `respond`, tRPC code → `errorKey` |
+| `apps/dashboard/src/components/assistant/assistant-island.tsx` | client | The capsule: a `<form>` portalled into `HeaderCenter`, `islandMode` from the run and the field (draft, hover, focus, voice), width `w-island-closed` / `w-island` / `w-island-wide`, Enter submits, Escape collapses an empty field; the orb, then one of the pieces below |
+| `…/assistant-composer.tsx` · `assistant-stage.tsx` · `assistant-confirm.tsx` · `assistant-result.tsx` · `assistant-run-action.tsx` | client | The pill `Input` with mic / Stop / Send (arrow right) / spinner inside its right end · the stage line (`aria-live`) + cancel × · the question + Delete / Keep (disabled once answered) · the done / failed / cancelled, error or page-refusal line + dismiss · the page's action pill (the sheet's Run AI: outlined in the primary colour, the count in its tooltip, "Starting…" while busy) |
+| `…/assistant-orb.tsx` | client | The animated orb: a `size-orb` canvas (`useCanvasSurface` + `requestAnimationFrame`) of three smoothed wave ribbons on a dark disc with a rotating pink and blue wash, clipped to a circle with a light rim. `state` sets the tempo (idle is the design speed), paused when the tab is hidden or motion is reduced (still frame) |
+| `…/use-voice-input.ts` | hook | `MediaRecorder` (`audio/webm;codecs=opus`, else `audio/mp4`), 60 s auto-stop, 10 MB guard → `transcribeAudio`; hands the text to the caller, never sends it |
+| `…/use-run-lifecycle.ts` | hook | Around any run: refresh the page after a mutating step (debounced 500 ms) and at the end; auto-dismiss done after 8 s, cancelled after 4 s, failed never |
+| `apps/dashboard/src/lib/assistant/*.ts` | pure | `types.ts` (the pinned wire shapes), `island-state.ts` (`islandMode`, `islandWidthClass`, the status predicates), `step-label.ts` (`stepLabel` / `confirmLabel` → `{ key, values }` for `t`), `transcribe.ts` (`POST /assistant/transcribe`) |
+| `apps/dashboard/src/config/assistant.ts` | data | `scopeForPath` (`/` → `dashboard`, `/ai-spreadsheet` → `spreadsheet`, else hidden), the prompt cap, result timings, voice limits |
 | `apps/dashboard/src/components/workspace/workspace-provider.tsx` | client | `useWorkspace()` — fetches `workspace.list`, resolves the active workspace, persists the choice in localStorage |
 | `apps/dashboard/src/components/workspace/account-menu.tsx` | client | The sidebar's bottom block: avatar/name/email trigger (`user.me`) with a menu listing workspaces, "new workspace", a `/settings` link and a UI-only "Log out" |
 | `apps/dashboard/src/components/workspace/create-workspace-dialog.tsx` | client | Name form → `workspace.create`; makes the new workspace active |
@@ -45,7 +54,7 @@ client because the active workspace is client state (localStorage).
 | `apps/dashboard/src/app/error.tsx` · `global-error.tsx` | client | Error boundaries; both render `components/common/error-fallback.tsx` (English on purpose) |
 | `apps/dashboard/src/i18n/config.ts` | data | Locale list, default locale, cookie name |
 | `apps/dashboard/src/i18n/request.ts` | server | Resolves the request locale from the cookie and loads its messages |
-| `apps/dashboard/src/messages/en.json` | data | Every user-facing string on this page (`dashboard.*`) |
+| `apps/dashboard/src/messages/en.json` | data | Every user-facing string on this page (`dashboard.*`, `assistant.*`) |
 | `apps/dashboard/src/app/providers.tsx` | client | `TRPCReactProvider` + `next-themes` pinned to light via `forcedTheme="light"` |
 
 Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/cn`,
@@ -53,7 +62,8 @@ Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/cn`,
 `@reclit/ui/dialog`, `@reclit/ui/progress`, `components/common/page-shell.tsx`,
 `components/common/form-field.tsx`, `components/common/loading-state.tsx`,
 `components/common/error-state.tsx`, `@reclit/ui/card`, `@reclit/ui/chart`,
-`@reclit/ui/table` (+ `recharts`). Icons are `lucide-react`.
+`@reclit/ui/table` (+ `recharts`), `@reclit/ui/spinner`, the `island` tokens
+and the `pill` `Input` / `island` + `island-outline` + `island-plain` `Button` variants. Icons are `lucide-react`.
 
 ## APIs called
 
@@ -63,6 +73,19 @@ Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/cn`,
 | `spreadsheet.rows` | query | `use-widget-data.ts` through `fetchAllRows`, once per sheet (every widget of a sheet shares the entry), under `sheetRowsQueryKey` — **not** the tRPC key the sheet page uses | — |
 | `dashboard.createStarter` | mutation | `dashboard-empty.tsx` | `dashboard.byWorkspace` |
 | Refresh button | — | `dashboard-header-actions.tsx` | `sheetRowsQueryKey` prefix + `dashboard.byWorkspace` |
+
+The assistant island (shared with [`/ai-spreadsheet`](ai-spreadsheet.md);
+plan [030](../plans/030-assistant-island.md); feature
+[assistant.md](../features/assistant.md)):
+
+| Procedure / endpoint | Kind | Called by | Invalidates |
+| --- | --- | --- | --- |
+| `assistant.start` | mutation | `use-assistant-run.ts` (`start`, after the page's `beforeStart`) | — |
+| `assistant.active` | query | `use-assistant-run.ts`, on load (`staleTime: 0`) | — (set to null on `closed` / dismiss) |
+| `assistant.onChange` | subscription (SSE) | `use-assistant-run.ts`, while a run is alive | — |
+| `assistant.cancel` · `assistant.respond` | mutation | the stage's × · the confirmation's Delete / Keep | — |
+| `POST /assistant/transcribe` | REST, multipart | `use-voice-input.ts` through `lib/assistant/transcribe.ts` | — |
+| Refresh | — | `use-run-lifecycle.ts` after a mutating step (debounced 500 ms) and at the end of a run | `dashboard.byWorkspace` + `sheetRowsQueryKey` prefix, always; plus the run's page handler (the sheet's `use-assistant-refresh.ts`) |
 
 Payloads: the contract header of `apps/api/src/__tests__/dashboard.api.test.ts`
 (and `spreadsheet.api.test.ts` for `rows`). The layout's `OnboardingGate`
@@ -95,9 +118,25 @@ calls `workspace.create` (invalidating `workspace.list` and
 - Below the `md` breakpoint the sidebar is hidden entirely. **There is no mobile
   navigation** — that needs a `Sheet` primitive and `@radix-ui/react-dialog`.
 - The header is empty chrome plus its slots: the `HeaderTitle` outlet on the
-  left (the active workspace's name, hidden below `lg`) and `actions` +
+  left (the active workspace's name, hidden below `lg`), the `HeaderCenter`
+  outlet laid over the bar (the assistant island), and `actions` +
   `HeaderActions` outlet on the right, where this page puts its Refresh
   button. There is no search field, no notification bell and no header avatar.
+- **The assistant island** sits centred in the header (`md` and up). Closed,
+  it is the wave orb in a `w-island-closed` capsule; hovering, focusing or
+  clicking it opens a `w-island` field with a mic (hidden where the browser
+  cannot record; Send once there is text, Enter sends; Escape collapses an
+  empty field). The mic records up to 60 s, Stop (or the limit) sends the
+  audio to be transcribed and puts the text in the field — never sends it.
+  A run widens the capsule to `w-island-wide` and streams its stage —
+  Queued, Thinking, "Working: <step>" formatted from the server's tool and
+  summarised input — with a cancel ×; a delete pauses it on a question with
+  Delete / Keep, both disabled once answered. The end of a run is one line:
+  the summary (gone after 8 s), "The run failed." (until dismissed) or
+  "Cancelled" (4 s). A refusal (busy, dispatch) or a mic / transcription
+  problem shows as an error line in the open capsule with a dismiss ×. The
+  orb plays at its design tempo when idle and speeds up while listening or running; it stops
+  with a hidden tab or reduced motion.
 - The account block at the bottom of the sidebar shows the user's (square)
   avatar, the active workspace's name and the user's email (`user.me`) and
   opens a menu above it, sized to the trigger so it stays inside the sidebar
@@ -151,7 +190,14 @@ calls `workspace.create` (invalidating `workspace.list` and
   `page.tsx` in the `(app)` group. It never means touching chrome.
 - `AppHeader` takes `title` and `actions` slots and mounts the portal outlets
   from `header-actions.tsx`; portal content in (`HeaderTitle` /
-  `HeaderActions`) rather than editing the header for one page.
+  `HeaderCenter` / `HeaderActions`) rather than editing the header for one
+  page.
+- `registerPage(scope, { beforeStart?, refresh })` from `useAssistant()` —
+  how a page tells the assistant what to do before a run (the sheet flushes
+  its edits) and how to show its changes.
+- `islandMode` + `islandWidthClass` (`lib/assistant/island-state.ts`) — the
+  one state machine behind the capsule; `stepLabel` / `confirmLabel` — the
+  server's identifiers to copy.
 - `useWidgetData` + `sheetRowsQueryKey` — the pattern for any page that
   derives figures from a sheet in the browser: fetch once per sheet, derive
   per consumer in `select`, never throw from the derivation.

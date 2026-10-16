@@ -47,7 +47,8 @@ The second migration holds what the Prisma schema cannot express (invisible to
 | `apps/api/src/modules/run-ai/run-ai.service.ts` | service | the run lifecycle and the reads: `create`, `createMany`, `markRunning`, `setResult`, `setStatus`, `complete`, `fail`, `failPending`, `find`, `byId`, `listByBatch`, `listActiveBySpreadsheet`, `listChangedSince`, `latestEventId` |
 | `apps/api/src/modules/run-ai/run-ai-batch.service.ts` | service | the batch, prisma-free: `setDispatcher`, `runCells` (plan → busy pre-check → one insert → waves → dispatcher), `runRow` (`runCells` for one row × every runnable column; `[]` when there is none), `prepare` (one cell's input from the database now, plus `previous`) |
 | `apps/api/src/modules/run-ai/run-ai-changes.service.ts` | service | the live stream: `changes` (the `onChange` generator), the per-process pump that resolves feed notices into rows, the snapshot |
-| `apps/api/src/modules/run-ai/run-ai.feed.ts` | feed | one `pg.Client` per process on `LISTEN run_ai_changed`; reconnects with backoff; framework-free |
+| `apps/api/src/common/live-feed.ts` | common | `LiveFeed(channel, label)`: one `pg.Client` per process on `LISTEN <channel>`; reconnects with backoff, emits `resync`; framework-free; shared with the assistant |
+| `apps/api/src/modules/run-ai/run-ai.feed.ts` | feed | `runAiFeed = new LiveFeed("run_ai_changed", "run-ai")` |
 | `apps/api/src/modules/run-ai/run-ai.module.ts` | module | the feed's Nest lifecycle (start on boot, stop on shutdown); no controller |
 | `apps/api/src/trpc/routers/run-ai.ts` | router | `byId`, `listByBatch`, `listActive`, `runCells`, `onChange` (subscription) |
 | `apps/api/src/modules/spreadsheet/spreadsheet.ids.ts` | ids | `parseCellId` — the inverse of `cellId`, shared with the spreadsheet |
@@ -186,9 +187,10 @@ There is no REST face.
 ## Reusable pieces
 
 - `parseCellId` (`spreadsheet.ids.ts`) for anything holding a scoped cell id.
-- `runAiFeed` + `RunAiChangesService` — the pattern for the next live table:
-  a trigger that notifies ids, one listener, a per-scope async generator
-  wrapped in `tracked()`.
+- `LiveFeed` (`src/common/live-feed.ts`) + `RunAiChangesService` — the
+  pattern for the next live table: a trigger that notifies ids, one listener
+  per channel, a per-scope async generator wrapped in `tracked()`. The
+  assistant ([assistant.md](assistant.md)) is the second instance.
 - `setDispatcher` — the shape for any service that must reach a Trigger.dev
   task without importing the SDK; the client goes in `src/jobs/`.
 - `failPending` — the guarded "fail whatever is still working" for any job

@@ -13,7 +13,7 @@ import {
   type WidgetQuery,
 } from "@reclit/dashboard-engine";
 import { z } from "zod";
-import { idInput } from "../../common/schema";
+import { idInput, workspaceIdInput } from "../../common/schema";
 
 // Single source of truth for the dashboard shapes. The vocabularies (types,
 // variants, buckets, filter operators) come from @reclit/dashboard-engine so
@@ -173,7 +173,8 @@ export type DashboardDetail = z.infer<typeof dashboardDetailSchema>;
 
 /* ----------------------------------------------------------------- inputs */
 
-export const workspaceIdInput = z.object({ workspaceId: z.string().min(1) });
+/** Shared with the assistant; lives in `src/common/schema.ts`, re-exported for the router. */
+export { workspaceIdInput };
 
 /**
  * Undefaulted on purpose, so `updateWidgetInput` can be built from them

@@ -26,9 +26,9 @@ change.
 | `…/ai-spreadsheet-json-editor.tsx` | client | the stacked key/value entries behind a JSON cell |
 | `…/ai-spreadsheet-date-editor.tsx` | client | UTC calendar behind a date cell |
 | `…/ai-spreadsheet-upload-editor.tsx` | client | upload panel behind file and audio cells (`POST /files`) |
-| `…/ai-spreadsheet-header-action.tsx` | client | one header control (`HeaderActions` + error + `Button`, Hugeicons glyph); `iconOnly` moves the label to `aria-label` + a tooltip, `highlight` adds the breathing halo; every sheet control is an instance of it |
+| `…/ai-spreadsheet-header-action.tsx` | client | one header control (`HeaderActions` + error + `Button`, Hugeicons glyph); `iconOnly` moves the label to `aria-label` + a tooltip; every toolbar control is an instance of it (Run is the assistant capsule's) |
 | `…/ai-spreadsheet-import-button.tsx` | client | Import: the header action with a hidden file input (`useFilePicker`) |
-| `…/ai-spreadsheet-run-button.tsx` | client | Run: enabled only while the selection holds a runnable AI cell and none is working ("Run N cells" for more than one), filled with the live glyph while the sheet streams |
+| `…/use-assistant-run-action.ts` | hook | Publishes Run to the header's assistant capsule as its right-hand pill while the selection holds a runnable AI cell and none is working ("Run N cells" for more than one) — label, busy state and the refusal copy; withdrawn otherwise |
 | `…/ai-spreadsheet-selection-bar.tsx` | client | "N rows selected" + Delete; renders nothing without a selection |
 | `…/ai-spreadsheet-drag-chip.tsx` | client | the card that rides the pointer during a column drag |
 | `…/use-sheet-labels.ts` | hook | resolves the canvas's i18n copy once and hands it to the painters as data |
@@ -44,11 +44,14 @@ change.
 | `…/use-run-cells.ts` · `use-run-listening.ts` · `use-sheet-runs.ts` | hook | Run: what the selection would run (`planRunTargets`) + `runAi.runCells` · whether the sheet streams · the `runAi.onChange` subscription and the per-cell working-run map (`seed` takes the whole batch) |
 | `apps/dashboard/src/lib/ai-spreadsheet/*.ts` | pure | types, geometry (`HEADER_HEIGHT` from `@reclit/ui/tokens`), palette (`theme-colors.ts`, read from the CSS variables with a fallback built from `colors.light`), formatting, text metrics, five painters, `run-state.ts`, `run-status.ts`, `run-targets.ts` (`selectionRect`, `planRunTargets`, the run caps in lockstep with the contract), `short-ids.ts`, `export-csv.ts`, `import-file.ts` (`fetchAllRows` lives in the shared `lib/spreadsheet/fetch-all-rows.ts`) (`uploadFile` lives in the shared `lib/upload-file.ts`) |
 | `apps/dashboard/src/hooks/use-canvas-surface.ts` · `use-file-picker.ts` · `use-latest-ref.ts` · `use-reseed.ts` | hook | feature-agnostic: DPR-correct canvas · hidden file input · latest-value ref · prop-following draft state |
+| `apps/dashboard/src/components/assistant/*` · `lib/assistant/*` · `config/assistant.ts` | client / pure | The assistant island in the header, in scope `spreadsheet` here — listed in [root.md](root.md). The sheet's `registerPage` handler is `use-assistant-refresh.ts` below |
+| `…/use-assistant-refresh.ts` | hook | Registers the sheet with the assistant while the grid is mounted: `flushPending` before a run; after its changes `flushPending` → reset the editor → invalidate `spreadsheet.rows` (the import's refresh path, flushing instead of discarding) |
 
 Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/textarea`,
 `@reclit/ui/select`, `@reclit/ui/capsule-select`, `@reclit/ui/calendar`,
 `@reclit/ui/tooltip`, `@reclit/ui/cn`, `components/common/form-field.tsx`,
-`components/layout/header-actions.tsx`, `.scrollbar-none` and the
+`components/layout/header-actions.tsx` (`HeaderActions` for the toolbar,
+`HeaderCenter` for the island), `.scrollbar-none` and the
 `duration-smooth`/`ease-smooth` motion pair from `packages/ui`.
 
 ## APIs called
@@ -70,6 +73,12 @@ Feature: [spreadsheet](../features/spreadsheet.md) ·
 | `POST /files` (REST, multipart) | file / audio cell upload; the cell stores the returned URL | — |
 | `POST /spreadsheets/:id/import` (REST, multipart) | Import; replaces the whole grid | `spreadsheet.rows` — the one invalidation |
 | Export | no API — CSV serialised from the in-memory model (`export-csv.ts`) | — |
+
+The assistant island's calls (`assistant.start` / `active` / `onChange` /
+`cancel` / `respond`, `POST /assistant/transcribe`) are tabled once in
+[root.md](root.md); here the scope is `spreadsheet` and a run's refresh
+invalidates `spreadsheet.rows` through the grid's registered handler
+(`use-assistant-refresh.ts`).
 
 The wire types in `lib/ai-spreadsheet/types.ts` are type-only aliases of
 `RouterOutputs["spreadsheet"]["rows"]`. A row is nested — one `{ id, name,
@@ -103,7 +112,11 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   `paint-header.ts`) paints it before its name. An `ai` or `google_search`
   column's prompt is what Run executes; a Google Search column searches
   Google about the row before answering.
-- **Run.** Runs the AI cells of the selected rectangle: plain columns inside
+- **Run.** The Run control is the outlined "Run AI" pill at the right end
+  of the header's assistant capsule (the count is in its tooltip), present
+  only while the selection holds an AI cell it can run; the toolbar has no
+  Run button. It runs the AI cells of the
+  selected rectangle: plain columns inside
   it are ignored, every row is a series (its AI columns run in display order,
   each fed the previous answer) and the rows run as a batch, column by
   column. Enabled only while the rectangle holds at least one AI cell with a
@@ -113,8 +126,7 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   creates the runs and seeds their `pending` capsules ("Starting…" until the
   API answers). A rectangle over 1,000 rows or 5,000 AI cells is refused
   inline before any request (`listen.errorTooLarge`); `CONFLICT` (a cell
-  became busy meanwhile) shows inline too. While the sheet streams the button
-  is filled with the live glyph but stays usable.
+  became busy meanwhile) shows in the capsule too, until dismissed.
 - **Working runs.** A cell with a working run paints a borderless capsule with
   a dot and the status label: `pending` muted, `running` success, any custom
   stage in primary. The dot's halo breathes (1.2 s, repainted every 40 ms only
@@ -172,11 +184,16 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   renames are optimistic, so the refusal has to happen before the model
   changes.
 - **Toolbar.** Import, Export, cell clear and row delete are icon-only
-  buttons (`size="icon-sm"`, label in `aria-label` and a tooltip). Run keeps
-  its label — it carries the cell count — and **lights up** while the
-  selection (a click, or shift-click for a range) holds runnable AI cells:
-  filled primary with a breathing halo (`animate-pulse`,
-  `motion-reduce:animate-none`).
+  buttons (`size="icon-sm"`, label in `aria-label` and a tooltip). Run is
+  not in the toolbar: it **appears** in the assistant capsule the moment the
+  selection (a click, or shift-click for a range) holds runnable AI cells —
+  a pill outlined in the primary colour, labelled "Run AI", with the cell
+  count in its tooltip — and goes when it does not.
+- **The assistant island** sits centred over the toolbar (absolutely
+  positioned, so the toolbar growing never moves it) and, in this scope, can
+  create, rename, retype, reorder columns, write cells and append rows;
+  removing a column or rows asks inside the capsule first. Behaviour and
+  states: [root.md](root.md).
 - **Import / Export.** Both are header actions. Import replaces the grid
   ("Importing…" while it runs, failure inline with the sheet untouched).
   Export downloads CSV (RFC 4180 quoting, UTF-8 BOM, filename from the sheet

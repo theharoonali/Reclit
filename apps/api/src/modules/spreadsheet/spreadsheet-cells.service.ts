@@ -14,6 +14,7 @@ import type {
   SetCellInput,
   SheetCell,
   SheetRow,
+  UpdateCellsInput,
   UpdateRowInput,
 } from "./spreadsheet.schema";
 import { cellValueMatchesType, toWireColumnType } from "./spreadsheet.schema";
@@ -134,6 +135,36 @@ export class SpreadsheetCellsService {
       ...cells.map((cell) => writeCell(id, rowIndex, cell)),
     ]);
     return spreadsheetService.row(id, rowIndex);
+  }
+
+  /**
+   * Cell writes across many rows — the assistant's bulk fill — validated up
+   * front like `updateRow`, then written in chunked transactions so a refused
+   * value writes nothing and a long fill never holds one transaction open. A
+   * row whose writes are all clears gets no row record, like `setCell`.
+   */
+  async updateCells({
+    id,
+    cells,
+  }: UpdateCellsInput): Promise<{ count: number }> {
+    await this.assertWritable(id, cells);
+    const byRow = new Map<number, CellWrite[]>();
+    for (const { rowIndex, ...write } of cells) {
+      const writes = byRow.get(rowIndex) ?? [];
+      writes.push(write);
+      byRow.set(rowIndex, writes);
+    }
+    const statements = [...byRow].flatMap(([rowIndex, writes]) => [
+      ...(writes.some((write) => write.value !== null)
+        ? [upsertRow(id, rowIndex)]
+        : []),
+      ...writes.map((write) => writeCell(id, rowIndex, write)),
+    ]);
+    const CHUNK = 500;
+    for (let start = 0; start < statements.length; start += CHUNK) {
+      await prisma.$transaction(statements.slice(start, start + CHUNK));
+    }
+    return { count: cells.length };
   }
 
   /**

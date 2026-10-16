@@ -192,7 +192,7 @@
       "label": "Export"
     },
     "listen": {
-      "start": "Run",
+      "start": "Run AI",
       "startMany": "{count, plural, one {Run # cell} other {Run # cells}}",
       "running": "Starting...",
       "errorBusy": "A selected cell already has a run in progress.",
@@ -310,5 +310,59 @@
     "errorEmpty": "That file has no header row or no data.",
     "errorTooLarge": "That file has too many rows or columns to import.",
     "errorName": "The workspace name must be 200 characters or fewer."
+  },
+  "assistant": {
+    "label": "Assistant",
+    "open": "Open the assistant",
+    "placeholder": "Ask the assistant…",
+    "send": "Send",
+    "mic": "Speak your request",
+    "stop": "Stop recording",
+    "listening": "Listening…",
+    "transcribing": "Transcribing…",
+    "submitting": "Sending…",
+    "cancel": "Cancel run",
+    "queued": "Queued",
+    "thinking": "Thinking…",
+    "working": "Working: {step}",
+    "steps": {
+      "readRows": "reading the rows",
+      "getColumnSummary": "summarising {column}",
+      "createColumn": "creating column {name}",
+      "updateColumn": "updating column {column}",
+      "reorderColumn": "moving {column} to position {position}",
+      "setCells": "writing {count, plural, one {# cell} other {# cells}} in {column}",
+      "fillColumn": "filling {column}",
+      "appendRows": "adding {count, plural, one {# row} other {# rows}}",
+      "removeColumn": "removing column {column}",
+      "removeRows": "removing {count, plural, one {# row} other {# rows}}",
+      "createWidget": "creating widget {name}",
+      "updateWidget": "updating widget {name}",
+      "removeWidget": "removing widget {name}",
+      "updateDashboard": "updating the dashboard",
+      "generic": "running {tool}"
+    },
+    "confirm": {
+      "removeColumn": "Delete column {column} and its {count, plural, one {# cell} other {# cells}}?",
+      "removeRows": "Delete {count, plural, one {# row} other {# rows}}?",
+      "removeWidget": "Delete the widget {name}?",
+      "delete": "Delete",
+      "keep": "Keep"
+    },
+    "result": {
+      "done": "Done",
+      "failed": "The run failed.",
+      "cancelled": "Cancelled",
+      "dismiss": "Dismiss"
+    },
+    "errors": {
+      "busy": "A run is already in progress.",
+      "dispatch": "The run could not be started. Try again.",
+      "transcriptionUnavailable": "Voice input is not available right now.",
+      "transcriptionFailed": "The recording could not be transcribed. Try again.",
+      "micDenied": "Allow microphone access to speak your request.",
+      "micUnsupported": "This browser cannot record audio.",
+      "unknown": "Something went wrong. Try again."
+    }
   }
 }

@@ -5,6 +5,9 @@ import { z } from "zod";
 
 export const idInput = z.object({ id: z.string().min(1) });
 
+/** The workspace-scoped input the dashboard and the assistant share. */
+export const workspaceIdInput = z.object({ workspaceId: z.string().min(1) });
+
 /** Coerced so the same schema parses REST query strings and tRPC numbers. */
 export const paginationInput = z.object({
   startRow: z.coerce.number().int().min(0).default(0),

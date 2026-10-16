@@ -15,6 +15,7 @@ the doc is insufficient, then fix the doc.
 | onboarding | [onboarding.md](onboarding.md) | — (writes `User.onboardingCompleted`) | — (REST `POST /onboarding`) | `apps/api/src/__tests__/onboarding.api.test.ts` |
 | external-api | [external-api.md](external-api.md) | `ExternalApi` | `externalApi` | `apps/api/src/__tests__/external-api.api.test.ts` |
 | dashboard | [dashboard.md](dashboard.md) | `Dashboard`, `DashboardWidget` | `dashboard` | `apps/api/src/__tests__/dashboard.api.test.ts` |
+| assistant | [assistant.md](assistant.md) | `AssistantRun` | `assistant` (+ REST `POST /assistant/transcribe`) | `apps/api/src/__tests__/assistant.api.test.ts` |
 
 New feature? Copy [`_template.md`](_template.md), fill it in, add a row here.
 

@@ -58,8 +58,9 @@ model Workspace {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  spreadsheets Spreadsheet[]
-  dashboard    Dashboard?
+  spreadsheets  Spreadsheet[]
+  dashboard     Dashboard?
+  assistantRuns AssistantRun[]
 
   @@index([ownerId])
   @@index([createdAt])
@@ -77,6 +78,7 @@ model Spreadsheet {
   rows             Row[]
   cells            Cell[]
   dashboardWidgets DashboardWidget[]
+  assistantRuns    AssistantRun[]
 
   @@index([createdAt])
   @@index([workspaceId])
@@ -253,4 +255,56 @@ model DashboardWidget {
 
   @@index([dashboardId, row, sort])
   @@index([spreadsheetId])
+}
+
+/// Which page's tool set an assistant run uses. Lowercase on the wire;
+/// assistant.schema.ts holds the 1:1 case mapping.
+enum AssistantScope {
+  DASHBOARD
+  SPREADSHEET
+}
+
+/// Who started the run: a person through the header capsule, or the system
+/// (onboarding, a job). Lowercase on the wire.
+enum AssistantSource {
+  USER
+  SYSTEM
+}
+
+/// One assistant run: a prompt, the steps the model took through the tools and
+/// where it stands (docs/plans/030-assistant-island.md). `status` is free
+/// text, uppercase: PENDING | THINKING | WORKING | AWAITING_CONFIRMATION |
+/// COMPLETED | FAILED | CANCELLED; the last three are terminal. `steps` is the
+/// bounded list of tool calls with summarised inputs; `pendingAction` is the
+/// destructive call waiting for the user while the status is
+/// AWAITING_CONFIRMATION; `transcript` is the model conversation, kept for
+/// audit and never selected onto the wire; `triggerRunId` is what `cancel`
+/// hands to Trigger.dev. Two things the schema cannot express live in the
+/// migration `add_assistant_run`: a partial unique index that allows one
+/// non-terminal run per workspace, and an AFTER INSERT OR UPDATE trigger that
+/// `pg_notify`s the row id on channel `assistant_run_changed`
+/// (modules/assistant/assistant.feed.ts listens).
+model AssistantRun {
+  id            String          @id @default(uuid())
+  workspaceId   String
+  spreadsheetId String?
+  scope         AssistantScope
+  source        AssistantSource @default(USER)
+  prompt        String
+  status        String          @default("PENDING")
+  steps         Json            @default("[]")
+  pendingAction Json?
+  summary       String?
+  error         Json?
+  model         String?
+  usage         Json?
+  transcript    Json?
+  triggerRunId  String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  spreadsheet   Spreadsheet?    @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, updatedAt])
+  @@index([createdAt])
 }

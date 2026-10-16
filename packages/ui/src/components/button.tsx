@@ -18,6 +18,9 @@ import { cn } from "../utils";
  * | `destructive` | delete, and nothing else |
  * | `destructive-outline` | a destructive action that is not the surface's primary emphasis |
  * | `link` | an action that reads as text |
+ * | `island` | a round ghost action inside the transparent assistant island (mic, send, cancel, dismiss, Keep): the page foreground, a circular hover |
+ * | `island-outline` | the island's one pill with the primary border: the page's action (the sheet's Run AI) |
+ * | `island-plain` | a round action inside the island's field with no hover feedback at all (the mic) |
  *
  * Icons need no classes: the base sizes any `svg` child to `size-icon` and
  * spaces it with `gap-inline`. `<Plus />`, not `<Plus className="mr-2 h-4 w-4" />`.
@@ -46,6 +49,11 @@ const buttonVariants = cva(
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
+        island:
+          "rounded-full text-foreground hover:bg-accent hover:text-accent-foreground",
+        "island-outline":
+          "rounded-full border border-primary bg-transparent text-primary hover:bg-primary hover:text-primary-foreground",
+        "island-plain": "rounded-full text-foreground",
       },
       size: {
         default: "h-control px-control-x py-control-y",
