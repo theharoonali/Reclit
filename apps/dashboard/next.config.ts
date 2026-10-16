@@ -7,7 +7,7 @@ const config: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,
-  transpilePackages: ["@reclit/ui", "@reclit/api"],
+  transpilePackages: ["@reclit/ui", "@reclit/api", "@reclit/dashboard-engine"],
   devIndicators: false,
   async headers() {
     return [

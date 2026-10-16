@@ -59,22 +59,24 @@ model Workspace {
   updatedAt    DateTime      @updatedAt
   owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   spreadsheets Spreadsheet[]
+  dashboard    Dashboard?
 
   @@index([ownerId])
   @@index([createdAt])
 }
 
 model Spreadsheet {
-  id          String    @id @default(uuid())
-  name        String
-  totalRows   Int       @default(5000000)
-  workspaceId String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  columns     Column[]
-  rows        Row[]
-  cells       Cell[]
+  id               String            @id @default(uuid())
+  name             String
+  totalRows        Int               @default(5000000)
+  workspaceId      String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  columns          Column[]
+  rows             Row[]
+  cells            Cell[]
+  dashboardWidgets DashboardWidget[]
 
   @@index([createdAt])
   @@index([workspaceId])
@@ -191,4 +193,64 @@ model ExternalApi {
   @@index([cellId, createdAt])
   /// The cross-cell lookup: "has any cell already processed this source?"
   @@index([input, createdAt])
+}
+
+/// On the wire these are lowercase ("bar", "md"); dashboard.schema.ts holds
+/// the 1:1 case mapping, like ColumnType.
+enum DashboardWidgetType {
+  STAT
+  AREA
+  BAR
+  LINE
+  PIE
+  RADAR
+  RADIAL
+  HEATMAP
+  TABLE
+}
+
+enum DashboardWidgetHeight {
+  SM
+  MD
+  LG
+}
+
+/// One dashboard per workspace, created lazily by the first widget write
+/// (docs/plans/029-backend-dashboard.md). It stores configuration only —
+/// never data: every widget is computed in the browser from the sheet.
+model Dashboard {
+  id          String            @id @default(uuid())
+  workspaceId String            @unique
+  /// null → the page's default title / subtitle.
+  title       String?
+  description String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  widgets     DashboardWidget[]
+}
+
+/// A widget's placement and its query. `query` is a WidgetQuery
+/// (@reclit/dashboard-engine), validated against the sheet's columns on every
+/// write; the service is its only writer.
+model DashboardWidget {
+  id            String                @id @default(uuid())
+  dashboardId   String
+  spreadsheetId String
+  name          String
+  description   String?
+  type          DashboardWidgetType
+  variant       String                @default("default")
+  row           Int
+  column        Int
+  sort          Int
+  height        DashboardWidgetHeight @default(MD)
+  query         Json
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  dashboard     Dashboard             @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  spreadsheet   Spreadsheet           @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
+
+  @@index([dashboardId, row, sort])
+  @@index([spreadsheetId])
 }

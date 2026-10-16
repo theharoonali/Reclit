@@ -26,6 +26,7 @@
     "@nestjs/platform-express": "^11.1.6",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
+    "@reclit/dashboard-engine": "workspace:*",
     "@supabase/supabase-js": "^2.112.4",
     "@trigger.dev/sdk": "4.5.15",
     "@trpc/server": "^11.16.0",

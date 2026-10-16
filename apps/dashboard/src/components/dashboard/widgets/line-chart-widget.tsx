@@ -9,14 +9,14 @@ import {
 } from "@reclit/ui/chart";
 import { cn } from "@reclit/ui/cn";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
-import type { DashboardWidget } from "@/dummy-data/dashboard.schema";
 import { toChartConfig, WIDGET_HEIGHT } from "@/lib/dashboard/layout";
+import type { ResolvedWidget } from "@/lib/dashboard/widget-state";
 
 /**
  * shadcn's line chart. `default`: smooth lines; `dots`: a dot on every
  * point; `step`: stepped lines for counts that jump.
  */
-export function LineChartWidget({ widget }: { widget: DashboardWidget }) {
+export function LineChartWidget({ widget }: { widget: ResolvedWidget }) {
   const { data, variant, height } = widget;
 
   return (
@@ -32,7 +32,12 @@ export function LineChartWidget({ widget }: { widget: DashboardWidget }) {
           tickLine={false}
           tickMargin={8}
         />
-        <YAxis axisLine={false} tickLine={false} width={32} />
+        <YAxis
+          allowDecimals={false}
+          axisLine={false}
+          tickLine={false}
+          width={32}
+        />
         <ChartTooltip content={<ChartTooltipContent />} cursor={false} />
         {data.series.length > 1 && (
           <ChartLegend content={<ChartLegendContent />} />

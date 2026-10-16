@@ -36,7 +36,10 @@ apps/api (NestJS on Bun, port 4001)
         │                google_search column) → writes the run + cell
         └── crawl-website: one site through Firecrawl → ExternalApi, reused from any cell
 
-packages/ui  → shared primitives + Tailwind preset, consumed by the dashboard
+packages/ui               → shared primitives + Tailwind preset, consumed by the dashboard
+packages/dashboard-engine → the dashboard's formula + query engine (pure TS): the api
+                            validates widget queries with it on write, the dashboard
+                            computes every widget with it in the browser
 ```
 
 ## API (`apps/api`)
@@ -108,8 +111,9 @@ packages/ui  → shared primitives + Tailwind preset, consumed by the dashboard
 TypeScript source. The dashboard imports `AppRouter` **as a type only** and Next
 transpiles the import graph (`transpilePackages: ["@reclit/api"]`). That graph is
 `_app.ts → <feature>.ts → init.ts → {@trpc/server, superjson, zod}` plus the
-feature services, the feed and the Prisma client — no NestJS, no
-`@trigger.dev/sdk` — which is why those directories must stay free of both.
+feature services, the feed, the Prisma client and `@reclit/dashboard-engine`
+(also in `transpilePackages`) — no NestJS, no `@trigger.dev/sdk` — which is
+why those directories must stay free of both.
 
 Services declare **schema-inferred** return types and select explicit columns, so
 `@prisma/client` types never reach `RouterOutputs`. The dashboard bundle contains

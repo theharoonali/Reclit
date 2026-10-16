@@ -1,3 +1,4 @@
+import type { WidgetRecord, WidgetSeries } from "@reclit/dashboard-engine";
 import { Avatar, AvatarFallback } from "@reclit/ui/avatar";
 import { Button } from "@reclit/ui/button";
 import {
@@ -8,11 +9,8 @@ import {
   TableHeader,
   TableRow,
 } from "@reclit/ui/table";
-import type {
-  DashboardWidget,
-  WidgetRecord,
-  WidgetSeries,
-} from "@/dummy-data/dashboard.schema";
+import { formatFigure } from "@/lib/dashboard/format";
+import type { ResolvedWidget } from "@/lib/dashboard/widget-state";
 
 const initials = (name: string) =>
   name
@@ -29,21 +27,19 @@ function Cell({
   series: WidgetSeries;
   record: WidgetRecord;
 }) {
-  const value = record[series.key];
-  const text =
-    typeof value === "number" ? value.toLocaleString() : (value ?? "");
+  const text = formatFigure(record[series.key], series);
 
   if (series.kind === "person") {
     return (
       <div className="flex items-center gap-3">
         <Avatar className="size-avatar-sm">
-          <AvatarFallback>{initials(String(text))}</AvatarFallback>
+          <AvatarFallback>{initials(text)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0">
           <p className="truncate text-label">{text}</p>
           {series.detailKey && (
             <p className="truncate text-caption text-muted-foreground">
-              {record[series.detailKey]}
+              {formatFigure(record[series.detailKey])}
             </p>
           )}
         </div>
@@ -65,7 +61,7 @@ function Cell({
  * `person` (avatar, name, `detailKey` line), `number`, `action` (the cell's
  * text as an outline button, no handler yet) or plain text.
  */
-export function TableWidget({ widget }: { widget: DashboardWidget }) {
+export function TableWidget({ widget }: { widget: ResolvedWidget }) {
   const { data } = widget;
   const idKey = data.categoryKey ?? "";
 

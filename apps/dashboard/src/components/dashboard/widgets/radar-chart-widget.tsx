@@ -9,14 +9,14 @@ import {
 } from "@reclit/ui/chart";
 import { cn } from "@reclit/ui/cn";
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart } from "recharts";
-import type { DashboardWidget } from "@/dummy-data/dashboard.schema";
 import { toChartConfig, WIDGET_HEIGHT } from "@/lib/dashboard/layout";
+import type { ResolvedWidget } from "@/lib/dashboard/widget-state";
 
 /**
  * shadcn's radar chart: `categoryKey` is each spoke, every series a filled
  * shape. `dots` marks each point.
  */
-export function RadarChartWidget({ widget }: { widget: DashboardWidget }) {
+export function RadarChartWidget({ widget }: { widget: ResolvedWidget }) {
   const { data, variant, height } = widget;
   const overlapping = data.series.length > 1;
 

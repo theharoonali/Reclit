@@ -42,7 +42,7 @@ change.
 | `…/use-sheet-import.ts` | hook | uploads a CSV/XLSX, then refreshes the grid without remounting it |
 | `…/use-sheet-audio.ts` | hook | one shared `Audio` element and which audio cell is playing |
 | `…/use-run-cells.ts` · `use-run-listening.ts` · `use-sheet-runs.ts` | hook | Run: what the selection would run (`planRunTargets`) + `runAi.runCells` · whether the sheet streams · the `runAi.onChange` subscription and the per-cell working-run map (`seed` takes the whole batch) |
-| `apps/dashboard/src/lib/ai-spreadsheet/*.ts` | pure | types, geometry (`HEADER_HEIGHT` from `@reclit/ui/tokens`), palette (`theme-colors.ts`, read from the CSS variables with a fallback built from `colors.light`), formatting, text metrics, five painters, `run-state.ts`, `run-status.ts`, `run-targets.ts` (`selectionRect`, `planRunTargets`, the run caps in lockstep with the contract), `short-ids.ts`, `export-csv.ts`, `fetch-all-rows.ts`, `import-file.ts` (`uploadFile` lives in the shared `lib/upload-file.ts`) |
+| `apps/dashboard/src/lib/ai-spreadsheet/*.ts` | pure | types, geometry (`HEADER_HEIGHT` from `@reclit/ui/tokens`), palette (`theme-colors.ts`, read from the CSS variables with a fallback built from `colors.light`), formatting, text metrics, five painters, `run-state.ts`, `run-status.ts`, `run-targets.ts` (`selectionRect`, `planRunTargets`, the run caps in lockstep with the contract), `short-ids.ts`, `export-csv.ts`, `import-file.ts` (`fetchAllRows` lives in the shared `lib/spreadsheet/fetch-all-rows.ts`) (`uploadFile` lives in the shared `lib/upload-file.ts`) |
 | `apps/dashboard/src/hooks/use-canvas-surface.ts` · `use-file-picker.ts` · `use-latest-ref.ts` · `use-reseed.ts` | hook | feature-agnostic: DPR-correct canvas · hidden file input · latest-value ref · prop-following draft state |
 
 Shared pieces used: `@reclit/ui/button`, `@reclit/ui/input`, `@reclit/ui/textarea`,
@@ -59,7 +59,7 @@ Feature: [spreadsheet](../features/spreadsheet.md) ·
 | Procedure / endpoint | When | Invalidates |
 | --- | --- | --- |
 | `workspace.list` | on load (prefetched; consumed via `WorkspaceProvider`) | — |
-| `spreadsheet.rows` | on load, every page (`fetch-all-rows.ts` walks `hasMore`/`nextCursor` and merges) | — |
+| `spreadsheet.rows` | on load, every page (`lib/spreadsheet/fetch-all-rows.ts` walks `hasMore`/`nextCursor` and merges) | — |
 | `spreadsheet.setCell` | per cell edit, debounced 400 ms, latest wins; a failure snaps the cell back | — (local model is the truth) |
 | `spreadsheet.createColumn` · `updateColumn` | column form submit; every field sent explicitly, so a cleared node/prompt goes out as `null` | — |
 | `spreadsheet.removeColumn` | header × on a hovered column; pending writes discarded first | — |

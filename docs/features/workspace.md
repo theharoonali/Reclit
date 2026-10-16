@@ -73,3 +73,6 @@ default user and one workspace per pre-existing sheet.
   active workspace's `spreadsheetId` via `workspace.list`.
 - `workspace.rename` / `workspace.remove` currently have no UI surface — the
   settings workspace section was removed; the procedures and contract remain.
+- The `dashboard` feature ([dashboard.md](dashboard.md)) — `byId` to check
+  the workspace and default a widget to its `spreadsheetId`; `Dashboard`
+  hangs off `Workspace` one-to-one.

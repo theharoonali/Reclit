@@ -1,18 +1,22 @@
-import type { DashboardWidget } from "@/dummy-data/dashboard.schema";
+import { formatFigure } from "@/lib/dashboard/format";
+import type { ResolvedWidget } from "@/lib/dashboard/widget-state";
 import { WidgetFooter } from "./widget-footer";
-
-const format = (value: string | number | null | undefined) =>
-  typeof value === "number" ? value.toLocaleString() : (value ?? "");
 
 /**
  * A KPI card body. `default`: the headline figure (`valueKey`) with each
- * series as a smaller figure beside it ("233 of 310"). `text`: the headline
- * is a sentence (the "Update" card). Both end in the footer.
+ * other series as a smaller figure beside it ("233 of 310"). `text`: the
+ * headline is a sentence. Both end in the footer — a stat's `compare`
+ * figure arrives as the footer's trend line.
  */
-export function StatWidget({ widget }: { widget: DashboardWidget }) {
+export function StatWidget({ widget }: { widget: ResolvedWidget }) {
   const { data, variant, name } = widget;
   const record = data.rows[0] ?? {};
-  const headline = format(record[data.valueKey ?? ""]);
+  const valueKey = data.valueKey ?? "";
+  const headline = formatFigure(
+    record[valueKey],
+    data.series.find((series) => series.key === valueKey),
+  );
+  const secondary = data.series.filter((series) => series.key !== valueKey);
 
   return (
     <div className="flex h-full flex-col gap-4 p-6">
@@ -27,12 +31,12 @@ export function StatWidget({ widget }: { widget: DashboardWidget }) {
       ) : (
         <p className="flex flex-1 items-baseline gap-2">
           <span className="text-display">{headline}</span>
-          {data.series.map((series) => (
+          {secondary.map((series) => (
             <span
-              className="text-subtitle text-muted-foreground"
+              className="text-muted-foreground text-subtitle"
               key={series.key}
             >
-              {series.label} {format(record[series.key])}
+              {series.label} {formatFigure(record[series.key], series)}
             </span>
           ))}
         </p>

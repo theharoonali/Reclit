@@ -17,6 +17,7 @@
     "@hugeicons/core-free-icons": "^4.3.4",
     "@hugeicons/react": "^1.1.10",
     "@reclit/api": "workspace:*",
+    "@reclit/dashboard-engine": "workspace:*",
     "@reclit/ui": "workspace:*",
     "@tanstack/react-query": "^5.95.2",
     "@trpc/client": "^11.16.0",

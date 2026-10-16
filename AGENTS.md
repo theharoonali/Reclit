@@ -19,7 +19,7 @@ The rules you must follow live in [docs/rules/](docs/rules/COMMON.md).
 
 A Bun + Turborepo TypeScript monorepo template: Next.js web app + NestJS API,
 connected end-to-end with tRPC. It keeps one example of each pattern — one
-application shell (`components/layout/`), one shared package (`@reclit/ui`) — so
+application shell (`components/layout/`), one shared UI package (`@reclit/ui`) — so
 you can copy the pattern to build features. The `spreadsheet` feature is the
 worked backend slice, Postgres → Prisma → service → tRPC (plus a REST
 controller), fully documented by its contract test, and `/ai-spreadsheet`
@@ -31,7 +31,8 @@ consumes it. `/` is the dashboard shell. There is no auth yet.
 | --- | --- | --- |
 | `apps/api` | `@reclit/api` | NestJS API server (Bun runtime), port **4001**, tRPC mounted at `/trpc`, Prisma + Postgres |
 | `apps/dashboard` | `@reclit/dashboard` | Next.js 16 App Router web app, port **4000** |
-| `packages/ui` | `@reclit/ui` | The one shared package: 14 primitives (`Button`, `Input`, `Select`, `Dialog`, `DropdownMenu`, … — inventory in [docs/rules/FRONTEND.md](docs/rules/FRONTEND.md)), the design tokens (`src/tokens.ts`), `cn`, the focus recipes and the Tailwind preset |
+| `packages/dashboard-engine` | `@reclit/dashboard-engine` | The dashboard's formula + query engine, pure TypeScript with no deps: `WidgetQuery`, `parseFormula`, `validateWidget`, `checkLayout`, `runWidget`. The api validates with it, the dashboard computes with it ([docs/features/dashboard.md](docs/features/dashboard.md)) |
+| `packages/ui` | `@reclit/ui` | The shared UI package: 14 primitives (`Button`, `Input`, `Select`, `Dialog`, `DropdownMenu`, … — inventory in [docs/rules/FRONTEND.md](docs/rules/FRONTEND.md)), the design tokens (`src/tokens.ts`), `cn`, the focus recipes and the Tailwind preset |
 
 ## Commands
 

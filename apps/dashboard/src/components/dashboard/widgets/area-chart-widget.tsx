@@ -10,14 +10,14 @@ import {
 import { cn } from "@reclit/ui/cn";
 import { useId } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import type { DashboardWidget } from "@/dummy-data/dashboard.schema";
 import { toChartConfig, WIDGET_HEIGHT } from "@/lib/dashboard/layout";
+import type { ResolvedWidget } from "@/lib/dashboard/widget-state";
 
 /**
  * shadcn's area chart. `default`: overlapping translucent areas; `stacked`:
  * series stacked on each other; `gradient`: each area fades out downwards.
  */
-export function AreaChartWidget({ widget }: { widget: DashboardWidget }) {
+export function AreaChartWidget({ widget }: { widget: ResolvedWidget }) {
   const { data, variant, height } = widget;
   // Gradient ids are document-global; scope them to this chart.
   const gradientId = useId().replace(/:/g, "");
@@ -60,7 +60,12 @@ export function AreaChartWidget({ widget }: { widget: DashboardWidget }) {
           tickLine={false}
           tickMargin={8}
         />
-        <YAxis axisLine={false} tickLine={false} width={32} />
+        <YAxis
+          allowDecimals={false}
+          axisLine={false}
+          tickLine={false}
+          width={32}
+        />
         <ChartTooltip
           content={<ChartTooltipContent indicator="line" />}
           cursor={false}

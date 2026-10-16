@@ -1,35 +1,17 @@
 import type {
   ChartColor,
-  DashboardWidget,
   WidgetHeight,
   WidgetSeries,
-} from "@/dummy-data/dashboard.schema";
-
-/** One dashboard row: its index and its widgets, left → right. */
-export type DashboardRow = { row: number; widgets: DashboardWidget[] };
+} from "@reclit/dashboard-engine";
 
 /**
- * Groups widgets into rows (ascending `row`) and orders each row by `sort`.
- * Rows are rendered independently, so a row whose spans total less than 12
- * keeps its trailing columns empty instead of pulling up the next row.
+ * The static class maps the dashboard renders with. Static because Tailwind
+ * only emits classes it can read in source. Row grouping and the layout rules
+ * live in `@reclit/dashboard-engine` (`toRows`, `checkLayout`), shared with
+ * the API.
  */
-export function toRows(widgets: DashboardWidget[]): DashboardRow[] {
-  const byRow = new Map<number, DashboardWidget[]>();
-  for (const widget of widgets) {
-    byRow.set(widget.row, [...(byRow.get(widget.row) ?? []), widget]);
-  }
-  return [...byRow.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([row, items]) => ({
-      row,
-      widgets: [...items].sort((a, b) => a.sort - b.sort),
-    }));
-}
 
-/**
- * `column` → its span class. Static because Tailwind only emits classes it can
- * read in source; below `lg` every widget is full width.
- */
+/** `column` → its span class; below `lg` every widget is full width. */
 export const COLUMN_SPAN: Record<number, string> = {
   1: "lg:col-span-1",
   2: "lg:col-span-2",
@@ -113,9 +95,15 @@ export const HEAT_CLASSES: Record<ChartColor, readonly string[]> = {
   ],
 };
 
-/** A 0–100 heatmap value → one of five intensity steps (0–4). */
-export function heatLevel(value: number | string | null | undefined): number {
+/**
+ * A heatmap value → one of five intensity steps (0–4), relative to `max`
+ * (the widget's largest value, so any measure fills the scale).
+ */
+export function heatLevel(
+  value: number | string | null | undefined,
+  max = 100,
+): number {
   const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  return Math.min(4, Math.floor(n / 20));
+  if (!Number.isFinite(n) || n <= 0 || max <= 0) return 0;
+  return Math.min(4, Math.floor((n / max) * 5));
 }

@@ -24,7 +24,6 @@ apps/dashboard/src/
 │   ├── workspace/                 # workspace-provider (useWorkspace) · account-menu · create-workspace-dialog · workspace-header-title
 │   └── <feature>/                 # this feature's components AND its hooks (use-*.ts), kebab-case
 ├── config/                        # nav.ts (menu data, keys not text) · populate.ts · subscription.ts (stubs)
-├── dummy-data/                    # app data with no API yet: dashboard.json + its zod schema + getDashboard() (not a test fixture)
 ├── hooks/use-*.ts                 # feature-agnostic hooks: use-canvas-surface · use-file-picker · use-latest-ref · use-reseed
 ├── i18n/                          # config.ts (locales) · request.ts (per-request locale) · metadata.ts (pageMetadata)
 ├── lib/                           # pure helpers and thin fetch wrappers (api-fetch.ts). No JSX
@@ -312,6 +311,11 @@ entry carries its weight, line-height and tracking, so `font-medium`,
   hand-write an interface for an API shape ([COMMON.md](COMMON.md)).
 - Multipart uploads use `postFile` from `lib/api-fetch.ts`; `API_BASE_URL`
   there is the only place the API origin is resolved.
+- Data computed in the browser (the dashboard's widgets) is derived in a
+  `useQuery` `select` from the fetched payload and left to TanStack to
+  memoise — never copied into component state or a second store
+  (`components/dashboard/use-widget-data.ts`). A derivation that can fail
+  returns a result, never throws: a throwing `select` is retried as a fetch.
 
 ## Internationalisation
 

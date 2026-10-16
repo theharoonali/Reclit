@@ -15,8 +15,8 @@ import {
   RadialBar,
   RadialBarChart,
 } from "recharts";
-import type { DashboardWidget } from "@/dummy-data/dashboard.schema";
 import { toChartConfig, WIDGET_HEIGHT } from "@/lib/dashboard/layout";
+import type { ResolvedWidget } from "@/lib/dashboard/widget-state";
 
 /**
  * A figure and caption centred in the chart, shadcn's radial "text" label. A
@@ -57,7 +57,7 @@ function centerLabel(value: string, caption: string) {
  * - `stacked`: the series of the first record stacked on a half ring, with
  *   their total in the middle.
  */
-export function RadialChartWidget({ widget }: { widget: DashboardWidget }) {
+export function RadialChartWidget({ widget }: { widget: ResolvedWidget }) {
   const { data, variant, height } = widget;
   const categoryKey = data.categoryKey ?? "";
   const valueKey = data.valueKey ?? "";

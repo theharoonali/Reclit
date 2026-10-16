@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { ErrorState } from "@/components/common/error-state";
 import { LoadingState } from "@/components/common/loading-state";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
-import { fetchAllRows } from "@/lib/ai-spreadsheet/fetch-all-rows";
+import { fetchAllRows } from "@/lib/spreadsheet/fetch-all-rows";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import { AiSpreadsheetGrid } from "./ai-spreadsheet-grid";
 

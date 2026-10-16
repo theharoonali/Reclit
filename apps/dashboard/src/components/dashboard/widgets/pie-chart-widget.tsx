@@ -9,15 +9,15 @@ import {
 } from "@reclit/ui/chart";
 import { cn } from "@reclit/ui/cn";
 import { Pie, PieChart } from "recharts";
-import type { DashboardWidget } from "@/dummy-data/dashboard.schema";
 import { toChartConfig, WIDGET_HEIGHT } from "@/lib/dashboard/layout";
+import type { ResolvedWidget } from "@/lib/dashboard/widget-state";
 
 /**
  * shadcn's pie chart. Each record is a slice: `categoryKey` names it (and
  * picks its series colour), `valueKey` sizes it. `donut` hollows the centre;
  * `label` prints each slice's value on it.
  */
-export function PieChartWidget({ widget }: { widget: DashboardWidget }) {
+export function PieChartWidget({ widget }: { widget: ResolvedWidget }) {
   const { data, variant, height } = widget;
   const categoryKey = data.categoryKey ?? "";
   const slices = data.rows.map((record) => ({

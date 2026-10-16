@@ -71,7 +71,26 @@
   },
   "dashboard": {
     "title": "Dashboard",
-    "subtitle": "An overview of your workspace."
+    "subtitle": "An overview of your workspace.",
+    "refresh": "Refresh",
+    "loading": "Loading the dashboard",
+    "loadError": "The dashboard could not be loaded.",
+    "empty": {
+      "title": "No dashboard yet",
+      "description": "Create a starter dashboard from your sheet's columns, or let the API build one.",
+      "create": "Create starter dashboard",
+      "creating": "Creating…",
+      "error": "The dashboard could not be created."
+    },
+    "widget": {
+      "loading": "Loading widget data",
+      "loadError": "The sheet could not be loaded.",
+      "errors": {
+        "unknownColumn": "Column \"{column}\" is not in the sheet.",
+        "formula": "A formula in this widget is invalid.",
+        "query": "This widget's query does not fit the sheet."
+      }
+    }
   },
   "metadata": {
     "title": "Dashboard",

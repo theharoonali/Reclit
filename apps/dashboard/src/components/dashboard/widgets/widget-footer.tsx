@@ -1,9 +1,9 @@
+import type { WidgetData } from "@reclit/dashboard-engine";
 import { ChevronRight, TrendingDown, TrendingUp } from "lucide-react";
-import type { WidgetData } from "@/dummy-data/dashboard.schema";
 
 /**
- * The line under a stat or chart: a trend with its icon ("↗ 10% of
- * yesterday"), or a plain pointer ("See analytics ›") when there is no trend.
+ * The line under a stat or chart: a trend with its icon ("↗ +12% vs last
+ * month"), or a plain pointer ("See analytics ›") when there is no trend.
  */
 export function WidgetFooter({
   footer,

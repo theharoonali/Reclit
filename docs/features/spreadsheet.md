@@ -165,3 +165,6 @@ transpiles.
 - The `populate` feature ([populate.md](populate.md)) — `byId`, `columnsOf` and
   `appendRow`; it is how `/form/[spreadsheetId]` and the Populate API write a
   row.
+- The `dashboard` feature ([dashboard.md](dashboard.md)) — `columnsOf` to
+  validate a widget's query on write; `/` reads the sheet with `rows` and
+  computes every widget in the browser.

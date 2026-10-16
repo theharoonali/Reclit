@@ -9,15 +9,15 @@ import {
 } from "@reclit/ui/chart";
 import { cn } from "@reclit/ui/cn";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import type { DashboardWidget } from "@/dummy-data/dashboard.schema";
 import { toChartConfig, WIDGET_HEIGHT } from "@/lib/dashboard/layout";
+import type { ResolvedWidget } from "@/lib/dashboard/widget-state";
 
 /**
  * shadcn's bar chart. `default`: grouped bars; `stacked`: one bar per
  * category, series stacked; `horizontal`: bars run left → right with the
  * categories down the side.
  */
-export function BarChartWidget({ widget }: { widget: DashboardWidget }) {
+export function BarChartWidget({ widget }: { widget: ResolvedWidget }) {
   const { data, variant, height } = widget;
   const horizontal = variant === "horizontal";
 
@@ -53,7 +53,12 @@ export function BarChartWidget({ widget }: { widget: DashboardWidget }) {
             width={88}
           />
         ) : (
-          <YAxis axisLine={false} tickLine={false} width={32} />
+          <YAxis
+            allowDecimals={false}
+            axisLine={false}
+            tickLine={false}
+            width={32}
+          />
         )}
         <ChartTooltip content={<ChartTooltipContent />} cursor={false} />
         {data.series.length > 1 && (

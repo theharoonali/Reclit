@@ -1,5 +1,5 @@
-import { parseShortRowId } from "./short-ids";
-import type { SheetPayload } from "./types";
+import { parseShortRowId } from "@/lib/ai-spreadsheet/short-ids";
+import type { SheetPayload } from "@/lib/ai-spreadsheet/types";
 
 /**
  * Reads every *stored* row of a sheet, not just the first page.
