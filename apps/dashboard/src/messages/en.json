@@ -313,7 +313,7 @@
   },
   "assistant": {
     "label": "Assistant",
-    "open": "Open the assistant",
+    "askAi": "Reclit AI",
     "placeholder": "Ask the assistant…",
     "send": "Send",
     "mic": "Speak your request",

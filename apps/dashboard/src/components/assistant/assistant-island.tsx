@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from "@reclit/ui/button";
 import { cn } from "@reclit/ui/cn";
 import { useTranslations } from "next-intl";
 import {
@@ -29,9 +28,10 @@ import { AssistantStage } from "./assistant-stage";
 import { useVoiceInput } from "./use-voice-input";
 
 /**
- * The capsule in the header. Closed it is the orb alone — plus the page's
- * action pill (the sheet's Run AI) when the page offers one; hover or focus
- * opens the field; a run replaces the field with its stage line, a
+ * The capsule in the header. At rest it is the orb and a short "Reclit AI" pill
+ * — plus the page's action pill (the sheet's Run AI) when the page offers
+ * one; hover or focus widens the capsule and the same pill grows into the
+ * field with the mic inside; a run replaces the field with its stage line, a
  * confirmation with its question, and the end of a run with its result.
  * Which of those shows is `islandMode` (`lib/assistant/island-state.ts`);
  * the provider owns the run and the page action, this component owns the
@@ -51,7 +51,8 @@ export function AssistantIsland() {
     wantsFocus.current = true;
   });
 
-  // The field mounts a render after the island opens; focus it then.
+  // The field may mount a render after a result or an error is dismissed;
+  // focus it then.
   useEffect(() => {
     if (wantsFocus.current && inputRef.current) {
       wantsFocus.current = false;
@@ -84,10 +85,6 @@ export function AssistantIsland() {
         ? "listening"
         : "idle";
 
-  const openField = () => {
-    setFocused(true);
-    wantsFocus.current = true;
-  };
   const dismiss = () => {
     assistant.dismiss();
     voice.reset();
@@ -112,7 +109,7 @@ export function AssistantIsland() {
   };
   const handleClick = (event: MouseEvent<HTMLFormElement>) => {
     if ((event.target as HTMLElement).closest("button")) return;
-    openField();
+    setFocused(true);
     inputRef.current?.focus();
   };
 
@@ -135,20 +132,6 @@ export function AssistantIsland() {
         onSubmit={handleSubmit}
       >
         <AssistantOrb state={orbState} />
-        {mode === "idle" && !showsError && (
-          // Keyboard users have no field to tab into while the capsule is
-          // closed: this control, visible only to them, opens it.
-          <Button
-            className="sr-only"
-            onClick={openField}
-            onFocus={openField}
-            size="icon-sm"
-            type="button"
-            variant="island"
-          >
-            {t("open")}
-          </Button>
-        )}
         {showsError ? (
           <AssistantResult
             errorKey={errorKey}
@@ -157,7 +140,7 @@ export function AssistantIsland() {
             status={null}
             summary={null}
           />
-        ) : isComposing(mode) ? (
+        ) : mode === "idle" || isComposing(mode) ? (
           <AssistantComposer
             draft={draft}
             inputRef={inputRef}

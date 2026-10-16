@@ -189,9 +189,11 @@ export const sizes = {
   panel: "20rem",
   "sheet-header": `${SHEET_HEADER_PX}px`,
 
-  // The assistant island — the capsule's width per mode, and its orb.
-  "island-closed": "3.25rem",
-  "island-action": "10rem",
+  // The assistant island — at rest the orb and the "Reclit AI" label (or
+  // those plus the page's action pill); the open field; a run's stage or a
+  // confirmation. Rest widths are fixed lengths so the capsule can animate.
+  "island-closed": "9.5rem",
+  "island-action": "15rem",
   island: "24rem",
   "island-wide": "30rem",
   orb: "1.75rem",

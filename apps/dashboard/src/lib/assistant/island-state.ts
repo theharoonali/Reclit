@@ -66,10 +66,11 @@ export function islandMode(inputs: IslandInputs): IslandMode {
 }
 
 /**
- * The capsule's width per mode — four token widths from `tokens.ts`. Closed
- * it is the orb alone, or the orb plus the page's action pill when the
- * page offers one (`hasAction`); the field needs room to type; a run's stage
- * line and a confirmation's two buttons need more.
+ * The capsule's width per mode — token lengths from `tokens.ts`, so the
+ * width can animate. At rest it is the orb and the "Reclit AI" label, or
+ * those plus the page's action pill when the page offers one (`hasAction`);
+ * the open field needs room to type; a run's stage line and a confirmation
+ * need more.
  */
 export function islandWidthClass(mode: IslandMode, hasAction = false): string {
   switch (mode) {

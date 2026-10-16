@@ -38,8 +38,8 @@ client because the active workspace is client state (localStorage).
 | `apps/dashboard/src/components/assistant/assistant-provider.tsx` | client | `useAssistant()` — the assistant run for the app (`run`, `lastTerminal`, `isSubmitting`, `errorKey`, `start` / `cancel` / `respond` / `dismiss`), the scope from `scopeForPath(usePathname())`, and `registerPage(scope, { beforeStart?, refresh })` for a page's handlers; invalidates the dashboard's caches after a run's changes |
 | `…/use-assistant-run.ts` | client hook | The run layer: `assistant.active` on load (`staleTime: 0`), the `assistant.onChange` subscription while a run is alive (newer row wins; `closed` ends it), `assistant.start` (subscribes first) / `cancel` / `respond`, tRPC code → `errorKey` |
 | `apps/dashboard/src/components/assistant/assistant-island.tsx` | client | The capsule: a `<form>` portalled into `HeaderCenter`, `islandMode` from the run and the field (draft, hover, focus, voice), width `w-island-closed` / `w-island` / `w-island-wide`, Enter submits, Escape collapses an empty field; the orb, then one of the pieces below |
-| `…/assistant-composer.tsx` · `assistant-stage.tsx` · `assistant-confirm.tsx` · `assistant-result.tsx` · `assistant-run-action.tsx` | client | The pill `Input` with mic / Stop / Send (arrow right) / spinner inside its right end · the stage line (`aria-live`) + cancel × · the question + Delete / Keep (disabled once answered) · the done / failed / cancelled, error or page-refusal line + dismiss · the page's action pill (the sheet's Run AI: outlined in the primary colour, the count in its tooltip, "Starting…" while busy) |
-| `…/assistant-orb.tsx` | client | The animated orb: a `size-orb` canvas (`useCanvasSurface` + `requestAnimationFrame`) of three smoothed wave ribbons on a dark disc with a rotating pink and blue wash, clipped to a circle with a light rim. `state` sets the tempo (idle is the design speed), paused when the tab is hidden or motion is reduced (still frame) |
+| `…/assistant-composer.tsx` · `assistant-stage.tsx` · `assistant-confirm.tsx` · `assistant-result.tsx` · `assistant-run-action.tsx` | client | The pill `Input` with mic / Stop / Send (arrow right) / spinner inside its right end · the stage line (`aria-live`) + cancel × · the question + circular check / cross (disabled once answered) · the done / failed / cancelled, error or page-refusal line + dismiss · the page's action pill (the sheet's Run AI: outlined in the primary colour, the count in its tooltip, "Starting…" while busy) |
+| `…/assistant-orb.tsx` | client | The animated orb: a `size-orb` canvas (`useCanvasSurface` + `requestAnimationFrame`) of two filled wave ribbons (blue and red) on a dark disc with a rotating colour sweep, drifting gloss and a white sheen, clipped to a circle with a gradient rim. `state` sets the tempo (idle is the design speed), paused when the tab is hidden or motion is reduced (still frame) |
 | `…/use-voice-input.ts` | hook | `MediaRecorder` (`audio/webm;codecs=opus`, else `audio/mp4`), 60 s auto-stop, 10 MB guard → `transcribeAudio`; hands the text to the caller, never sends it |
 | `…/use-run-lifecycle.ts` | hook | Around any run: refresh the page after a mutating step (debounced 500 ms) and at the end; auto-dismiss done after 8 s, cancelled after 4 s, failed never |
 | `apps/dashboard/src/lib/assistant/*.ts` | pure | `types.ts` (the pinned wire shapes), `island-state.ts` (`islandMode`, `islandWidthClass`, the status predicates), `step-label.ts` (`stepLabel` / `confirmLabel` → `{ key, values }` for `t`), `transcribe.ts` (`POST /assistant/transcribe`) |
@@ -83,7 +83,7 @@ plan [030](../plans/030-assistant-island.md); feature
 | `assistant.start` | mutation | `use-assistant-run.ts` (`start`, after the page's `beforeStart`) | — |
 | `assistant.active` | query | `use-assistant-run.ts`, on load (`staleTime: 0`) | — (set to null on `closed` / dismiss) |
 | `assistant.onChange` | subscription (SSE) | `use-assistant-run.ts`, while a run is alive | — |
-| `assistant.cancel` · `assistant.respond` | mutation | the stage's × · the confirmation's Delete / Keep | — |
+| `assistant.cancel` · `assistant.respond` | mutation | the stage's × · the confirmation's check / cross | — |
 | `POST /assistant/transcribe` | REST, multipart | `use-voice-input.ts` through `lib/assistant/transcribe.ts` | — |
 | Refresh | — | `use-run-lifecycle.ts` after a mutating step (debounced 500 ms) and at the end of a run | `dashboard.byWorkspace` + `sheetRowsQueryKey` prefix, always; plus the run's page handler (the sheet's `use-assistant-refresh.ts`) |
 
@@ -122,16 +122,19 @@ calls `workspace.create` (invalidating `workspace.list` and
   outlet laid over the bar (the assistant island), and `actions` +
   `HeaderActions` outlet on the right, where this page puts its Refresh
   button. There is no search field, no notification bell and no header avatar.
-- **The assistant island** sits centred in the header (`md` and up). Closed,
-  it is the wave orb in a `w-island-closed` capsule; hovering, focusing or
-  clicking it opens a `w-island` field with a mic (hidden where the browser
-  cannot record; Send once there is text, Enter sends; Escape collapses an
-  empty field). The mic records up to 60 s, Stop (or the limit) sends the
+- **The assistant island** sits centred in the header (`md` and up). At
+  rest it is the orb and a short "Reclit AI" label, centred in a
+  `w-island-closed` capsule; hovering, focusing or clicking it widens the
+  capsule to
+  `w-island` and the same pill grows into the field, the mic fading in
+  inside its right end (hidden where the browser cannot record; a right
+  arrow sends once there is text, Enter sends; Escape collapses an empty
+  field). The mic records up to 60 s, Stop (or the limit) sends the
   audio to be transcribed and puts the text in the field — never sends it.
   A run widens the capsule to `w-island-wide` and streams its stage —
   Queued, Thinking, "Working: <step>" formatted from the server's tool and
   summarised input — with a cancel ×; a delete pauses it on a question with
-  Delete / Keep, both disabled once answered. The end of a run is one line:
+  a circular check and cross, both disabled once answered. The end of a run is one line:
   the summary (gone after 8 s), "The run failed." (until dismissed) or
   "Cancelled" (4 s). A refusal (busy, dispatch) or a mic / transcription
   problem shows as an error line in the open capsule with a dismiss ×. The

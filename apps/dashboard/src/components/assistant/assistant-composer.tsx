@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@reclit/ui/button";
+import { cn } from "@reclit/ui/cn";
 import { Input } from "@reclit/ui/input";
 import { Spinner } from "@reclit/ui/spinner";
 import { ArrowRight, Mic, Square } from "lucide-react";
@@ -10,12 +11,13 @@ import { ASSISTANT_PROMPT_MAX } from "@/config/assistant";
 import type { IslandMode } from "@/lib/assistant/island-state";
 
 /**
- * The open capsule's innards: the pill field with one control inside its
- * right end — the mic while the field is empty (hidden when the browser
- * cannot record), Stop while recording, Send once there is text, a spinner
- * while the audio is transcribed or the prompt is on its way. Enter submits
- * the form around it. Transcribed text lands in the field; it is never sent
- * by itself.
+ * The capsule's field. At rest (`compact`) it is a short pill reading
+ * "Reclit AI"; as the capsule widens the same element grows into the full field
+ * with one control inside its right end — the mic while the field is empty
+ * (hidden when the browser cannot record), Stop while recording, Send once
+ * there is text, a spinner while the audio is transcribed or the prompt is on
+ * its way. Enter submits the form around it. Transcribed text lands in the
+ * field; it is never sent by itself.
  */
 export function AssistantComposer({
   mode,
@@ -26,7 +28,7 @@ export function AssistantComposer({
 }: {
   mode: Extract<
     IslandMode,
-    "open" | "typing" | "recording" | "transcribing" | "submitting"
+    "idle" | "open" | "typing" | "recording" | "transcribing" | "submitting"
   >;
   draft: string;
   onDraftChange: (draft: string) => void;
@@ -34,9 +36,11 @@ export function AssistantComposer({
   voice: { supported: boolean; onStart: () => void; onStop: () => void };
 }) {
   const t = useTranslations("assistant");
+  const compact = mode === "idle";
   const isBusy = mode === "transcribing" || mode === "submitting";
-  const placeholder =
-    mode === "recording"
+  const placeholder = compact
+    ? t("askAi")
+    : mode === "recording"
       ? t("listening")
       : mode === "transcribing"
         ? t("transcribing")
@@ -80,6 +84,7 @@ export function AssistantComposer({
         aria-label={t("mic")}
         onClick={voice.onStart}
         size="icon-sm"
+        tabIndex={compact ? -1 : undefined}
         type="button"
         variant="island-plain"
       >
@@ -93,8 +98,12 @@ export function AssistantComposer({
       <Input
         aria-label={t("label")}
         autoComplete="off"
-        // Room for the control, which sits inside the field's right end.
-        className={control ? "pr-control-sm" : undefined}
+        // At rest the label is centred in the pill. Open, the control sits
+        // inside the field's right end.
+        className={cn(
+          compact && "text-center",
+          control && !compact && "pr-control-sm",
+        )}
         disabled={isBusy}
         enterKeyHint="send"
         maxLength={ASSISTANT_PROMPT_MAX}
@@ -105,7 +114,14 @@ export function AssistantComposer({
         variant="pill"
       />
       {control && (
-        <span className="absolute inset-y-0 right-0 flex items-center">
+        // Fades in as the pill grows; at rest it is neither seen nor reachable.
+        <span
+          aria-hidden={compact}
+          className={cn(
+            "absolute inset-y-0 right-0 flex items-center transition-opacity duration-smooth ease-smooth motion-reduce:transition-none",
+            compact && "pointer-events-none opacity-0",
+          )}
+        >
           {control}
         </span>
       )}

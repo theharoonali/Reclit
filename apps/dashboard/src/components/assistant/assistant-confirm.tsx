@@ -1,15 +1,16 @@
 "use client";
 
 import { Button } from "@reclit/ui/button";
+import { Check, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { confirmLabel } from "@/lib/assistant/step-label";
 import type { PendingAction } from "@/lib/assistant/types";
 
 /**
  * The capsule while a destructive step waits on the user: the question,
- * then Delete / Keep. Both buttons disable the moment an answer is recorded
- * (`pendingAction.response`), so a double click cannot answer twice while the
- * run catches up.
+ * then a circular check (confirm) and cross (keep). Both disable the moment
+ * an answer is recorded (`pendingAction.response`), so a double click cannot
+ * answer twice while the run catches up.
  */
 export function AssistantConfirm({
   action,
@@ -28,22 +29,25 @@ export function AssistantConfirm({
         {t(label.key, label.values)}
       </p>
       <Button
+        aria-label={t("confirm.delete")}
         disabled={isAnswered}
         onClick={() => onRespond(true)}
-        size="sm"
+        className="rounded-full"
+        size="icon-sm"
         type="button"
         variant="destructive"
       >
-        {t("confirm.delete")}
+        <Check aria-hidden="true" />
       </Button>
       <Button
+        aria-label={t("confirm.keep")}
         disabled={isAnswered}
         onClick={() => onRespond(false)}
-        size="sm"
+        size="icon-sm"
         type="button"
         variant="island"
       >
-        {t("confirm.keep")}
+        <X aria-hidden="true" />
       </Button>
     </>
   );

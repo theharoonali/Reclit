@@ -18,102 +18,168 @@ const TEMPO: Record<OrbState, number> = {
 };
 
 /** The still frame when the user prefers reduced motion. */
-const STILL_TIME = 1.4;
+const STILL_TIME = 1.15;
 
-type Ribbon = {
-  color: string;
-  core: string;
-  freq: number;
-  speed: number;
-  offset: number;
-  amp: number;
-  drift: number;
-  width: number;
+type Rgb = readonly [number, number, number];
+
+type Wave = {
+  shift: number;
+  color: Rgb;
+  core: Rgb;
 };
 
-/** Three waves across the disc. Colours are the orb's own, not theme tokens. */
-const RIBBONS: Ribbon[] = [
-  {
-    color: "rgba(70, 190, 255, 1)",
-    core: "rgba(226, 246, 255, 1)",
-    freq: 1.15,
-    speed: 1.45,
-    offset: 0.2,
-    amp: 0.2,
-    drift: 0.42,
-    width: 0.034,
-  },
-  {
-    color: "rgba(255, 90, 170, 1)",
-    core: "rgba(255, 214, 232, 1)",
-    freq: 1.35,
-    speed: -1.05,
-    offset: 1.7,
-    amp: 0.18,
-    drift: 0.33,
-    width: 0.04,
-  },
-  {
-    color: "rgba(255, 64, 180, 1)",
-    core: "rgba(255, 220, 240, 1)",
-    freq: 1.05,
-    speed: 0.72,
-    offset: 2.6,
-    amp: 0.15,
-    drift: 0.28,
-    width: 0.03,
-  },
+/** Two waves across the disc. Colours are the orb's own, not theme tokens. */
+const WAVES: Wave[] = [
+  { shift: 0, color: [64, 168, 255], core: [236, 247, 255] },
+  { shift: 1, color: [255, 52, 36], core: [255, 186, 150] },
 ];
 
-function ribbonY(ribbon: Ribbon, across: number, time: number) {
-  const travel = across * Math.PI * ribbon.freq * 0.72;
-  const edge = Math.cos(Math.min(1, Math.abs(across)) * Math.PI * 0.5);
-  const envelope = 0.28 + 0.72 * Math.pow(Math.max(0, edge), 1.35);
-  const swell = 0.84 + 0.16 * Math.sin(time * ribbon.drift + ribbon.offset);
-  const phase = travel + time * ribbon.speed + ribbon.offset;
-  const wave = Math.sin(phase) + 0.12 * Math.sin(phase * 2);
-  return wave * ribbon.amp * 0.62 * swell * envelope;
+const STEPS = 140;
+
+function motion(time: number) {
+  const morph = 0.5 + 0.5 * Math.sin(time * 0.27);
+  return {
+    freq: 0.92 + morph * 0.78,
+    amp: 0.24 + morph * 0.14,
+    split: 0.35 + 2.35 * (0.5 + 0.5 * Math.sin(time * 0.19)),
+  };
 }
 
-function traceRibbon(
+function waveY(across: number, time: number, shift: number) {
+  const m = motion(time);
+  const breathe = 0.84 + 0.16 * Math.sin(time * 0.58 + shift * 1.7);
+  const phase = time * 0.82 + shift * m.split;
+  const p = across * Math.PI * m.freq + phase;
+  const shape = Math.sin(p) + 0.14 * Math.sin(p * 2 + 0.5);
+  const env = Math.max(0, 1 - across * across) ** 0.72;
+  return shape * m.amp * breathe * env;
+}
+
+function ribbonPath(
   ctx: CanvasRenderingContext2D,
-  ribbon: Ribbon,
   time: number,
+  shift: number,
   cx: number,
   cy: number,
   radius: number,
-  reflect: number,
+  bulk: number,
 ) {
-  const steps = 72;
-  const points: { x: number; y: number }[] = [];
-  for (let i = 0; i <= steps; i++) {
-    const across = (i / steps) * 2 - 1;
-    points.push({
-      x: cx + across * (radius - 2),
-      y: cy + ribbonY(ribbon, across, time) * radius * reflect,
-    });
+  const upper: [number, number][] = [];
+  const lower: [number, number][] = [];
+  for (let i = 0; i <= STEPS; i++) {
+    const across = (i / STEPS) * 2 - 1;
+    const env = Math.max(0, 1 - across * across) ** 0.8;
+    const y = waveY(across, time, shift) * radius;
+    const half = radius * bulk * (0.05 + 0.95 * env);
+    const x = cx + across * radius * 0.985;
+    upper.push([x, cy + y - half]);
+    lower.push([x, cy + y + half]);
   }
-  const first = points[0];
-  if (!first) return;
+  const start = upper[0];
+  if (!start) return;
   ctx.beginPath();
-  ctx.moveTo(first.x, first.y);
-  for (let i = 1; i < points.length - 1; i++) {
-    const point = points[i];
-    const next = points[i + 1];
-    if (!point || !next) continue;
-    const midX = (point.x + next.x) * 0.5;
-    const midY = (point.y + next.y) * 0.5;
-    ctx.quadraticCurveTo(point.x, point.y, midX, midY);
+  ctx.moveTo(start[0], start[1]);
+  for (let i = 1; i < upper.length; i++) {
+    const point = upper[i];
+    if (point) ctx.lineTo(point[0], point[1]);
   }
-  const end = points[points.length - 1];
-  if (end) ctx.lineTo(end.x, end.y);
+  for (let i = lower.length - 1; i >= 0; i--) {
+    const point = lower[i];
+    if (point) ctx.lineTo(point[0], point[1]);
+  }
+  ctx.closePath();
+}
+
+function centerPath(
+  ctx: CanvasRenderingContext2D,
+  time: number,
+  shift: number,
+  cx: number,
+  cy: number,
+  radius: number,
+) {
+  ctx.beginPath();
+  for (let i = 0; i <= STEPS; i++) {
+    const across = (i / STEPS) * 2 - 1;
+    const x = cx + across * radius * 0.985;
+    const y = cy + waveY(across, time, shift) * radius;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+}
+
+function rgba(rgb: Rgb, alpha: number) {
+  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
+}
+
+function paintWave(
+  ctx: CanvasRenderingContext2D,
+  time: number,
+  wave: Wave,
+  cx: number,
+  cy: number,
+  radius: number,
+) {
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.shadowColor = `rgb(${wave.color[0]}, ${wave.color[1]}, ${wave.color[2]})`;
+  ctx.fillStyle = rgba(wave.color, 0.16);
+  ctx.shadowBlur = radius * 0.22;
+  ribbonPath(ctx, time, wave.shift, cx, cy, radius, 0.018);
+  ctx.fill();
+
+  ctx.shadowBlur = radius * 0.045;
+  ctx.fillStyle = rgba(wave.color, 0.78);
+  ribbonPath(ctx, time, wave.shift, cx, cy, radius, 0.011);
+  ctx.fill();
+
+  const core = ctx.createLinearGradient(cx - radius, cy, cx + radius, cy);
+  core.addColorStop(0, rgba(wave.core, 0));
+  core.addColorStop(0.16, rgba(wave.core, 0.2));
+  core.addColorStop(0.5, "rgba(255, 255, 255, 0.8)");
+  core.addColorStop(0.84, rgba(wave.core, 0.2));
+  core.addColorStop(1, rgba(wave.core, 0));
+  ctx.shadowBlur = radius * 0.012;
+  ctx.strokeStyle = core;
+  ctx.lineWidth = Math.max(1, radius * 0.007);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  centerPath(ctx, time, wave.shift, cx, cy, radius);
+  ctx.stroke();
+  ctx.restore();
+}
+
+type Gloss = { x: number; y: number; color: string; alpha: number };
+
+function glossSpots(time: number): Gloss[] {
+  return [
+    {
+      x: Math.cos(time * 0.9) * 0.46,
+      y: Math.sin(time * 0.7) * 0.4,
+      color: "80, 180, 255",
+      alpha: 0.5,
+    },
+    {
+      x: Math.cos(time * 0.75 + 2.1) * 0.5,
+      y: Math.sin(time * 1.05 + 1) * 0.42,
+      color: "255, 70, 160",
+      alpha: 0.4,
+    },
+    {
+      x: Math.cos(time * 0.62 + 4) * 0.42,
+      y: Math.sin(time * 0.84 + 2.4) * 0.48,
+      color: "255, 100, 40",
+      alpha: 0.36,
+    },
+  ];
 }
 
 /**
- * Circular wave orb: a dark disc with a rotating pink and blue wash, three smoothed
- * ribbons clipped inside it, then a shade and a light rim.
- * Coordinates are CSS pixels. Self-contained on purpose — the component
- * around it handles sizing, timing and pausing.
+ * Circular wave orb: a dark disc with a rotating blue–purple–pink–orange
+ * sweep, three drifting gloss spots and a white sheen, two filled ribbons
+ * clipped inside it, then a shade and a gradient rim. Coordinates are CSS
+ * pixels. Self-contained on purpose — the component around it handles
+ * sizing, timing and pausing.
  */
 function paint(
   ctx: CanvasRenderingContext2D,
@@ -131,98 +197,75 @@ function paint(
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
   ctx.clip();
 
-  ctx.fillStyle = "#07040e";
+  ctx.fillStyle = "#07030c";
   ctx.fillRect(0, 0, width, height);
 
-  const spin = time * 0.45;
+  const spin = time * 0.65;
   const sweep = ctx.createLinearGradient(
     cx + Math.cos(spin) * radius,
     cy + Math.sin(spin) * radius,
     cx - Math.cos(spin) * radius,
-    cy - Math.sin(spin) * radius,
+    cy - Math.sin(spin * 0.85) * radius,
   );
-  sweep.addColorStop(0, "hsla(200, 92%, 58%, 0.72)");
-  sweep.addColorStop(0.38, "hsla(330, 90%, 62%, 0.55)");
-  sweep.addColorStop(0.68, "hsla(210, 92%, 52%, 0.48)");
-  sweep.addColorStop(1, "hsla(322, 88%, 58%, 0.62)");
+  sweep.addColorStop(0, "rgba(70, 165, 255, 0.62)");
+  sweep.addColorStop(0.34, "rgba(186, 64, 255, 0.4)");
+  sweep.addColorStop(0.66, "rgba(255, 64, 130, 0.36)");
+  sweep.addColorStop(1, "rgba(255, 96, 42, 0.48)");
   ctx.fillStyle = sweep;
   ctx.fillRect(0, 0, width, height);
 
-  const glow = ctx.createRadialGradient(
-    cx + Math.cos(spin * 1.3) * radius * 0.32,
-    cy + Math.sin(spin * 0.9) * radius * 0.28,
-    radius * 0.04,
+  for (const spot of glossSpots(time)) {
+    const wash = ctx.createRadialGradient(
+      cx + spot.x * radius,
+      cy + spot.y * radius,
+      radius * 0.02,
+      cx,
+      cy,
+      radius * 0.78,
+    );
+    wash.addColorStop(0, `rgba(${spot.color}, ${spot.alpha})`);
+    wash.addColorStop(0.45, `rgba(${spot.color}, ${spot.alpha * 0.22})`);
+    wash.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = wash;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  for (const wave of WAVES) paintWave(ctx, time, wave, cx, cy, radius);
+
+  const sheen = ctx.createRadialGradient(
+    cx + Math.sin(time * 0.8) * radius * 0.32,
+    cy - radius * 0.4 + Math.cos(time * 0.55) * radius * 0.1,
+    radius * 0.02,
     cx,
-    cy,
-    radius,
+    cy - radius * 0.05,
+    radius * 0.75,
   );
-  glow.addColorStop(0, "rgba(186, 220, 255, 0.28)");
-  glow.addColorStop(0.35, "rgba(255, 160, 210, 0.12)");
-  glow.addColorStop(1, "rgba(0, 0, 0, 0)");
-  ctx.fillStyle = glow;
+  sheen.addColorStop(0, "rgba(255, 255, 255, 0.28)");
+  sheen.addColorStop(0.35, "rgba(255, 255, 255, 0.08)");
+  sheen.addColorStop(1, "rgba(255, 255, 255, 0)");
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = sheen;
   ctx.fillRect(0, 0, width, height);
 
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  for (const ribbon of RIBBONS) {
-    traceRibbon(ctx, ribbon, time, cx, cy, radius, 1);
-    ctx.globalCompositeOperation = "source-over";
-    ctx.strokeStyle = ribbon.color;
-    ctx.globalAlpha = 0.16;
-    ctx.lineWidth = radius * 0.2;
-    ctx.shadowColor = ribbon.color;
-    ctx.shadowBlur = radius * 0.08;
-    ctx.stroke();
-
-    traceRibbon(ctx, ribbon, time, cx, cy, radius, -0.62);
-    ctx.globalAlpha = 0.07;
-    ctx.lineWidth = radius * 0.12;
-    ctx.stroke();
-  }
-
-  ctx.globalCompositeOperation = "lighter";
-  ctx.shadowBlur = radius * 0.035;
-  for (const ribbon of RIBBONS) {
-    traceRibbon(ctx, ribbon, time, cx, cy, radius, 1);
-    ctx.strokeStyle = ribbon.color;
-    ctx.globalAlpha = 0.72;
-    ctx.lineWidth = radius * ribbon.width;
-    ctx.shadowColor = ribbon.color;
-    ctx.stroke();
-
-    traceRibbon(ctx, ribbon, time, cx, cy, radius, 1);
-    ctx.strokeStyle = ribbon.core;
-    ctx.globalAlpha = 0.9;
-    ctx.lineWidth = radius * 0.008;
-    ctx.shadowBlur = radius * 0.015;
-    ctx.stroke();
-  }
-
-  const shade = ctx.createRadialGradient(
-    cx,
-    cy - radius * 0.18,
-    radius * 0.2,
-    cx,
-    cy,
-    radius,
-  );
+  const shade = ctx.createRadialGradient(cx, cy, radius * 0.55, cx, cy, radius);
   shade.addColorStop(0, "rgba(0, 0, 0, 0)");
-  shade.addColorStop(0.72, "rgba(0, 0, 0, 0.08)");
-  shade.addColorStop(1, "rgba(0, 0, 0, 0.55)");
+  shade.addColorStop(0.82, "rgba(0, 0, 0, 0.08)");
+  shade.addColorStop(1, "rgba(0, 0, 0, 0.42)");
   ctx.globalCompositeOperation = "source-over";
-  ctx.globalAlpha = 1;
-  ctx.shadowBlur = 0;
   ctx.fillStyle = shade;
   ctx.fillRect(0, 0, width, height);
   ctx.restore();
 
-  ctx.shadowBlur = 0;
-  ctx.globalAlpha = 1;
+  const rimWidth = Math.max(2, radius * 0.018);
+  const rim = ctx.createLinearGradient(cx, cy - radius, cx, cy + radius);
+  rim.addColorStop(0, "rgba(255, 255, 255, 0.9)");
+  rim.addColorStop(0.22, "rgba(255, 255, 255, 0.45)");
+  rim.addColorStop(0.5, "rgba(190, 150, 170, 0.22)");
+  rim.addColorStop(1, "rgba(255, 122, 78, 0.42)");
   ctx.beginPath();
-  ctx.arc(cx, cy, Math.max(0, radius - 1.5), 0, Math.PI * 2);
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
-  ctx.lineWidth = Math.max(1, width / 480);
+  ctx.arc(cx, cy, Math.max(0, radius - rimWidth * 0.5), 0, Math.PI * 2);
+  ctx.strokeStyle = rim;
+  ctx.lineWidth = rimWidth;
   ctx.stroke();
 }
 
