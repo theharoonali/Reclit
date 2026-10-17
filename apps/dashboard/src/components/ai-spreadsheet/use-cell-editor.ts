@@ -3,11 +3,17 @@
 import { useCallback, useEffect, useRef } from "react";
 import { editableText, parseCellInput } from "@/lib/ai-spreadsheet/cell-format";
 import { CELL_PAD_X, COL_WIDTH, clamp } from "@/lib/ai-spreadsheet/geometry";
-import { selectionRect } from "@/lib/ai-spreadsheet/run-targets";
+import {
+  containsCell,
+  selectionRect,
+  selectionRects,
+} from "@/lib/ai-spreadsheet/run-targets";
 import { caretXForIndex } from "@/lib/ai-spreadsheet/text-metrics";
 import type {
+  CellAddress,
   CellValue,
   EditorState,
+  SelectionRect,
   SheetFonts,
   SheetModel,
   Viewport,
@@ -18,6 +24,7 @@ const BLINK_MS = 530;
 const IDLE: EditorState = {
   active: null,
   anchor: null,
+  areas: [],
   mode: "idle",
   buffer: "",
   caret: 0,
@@ -85,18 +92,17 @@ export function useCellEditor(args: CellEditorArgs) {
   const { onSelectionPresence, onSelectionChange } = args;
 
   const presenceRef = useRef(false);
-  const rectKeyRef = useRef<string | null>(null);
+  const rectKeyRef = useRef("");
   const notifyPresence = useCallback(() => {
-    const { active, anchor } = editorRef.current;
-    const has = active !== null;
+    const editor = editorRef.current;
+    const has = editor.active !== null;
     if (has !== presenceRef.current) {
       presenceRef.current = has;
       onSelectionPresence?.(has);
     }
-    const rect = active ? selectionRect(active, anchor) : null;
-    const key = rect
-      ? `${rect.rowFirst}:${rect.rowLast}:${rect.colFirst}:${rect.colLast}`
-      : null;
+    const key = selectionRects(editor)
+      .map((r) => `${r.rowFirst}:${r.rowLast}:${r.colFirst}:${r.colLast}`)
+      .join("|");
     if (key !== rectKeyRef.current) {
       rectKeyRef.current = key;
       onSelectionChange?.();
@@ -175,18 +181,18 @@ export function useCellEditor(args: CellEditorArgs) {
     resetProxy("");
   }, [columnAt, getCell, resetProxy, setCell, stopBlink]);
 
-  // Commits before moving: clicking another cell mid-edit saves the edit —
-  // pressing Enter first is not required, and Escape still discards.
-  // A plain select collapses any shift-range: the anchor snaps to the cell.
-  const selectCell = useCallback(
-    (row: number, col: number) => {
+  /**
+   * Puts the selection at the rectangle `anchor`…`active`, keeping only the
+   * earlier `areas` it is handed (none by default). Commits before moving:
+   * clicking another cell mid-edit saves the edit — pressing Enter first is
+   * not required, and Escape still discards. Every other way of selecting (a
+   * cell, a range, a whole row, a picked area) is a call to this.
+   */
+  const selectRange = useCallback(
+    (anchor: CellAddress, active: CellAddress, areas: SelectionRect[] = []) => {
       commitPending();
       stopBlink();
-      editorRef.current = {
-        ...IDLE,
-        active: { row, col },
-        anchor: { row, col },
-      };
+      editorRef.current = { ...IDLE, active, anchor, areas };
       resetProxy("");
       focusProxy();
       requestPaint();
@@ -202,31 +208,86 @@ export function useCellEditor(args: CellEditorArgs) {
     ],
   );
 
+  /** A plain select collapses any range: the anchor snaps to the cell. */
+  const selectCell = useCallback(
+    (row: number, col: number) => selectRange({ row, col }, { row, col }),
+    [selectRange],
+  );
+
   /**
-   * Shift-click / shift-arrow: moves `active` while the anchor stays put, so
-   * the rectangle between them is the selection. With no prior selection the
-   * anchor seeds at the target and the extend degrades to a plain select.
+   * Shift-click / shift-arrow / drag: moves `active` while the anchor stays
+   * put, so the rectangle between them is the selection. With no prior
+   * selection the anchor seeds at the target and the extend degrades to a
+   * plain select.
    */
   const extendTo = useCallback(
     (row: number, col: number) => {
       const before = editorRef.current;
-      const anchor = before.anchor ?? before.active ?? { row, col };
-      commitPending();
-      stopBlink();
-      editorRef.current = { ...IDLE, active: { row, col }, anchor };
-      resetProxy("");
-      focusProxy();
-      requestPaint();
-      notifyPresence();
+      selectRange(
+        before.anchor ?? before.active ?? { row, col },
+        { row, col },
+        before.areas,
+      );
     },
-    [
-      commitPending,
-      focusProxy,
-      notifyPresence,
-      requestPaint,
-      resetProxy,
-      stopBlink,
-    ],
+    [selectRange],
+  );
+
+  /** Nothing selected: the row controls and the Run pill withdraw. */
+  const clearSelection = useCallback(() => {
+    commitPending();
+    stopBlink();
+    editorRef.current = { ...IDLE };
+    resetProxy("");
+    requestPaint();
+    notifyPresence();
+  }, [commitPending, notifyPresence, requestPaint, resetProxy, stopBlink]);
+
+  /**
+   * Shift-click: makes the rectangle `anchor`…`active` the current area and
+   * keeps the one before as an earlier area — or, when that exact rectangle
+   * already is an area on its own, removes it instead. Returns whether it was
+   * added, so a press that removed can decline to start a drag.
+   */
+  const toggleArea = useCallback(
+    (anchor: CellAddress, active: CellAddress): boolean => {
+      const before = editorRef.current;
+      const target = selectionRect(active, anchor);
+      const same = (rect: SelectionRect) =>
+        rect.rowFirst === target.rowFirst &&
+        rect.rowLast === target.rowLast &&
+        rect.colFirst === target.colFirst &&
+        rect.colLast === target.colLast;
+      const current = before.active
+        ? selectionRect(before.active, before.anchor)
+        : null;
+      if (current && same(current)) {
+        // Removing the current area: the one before it becomes current again.
+        const areas = [...before.areas];
+        const last = areas.pop();
+        if (last) {
+          selectRange(
+            { row: last.rowLast, col: last.colLast },
+            { row: last.rowFirst, col: last.colFirst },
+            areas,
+          );
+        } else {
+          clearSelection();
+        }
+        return false;
+      }
+      const index = before.areas.findIndex(same);
+      if (index >= 0 && before.active) {
+        selectRange(
+          before.anchor ?? before.active,
+          before.active,
+          before.areas.filter((_, i) => i !== index),
+        );
+        return false;
+      }
+      selectRange(anchor, active, current ? [...before.areas, current] : []);
+      return true;
+    },
+    [clearSelection, selectRange],
   );
 
   const extendMove = useCallback(
@@ -299,6 +360,7 @@ export function useCellEditor(args: CellEditorArgs) {
       editorRef.current = {
         active: { row, col },
         anchor: { row, col },
+        areas: [],
         mode: "editing",
         buffer: text,
         caret: text.length,
@@ -356,10 +418,12 @@ export function useCellEditor(args: CellEditorArgs) {
     [commitPending, moveActive, requestPaint],
   );
 
+  // Keeps the selection, anchor included: cancelling an edit — or the cancel
+  // that runs before Delete rows — must not collapse a row selection.
   const cancel = useCallback(() => {
-    const active = editorRef.current.active;
+    const { active, anchor, areas } = editorRef.current;
     stopBlink();
-    editorRef.current = { ...IDLE, active };
+    editorRef.current = { ...IDLE, active, anchor, areas };
     resetProxy("");
     requestPaint();
   }, [requestPaint, resetProxy, stopBlink]);
@@ -378,20 +442,15 @@ export function useCellEditor(args: CellEditorArgs) {
   }, [refreshCaretMetrics, requestPaint, restartBlink]);
 
   /**
-   * Blanks every stored cell in the shift-selection (a single cell when the
-   * range is collapsed). Walks the model's sparse cell map rather than the
-   * selected rectangle — a shift-selection can span millions of virtual rows,
-   * but only stored cells can need clearing.
+   * Blanks every stored cell in the selection's areas (a single cell when
+   * nothing is extended or picked). Walks the model's sparse cell map rather
+   * than the areas — an area can span millions of virtual rows, but only
+   * stored cells can need clearing.
    */
   const clearSelectedCells = useCallback(() => {
-    const editor = editorRef.current;
     const model = modelRef.current;
-    const active = editor.active;
-    if (!model || !active) return;
-    const { rowFirst, rowLast, colFirst, colLast } = selectionRect(
-      active,
-      editor.anchor,
-    );
+    const rects = selectionRects(editorRef.current);
+    if (!model || rects.length === 0) return;
     const displayCol = new Map<string, number>();
     model.columns.forEach((column, index) => {
       displayCol.set(column.id, index);
@@ -400,9 +459,9 @@ export function useCellEditor(args: CellEditorArgs) {
       const [rowText, columnId] = key.split(/:(.*)/s);
       if (rowText === undefined || !columnId) continue;
       const row = Number.parseInt(rowText, 10);
-      if (row < rowFirst || row > rowLast) continue;
       const col = displayCol.get(columnId);
-      if (col === undefined || col < colFirst || col > colLast) continue;
+      if (col === undefined) continue;
+      if (!rects.some((rect) => containsCell(rect, row, col))) continue;
       setCell(row, columnId, null);
     }
     requestPaint();
@@ -412,6 +471,9 @@ export function useCellEditor(args: CellEditorArgs) {
     editorRef,
     proxyRef,
     selectCell,
+    selectRange,
+    clearSelection,
+    toggleArea,
     extendTo,
     extendMove,
     beginEdit,

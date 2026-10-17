@@ -74,8 +74,8 @@ gets it from the route-group layout — never by rendering chrome itself.
 | `app-shell.tsx` | the grid **and the scroll model**: sidebar beside header + `<main>`. The only file that knows the page geometry |
 | `app-sidebar.tsx` | the side menu, collapsed/expanded state; renders `navSections` from `config/nav.ts`; account menu and credits at the bottom |
 | `sidebar-credits.tsx` | the credits meter above the account block, from `config/subscription.ts` |
-| `app-header.tsx` | the top bar: the title outlet (left) and the actions outlet (right). Knows nothing about any feature |
-| `header-actions.tsx` | the two portals that put a page's title and controls into the header |
+| `app-header.tsx` | the top bar (`relative`): the title outlet (left), the centre outlet (absolutely centred over the bar) and the actions outlet (right). Knows nothing about any feature |
+| `header-actions.tsx` | the three portals that put content into the header: `HeaderTitle` (left), `HeaderActions` (right) and `HeaderCenter` (centred, `pointer-events-none` outlet, hidden below `md` — the assistant island lives here) |
 
 Rules that follow:
 
@@ -153,7 +153,7 @@ that queries, and `<feature>-list.tsx` / `<feature>-form.tsx` that render.
 | Import | Exports | Notes |
 | --- | --- | --- |
 | `@reclit/ui/avatar` | `Avatar`, `AvatarImage`, `AvatarFallback` | fallback shows until the image loads |
-| `@reclit/ui/button` | `Button`, `buttonVariants` | `variant`: `default` · `secondary` · `outline` · `ghost` · `destructive` · `destructive-outline` · `link`; `size`: `default` · `sm` · `lg` · `icon` · `icon-sm`; `asChild` |
+| `@reclit/ui/button` | `Button`, `buttonVariants` | `variant`: `default` · `secondary` · `outline` · `ghost` · `destructive` · `destructive-outline` · `link` · `island` (a round ghost for the transparent assistant capsule: circular hover) · `island-outline` (a pill with the primary border: the capsule's Run AI button) · `island-plain` (round, no hover feedback — the mic inside the field) · `island-success` (round, light success tint with the success-coloured icon — the confirmation's check) · `island-destructive` (its destructive twin — the confirmation's cross); `size`: `default` · `sm` · `lg` · `icon` · `icon-sm`; `asChild` |
 | `@reclit/ui/calendar` | `Calendar` | inline month over `react-day-picker`, no popover |
 | `@reclit/ui/capsule-select` | `CapsuleSelect` | single-choice pill row, radiogroup semantics |
 | `@reclit/ui/card` | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` | the boxed surface; `CardTitle` is an `h3` in `text-subheading` |
@@ -161,7 +161,7 @@ that queries, and `<feature>-list.tsx` / `<feature>-form.tsx` that render.
 | `@reclit/ui/checkbox` | `Checkbox` | Radix |
 | `@reclit/ui/dialog` | `Dialog`, `DialogTrigger`, `DialogContent`, `DialogHeader`, `DialogFooter`, `DialogTitle`, `DialogDescription`, `DialogClose` | Radix, unanimated |
 | `@reclit/ui/dropdown-menu` | `DropdownMenu`, `…Trigger`, `…Content`, `…Item`, `…CheckboxItem`, `…RadioGroup`, `…RadioItem`, `…Label`, `…Separator`, `…Sub*` | Radix, unanimated |
-| `@reclit/ui/input` | `Input` | single-line field |
+| `@reclit/ui/input` | `Input`, `inputVariants` | single-line field; `variant`: `field` (default, bordered) · `pill` (the same border, placeholder and `focusField` colour as `field`, but `rounded-full`, `h-control-sm` and no background — the assistant island's field) |
 | `@reclit/ui/label` | `Label` | a plain `<label>` |
 | `@reclit/ui/progress` | `Progress` | `value`, `max`; plain divs |
 | `@reclit/ui/select` | `Select`, `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem`, `SelectGroup`, `SelectLabel`, `SelectSeparator` | Radix; the trigger is `Input`'s twin |

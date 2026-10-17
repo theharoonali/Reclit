@@ -14,19 +14,22 @@ apps/dashboard (Next.js 16, port 4000)
 apps/api (NestJS on Bun, port 4001)
   ├── /trpc/*         tRPC 11 express adapter, mounted in src/bootstrap.ts
   │                   appRouter → spreadsheet.*, workspace.*, user.*, runAi.*
-  │                   (+ onChange over SSE), externalApi.*, populate.*
+  │                   (+ onChange over SSE), externalApi.*, populate.*, dashboard.*,
+  │                   assistant.* (+ onChange over SSE)
   ├── /health         AppController (database reachability)
   ├── /spreadsheets/* SpreadsheetController (REST mirror + multipart import)
   ├── /populate/*     PopulateController (the Populate API: fields + submit a row)
+  ├── /assistant/transcribe  AssistantController (the capsule's mic → ElevenLabs → text)
   └── /files          FileController (multipart upload → Supabase Storage, delete)
         │
         ▼  services in src/modules/<feature>/ — the only DB callers
   src/db/prisma.ts (Prisma 7 + @prisma/adapter-pg)
-        │                       ▲ LISTEN run_ai_changed (modules/run-ai/run-ai.feed.ts,
-        ▼                       │ one dedicated pg connection per process)
-  PostgreSQL  (DATABASE_URL)  ──┘ trigger run_ai_notify on "RunAi"
+        │                       ▲ LISTEN run_ai_changed / assistant_run_changed
+        ▼                       │ (src/common/live-feed.ts, one pg connection per channel per process)
+  PostgreSQL  (DATABASE_URL)  ──┘ triggers run_ai_notify on "RunAi", assistant_run_notify on "AssistantRun"
         ▲
         │  runAiBatchService.runCells → dispatcher hook → src/jobs/run-ai-dispatch.ts → tasks.trigger
+        │  assistantControlService.start/cancel/respond → src/jobs/assistant-dispatch.ts → trigger / runs.cancel / wait.completeToken
         │
   Trigger.dev worker (src/trigger/, bundled by the Trigger CLI)
         ├── run-ai-batch: per runnable column (a wave) prepares the inputs, then batchTriggerAndWait →
@@ -34,7 +37,10 @@ apps/api (NestJS on Bun, port 4001)
         │                its url cells through crawl-website (both cached in ExternalApi)
         │                → Gemini via src/ai/ (grounded with the google_search tool for a
         │                google_search column) → writes the run + cell
-        └── crawl-website: one site through Firecrawl → ExternalApi, reused from any cell
+        ├── crawl-website: one site through Firecrawl → ExternalApi, reused from any cell
+        └── assistant-run: the header capsule's prompt as a Gemini tool loop over the
+                           spreadsheet + dashboard services, one tool call at a time; a
+                           delete suspends on a waitpoint token until the user confirms
 
 packages/ui               → shared primitives + Tailwind preset, consumed by the dashboard
 packages/dashboard-engine → the dashboard's formula + query engine (pure TS): the api
@@ -80,11 +86,17 @@ packages/dashboard-engine → the dashboard's formula + query engine (pure TS): 
   last two cached in `ExternalApi` —
   [docs/features/external-api.md](docs/features/external-api.md).
 - The jobs today are `run-ai-batch` (the orchestrator of one Run click: one
-  wave per AI column, prepared then fanned out), `run-ai-cell` (one cell) and
+  wave per AI column, prepared then fanned out), `run-ai-cell` (one cell),
   `crawl-website` (one site through Firecrawl into the store — general, one
-  at a time, triggered by `run-ai-cell` for every url cell of a row); their
+  at a time, triggered by `run-ai-cell` for every url cell of a row) — their
   lifecycle, table and stream are
-  [docs/features/run-ai.md](docs/features/run-ai.md).
+  [docs/features/run-ai.md](docs/features/run-ai.md) — and `assistant-run`
+  (one prompt from the header capsule: a step-by-step `generateText` loop
+  whose tools are executed by the task through the services, with a
+  waitpoint token before every delete and a cancel the api can send) —
+  [docs/features/assistant.md](docs/features/assistant.md). The assistant's
+  prompt (`assistant-prompt.ts`) and its one model call (`assistant-step.ts`)
+  live in `src/ai/` too.
 
 ## Live updates (tRPC subscriptions over SSE)
 
@@ -93,7 +105,8 @@ packages/dashboard-engine → the dashboard's formula + query engine (pure TS): 
   are async generators that `yield tracked(id, data)`; tRPC injects
   `lastEventId` into the input on reconnect.
 - The signal comes from the database: a trigger `NOTIFY`s row ids, one
-  `pg` `LISTEN` connection per API process (`<feature>.feed.ts`) receives
+  `pg` `LISTEN` connection per channel per API process (a `LiveFeed` from
+  `src/common/live-feed.ts`, instantiated in `<feature>.feed.ts`) receives
   them, and a `<feature>-changes.service.ts` resolves ids into rows once per
   process and yields per-scope events. A row written by the Trigger.dev
   worker, another replica or psql reaches the sheet the same way as one
@@ -102,8 +115,9 @@ packages/dashboard-engine → the dashboard's formula + query engine (pure TS): 
   to `httpSubscriptionLink` (the browser's `EventSource`) and everything else
   to `httpBatchStreamLink`. Consume with
   `useSubscription(trpc.<name>.<proc>.subscriptionOptions(input, { onData }))`.
-- Only `runAi.onChange` exists today; the `run-ai` feed + changes pair is the
-  pattern for the next live table.
+- Two streams exist: `runAi.onChange` (one sheet's working runs) and
+  `assistant.onChange` (one workspace's assistant run); either feed + changes
+  pair is the pattern for the next live table.
 
 ## Type flow (why the dashboard gets full type safety)
 
@@ -149,7 +163,8 @@ no Prisma code; `bunx turbo build` is the check.
 | `SUPABASE_URL`, `SUPABASE_KEY` | api | Supabase Storage for `POST /files`; unset → 503 on upload |
 | `TRIGGER_SECRET_KEY` | api | Trigger.dev environment key the api enqueues with (`src/jobs/run-ai-dispatch.ts`); the Trigger CLI reads it too |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | worker | Gemini key for the Vercel AI SDK (`src/ai/gemini.ts`), including the `google_search` node's grounding; the local worker reads `apps/api/.env`, a deployed one its Trigger environment |
-| `ELEVENLABS_API_KEY` | worker | ElevenLabs Speech-to-Text for audio cells (`src/ai/elevenlabs.ts`); same two places as the Gemini key; without it the prompt says the audio could not be transcribed |
+| `ELEVENLABS_API_KEY` | api, worker | ElevenLabs Speech-to-Text (`src/ai/elevenlabs.ts`): the worker transcribes audio cells (without it the prompt says the audio could not be transcribed); the api transcribes the header capsule's mic recording through `POST /assistant/transcribe` (without it the route answers 503) |
+| `ASSISTANT_MODEL` | worker | optional; the Gemini model the assistant's tool loop uses (`src/ai/assistant-step.ts`), default `gemini-2.5-flash` |
 | `FIRECRAWL_API_KEY` | worker | Firecrawl for url cells (`src/ai/firecrawl.ts`, the `crawl-website` task); same two places; without it the prompt says the site could not be crawled |
 | `NEXT_PUBLIC_API_URL` | dashboard | browser tRPC target (default `http://localhost:4001`) |
 | `API_INTERNAL_URL` | dashboard | optional SSR-side override |

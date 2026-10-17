@@ -1,14 +1,18 @@
 "use client";
 
 import { cn } from "@reclit/ui/cn";
-import type { MouseEvent, ReactNode, RefObject } from "react";
+import type { MouseEvent, PointerEvent, ReactNode, RefObject } from "react";
 
 type AiSpreadsheetBodyProps = {
   className?: string;
   canvasRef: RefObject<HTMLCanvasElement | null>;
   scrollerRef: RefObject<HTMLDivElement | null>;
   spacerRef: RefObject<HTMLDivElement | null>;
-  onPointerDown: (event: MouseEvent<HTMLDivElement>) => void;
+  onPointerDown: (event: PointerEvent<HTMLDivElement>) => void;
+  /** The press-and-drag selection: move extends, up or cancel ends. */
+  onPointerMove: (event: PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
+  onPointerCancel: () => void;
   onDoubleClick: (event: MouseEvent<HTMLDivElement>) => void;
   rowCount: number;
   columnCount: number;
@@ -33,6 +37,9 @@ type AiSpreadsheetBodyProps = {
  * the reader nothing, and hiding it also means the client box never changes
  * width. The spacer is absolutely positioned: it still contributes scrollable
  * overflow, which is the whole point of it, but takes no space in flow.
+ *
+ * No `touch-none`: the drag selection captures the pointer, but a touch pan
+ * must stay a scroll — the browser takes it and fires `pointercancel`.
  */
 export function AiSpreadsheetBody(props: AiSpreadsheetBodyProps) {
   return (
@@ -47,7 +54,10 @@ export function AiSpreadsheetBody(props: AiSpreadsheetBodyProps) {
         aria-rowcount={props.rowCount}
         className="scrollbar-none absolute inset-0 overflow-auto"
         onDoubleClick={props.onDoubleClick}
+        onPointerCancel={props.onPointerCancel}
         onPointerDown={props.onPointerDown}
+        onPointerMove={props.onPointerMove}
+        onPointerUp={props.onPointerUp}
         ref={props.scrollerRef}
         role="grid"
       >

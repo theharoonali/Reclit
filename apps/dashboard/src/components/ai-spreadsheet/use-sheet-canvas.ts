@@ -11,12 +11,13 @@ import {
   ROW_HEIGHT,
 } from "@/lib/ai-spreadsheet/geometry";
 import { paintBody } from "@/lib/ai-spreadsheet/paint-body";
-import type { CheckboxPaintState } from "@/lib/ai-spreadsheet/paint-checkbox";
 import { paintEditor } from "@/lib/ai-spreadsheet/paint-editor";
 import { paintHeader } from "@/lib/ai-spreadsheet/paint-header";
+import { selectAllState } from "@/lib/ai-spreadsheet/row-selection";
 import type {
   CellValue,
   ColumnDragState,
+  RangeDragState,
   SheetFormatters,
   SheetHit,
   SheetLabels,
@@ -25,6 +26,7 @@ import type {
 import { useCellEditor } from "./use-cell-editor";
 import { createColumnDragHandlers } from "./use-column-drag";
 import { useSheetAudio } from "./use-sheet-audio";
+import { createRangeDragHandlers } from "./use-sheet-drag-select";
 import { createSheetPointerHandlers } from "./use-sheet-pointer";
 import { useSheetRuns } from "./use-sheet-runs";
 import { useSheetScroll } from "./use-sheet-scroll";
@@ -63,11 +65,6 @@ export type SheetCanvasArgs = {
   dragChipLabelRef: React.RefObject<HTMLSpanElement | null>;
   /** Flips when the cell selection goes empty ↔ non-empty. See use-cell-editor. */
   onSelectionPresence?: (has: boolean) => void;
-  /** Row selection: the ticked set, its header state, and the toggles. */
-  selectedRef: React.RefObject<Set<number>>;
-  selectAllState: () => CheckboxPaintState;
-  onToggleRow: (row: number) => void;
-  onToggleAllRows: () => void;
 };
 
 /**
@@ -86,7 +83,6 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     args;
   const { onRemoveColumn, onReorderColumn, onSelectionPresence } = args;
   const { onBeforeColumnChange, dragChipRef, dragChipLabelRef } = args;
-  const { selectedRef, selectAllState, onToggleRow, onToggleAllRows } = args;
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const spacerRef = useRef<HTMLDivElement | null>(null);
@@ -94,6 +90,9 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   // A ref, never state: a drag repaints on every pointer move, and a
   // re-render would remount the canvas and blank it.
   const dragRef = useRef<ColumnDragState | null>(null);
+  // Same again for the range drag — and a selection change re-renders the
+  // grid mid-drag, so the handlers below are rebuilt while it is in flight.
+  const rangeDragRef = useRef<RangeDragState | null>(null);
   // The one piece of drag-adjacent React state. It flips only when the pointer
   // crosses onto or off a grip — not on the paint path — because a tooltip
   // needs a real DOM anchor and a real `open` prop.
@@ -193,6 +192,15 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     onDragVisual: setDragVisual,
   });
 
+  // The press-and-drag selection, armed by the body's pointer handlers once
+  // the press has set the selection; it extends through the editor.
+  const rangeDrag = createRangeDragHandlers({
+    viewportRef,
+    dragRef: rangeDragRef,
+    editor,
+    scrollBy,
+  });
+
   /** For post-delete cleanup: a stale hover would paint a ghost affordance. */
   const resetHover = useCallback(() => {
     hoverRef.current = { kind: "empty" };
@@ -246,7 +254,6 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         playing: audio.playingRef.current,
         runs: runs.runsRef.current,
         runPhase: runs.phaseRef.current,
-        selected: selectedRef.current,
         columns,
         draggingCol,
       });
@@ -267,7 +274,11 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         fonts: fontsRef.current,
         hover: hoverRef.current,
         draggingCol,
-        selectAll: selectAllState(),
+        selectAll: selectAllState(
+          editorRef.current,
+          model,
+          model.columns.length,
+        ),
       });
     }
   }, [
@@ -285,8 +296,6 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     positionProxy,
     runs.phaseRef,
     runs.runsRef,
-    selectAllState,
-    selectedRef,
     viewportRef,
   ]);
 
@@ -319,8 +328,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     onOpenColumn,
     onRemoveColumn,
     onToggleAudio: audio.toggle,
-    onToggleRow,
-    onToggleAllRows,
+    rangeDrag,
   });
 
   // Canvas space, for the tooltip's anchor. Read from the viewport ref at

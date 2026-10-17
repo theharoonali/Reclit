@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   MAX_RUN_CELLS,
   MAX_RUN_ROWS,
-  planRunTargets,
+  planRunBatches,
   selectionRect,
+  selectionRects,
 } from "@/lib/ai-spreadsheet/run-targets";
 import type { ActiveRun, SheetColumn } from "@/lib/ai-spreadsheet/types";
 
@@ -55,7 +56,26 @@ describe("selectionRect", () => {
   });
 });
 
-describe("planRunTargets runnability", () => {
+describe("selectionRects", () => {
+  test("is the earlier areas, then the current rectangle", () => {
+    const area = rect(0, 0, 1, 1);
+    expect(
+      selectionRects({
+        active: { row: 4, col: 2 },
+        anchor: { row: 2, col: 3 },
+        areas: [area],
+      }),
+    ).toEqual([area, rect(2, 4, 2, 3)]);
+  });
+
+  test("is empty without an active cell", () => {
+    expect(selectionRects({ active: null, anchor: null, areas: [] })).toEqual(
+      [],
+    );
+  });
+});
+
+describe("planRunBatches runnability", () => {
   // A Google Search column is runnable exactly like an AI one: the prompt is
   // its whole configuration. Mirrors `isRunnable` in the API's
   // run-ai-batch.service.ts.
@@ -68,7 +88,7 @@ describe("planRunTargets runnability", () => {
     });
 
   const runnableCount = (one: SheetColumn) =>
-    planRunTargets([one], rect(0, 0, 0, 0), none).count;
+    planRunBatches([one], [rect(0, 0, 0, 0)], none).count;
 
   test("counts a search column once it has a prompt", () => {
     expect(runnableCount(search({}))).toBe(1);
@@ -82,23 +102,25 @@ describe("planRunTargets runnability", () => {
   });
 });
 
-describe("planRunTargets", () => {
+describe("planRunBatches over one rectangle", () => {
   test("keeps the runnable columns of the rectangle in display order, as wire indexes", () => {
-    const plan = planRunTargets(columns, rect(0, 0, 0, 3), none);
-    expect(plan.columnIndexes).toEqual([3, 2]);
+    const plan = planRunBatches(columns, [rect(0, 0, 0, 3)], none);
+    expect(plan.batches).toEqual([{ rowIndexes: [0], columnIndexes: [3, 2] }]);
     expect(plan.count).toBe(2);
-    expect(plan.rowIndexes).toEqual([0]);
   });
 
   test("maps a display position to the column's own index, not the position", () => {
     expect(
-      planRunTargets(columns, rect(0, 0, 1, 1), none).columnIndexes,
+      planRunBatches(columns, [rect(0, 0, 1, 1)], none).batches[0]
+        ?.columnIndexes,
     ).toEqual([3]);
   });
 
-  test("enumerates every row of the rectangle; count is rows × runnable columns", () => {
-    const plan = planRunTargets(columns, rect(4, 6, 0, 3), none);
-    expect(plan.rowIndexes).toEqual([4, 5, 6]);
+  test("enumerates every row of the rectangle in one batch; count is rows × runnable columns", () => {
+    const plan = planRunBatches(columns, [rect(4, 6, 0, 3)], none);
+    expect(plan.batches).toEqual([
+      { rowIndexes: [4, 5, 6], columnIndexes: [3, 2] },
+    ]);
     expect(plan.count).toBe(6);
     expect(plan.busyCount).toBe(0);
     expect(plan.tooLarge).toBe(false);
@@ -110,42 +132,110 @@ describe("planRunTargets", () => {
       ["9:col.3", working], // outside the rows
       ["5:col.0", working], // inside, but a plain column
     ]);
-    expect(planRunTargets(columns, rect(4, 6, 0, 3), runs).busyCount).toBe(1);
+    expect(planRunBatches(columns, [rect(4, 6, 0, 3)], runs).busyCount).toBe(1);
   });
 
   test("clamps a rectangle that reaches past the last column", () => {
     expect(
-      planRunTargets(columns, rect(0, 0, 2, 99), none).columnIndexes,
+      planRunBatches(columns, [rect(0, 0, 2, 99)], none).batches[0]
+        ?.columnIndexes,
     ).toEqual([2]);
   });
 
   test("a rectangle over the caps is too large and enumerates nothing", () => {
-    const huge = planRunTargets(columns, rect(0, 4_999_999, 0, 3), none);
+    const huge = planRunBatches(columns, [rect(0, 4_999_999, 0, 3)], none);
     expect(huge.tooLarge).toBe(true);
-    expect(huge.rowIndexes).toEqual([]);
+    expect(huge.batches).toEqual([]);
     expect(huge.count).toBe(5_000_000 * 2);
 
-    const manyCells = planRunTargets(columns, rect(0, 2999, 0, 3), none);
+    const manyCells = planRunBatches(columns, [rect(0, 2999, 0, 3)], none);
     expect(manyCells.count).toBeGreaterThan(MAX_RUN_CELLS);
     expect(manyCells.tooLarge).toBe(true);
 
-    const withinRows = planRunTargets(
+    const withinRows = planRunBatches(
       columns,
-      rect(0, MAX_RUN_ROWS - 1, 0, 3),
+      [rect(0, MAX_RUN_ROWS - 1, 0, 3)],
       none,
     );
     expect(withinRows.tooLarge).toBe(false);
-    expect(withinRows.rowIndexes).toHaveLength(MAX_RUN_ROWS);
+    expect(withinRows.batches[0]?.rowIndexes).toHaveLength(MAX_RUN_ROWS);
   });
 
   test("a rectangle with no runnable column has nothing to run, however tall", () => {
-    const plan = planRunTargets(columns, rect(0, 4_999_999, 0, 0), none);
+    const plan = planRunBatches(columns, [rect(0, 4_999_999, 0, 0)], none);
     expect(plan).toEqual({
-      rowIndexes: [],
-      columnIndexes: [],
+      batches: [],
       count: 0,
       busyCount: 0,
       tooLarge: false,
     });
+  });
+});
+
+describe("planRunBatches over several areas", () => {
+  test("merges areas with the same columns into one batch, each cell once", () => {
+    // Two picks in Summary, plus a rectangle overlapping the first pick.
+    const plan = planRunBatches(
+      columns,
+      [rect(2, 2, 1, 1), rect(5, 5, 1, 1), rect(1, 2, 1, 1)],
+      none,
+    );
+    expect(plan.batches).toEqual([
+      { rowIndexes: [1, 2, 5], columnIndexes: [3] },
+    ]);
+    expect(plan.count).toBe(3);
+  });
+
+  test("splits rows with different column sets into their own batches, in row order", () => {
+    const plan = planRunBatches(
+      columns,
+      [rect(0, 1, 0, 3), rect(2, 2, 3, 3)],
+      none,
+    );
+    expect(plan.batches).toEqual([
+      { rowIndexes: [0, 1], columnIndexes: [3, 2] },
+      { rowIndexes: [2], columnIndexes: [2] },
+    ]);
+    expect(plan.count).toBe(5);
+  });
+
+  test("keeps a row's columns together when two areas meet on it", () => {
+    // Row 3 is in both: Summary from the first area, Tone from the second.
+    const plan = planRunBatches(
+      columns,
+      [rect(3, 3, 1, 1), rect(3, 4, 3, 3)],
+      none,
+    );
+    expect(plan.batches).toEqual([
+      { rowIndexes: [3], columnIndexes: [3, 2] },
+      { rowIndexes: [4], columnIndexes: [2] },
+    ]);
+  });
+
+  test("counts a working run once, whichever areas hold its cell", () => {
+    const runs = new Map<string, ActiveRun>([["2:col.3", working]]);
+    expect(
+      planRunBatches(columns, [rect(2, 2, 1, 1), rect(1, 3, 1, 1)], runs)
+        .busyCount,
+    ).toBe(1);
+  });
+
+  test("judges size over the union of rows and the sum of cells", () => {
+    const tall = planRunBatches(
+      columns,
+      [rect(0, 999, 1, 1), rect(500, 1500, 1, 1)],
+      none,
+    );
+    expect(tall.tooLarge).toBe(true);
+
+    // The same thousand rows twice: 2,000 cells on paper, 1,000 to send.
+    const twice = planRunBatches(
+      columns,
+      [rect(0, 999, 1, 1), rect(0, 999, 1, 1)],
+      none,
+    );
+    expect(twice.tooLarge).toBe(false);
+    expect(twice.count).toBe(1000);
+    expect(twice.batches).toHaveLength(1);
   });
 });

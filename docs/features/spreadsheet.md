@@ -141,7 +141,11 @@ transpiles.
 
 ## Reusable pieces
 
-- `SpreadsheetService.columnsOf` — the single ordering point for columns.
+- `SpreadsheetService.columnsOf` — the single ordering point for columns;
+  `countRows` — how many rows hold something.
+- `SpreadsheetCellsService.updateCells` — cell writes across many rows,
+  validated up front and written in chunked transactions (the assistant's
+  bulk fill; service only, no procedure).
 - `SpreadsheetService.rowCells` + `buildRowCells` — "the row as the user sees
   it", one entry per column; `run-ai` builds its input from it.
 - `toSheetCell` / `toSheetColumn` / `buildRow` (`spreadsheet.shape.ts`) for

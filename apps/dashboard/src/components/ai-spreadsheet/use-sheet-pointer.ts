@@ -10,7 +10,6 @@ import {
   cellRect,
   containsPoint,
   GUTTER_WIDTH,
-  gutterCheckboxRect,
   headerCheckboxRect,
   hitTest,
   hitTestHeader,
@@ -18,6 +17,11 @@ import {
   isHeaderColumnHit,
 } from "@/lib/ai-spreadsheet/geometry";
 import { AUDIO_LEADING, capsuleRect } from "@/lib/ai-spreadsheet/paint-cell";
+import {
+  rowRangeAddresses,
+  selectAllState,
+  storedRowBounds,
+} from "@/lib/ai-spreadsheet/row-selection";
 import type {
   CellValue,
   SheetFonts,
@@ -28,6 +32,7 @@ import type {
 } from "@/lib/ai-spreadsheet/types";
 import type { CellEditorApi } from "./use-cell-editor";
 import type { ColumnDragApi } from "./use-column-drag";
+import type { RangeDragApi } from "./use-sheet-drag-select";
 
 export type SheetPointerArgs = {
   modelRef: React.RefObject<SheetModel>;
@@ -40,6 +45,8 @@ export type SheetPointerArgs = {
   editor: CellEditorApi;
   /** The column-reorder drag; it gets first refusal on every header pointer event. */
   drag: ColumnDragApi;
+  /** The press-and-drag selection; a body press arms it once it has set the selection. */
+  rangeDrag: RangeDragApi;
   /** Which column's grip is under the pointer, for the "Drag and drop" tooltip. */
   onGripHover: (col: number | null) => void;
   getCell: (row: number, columnId: string) => CellValue;
@@ -48,11 +55,9 @@ export type SheetPointerArgs = {
   onOpenColumn: (columnId?: string) => void;
   onRemoveColumn: (columnId: string) => void;
   onToggleAudio: (row: number, columnId: string, url: string) => void;
-  onToggleRow: (row: number) => void;
-  onToggleAllRows: () => void;
 };
 
-/** The extra slack around a 14px checkbox that makes it comfortably clickable. */
+/** The extra slack around the 14px select-all checkbox that makes it comfortably clickable. */
 const CHECKBOX_HIT_PAD = 5;
 
 /**
@@ -64,9 +69,9 @@ const CHECKBOX_HIT_PAD = 5;
  */
 export function createSheetPointerHandlers(args: SheetPointerArgs) {
   const { modelRef, viewportRef, ctxRef, fontsRef, hoverRef } = args;
-  const { labels, editor, drag, onGripHover, getCell, requestPaint } = args;
+  const { labels, editor, drag, rangeDrag, onGripHover } = args;
+  const { getCell, requestPaint } = args;
   const { onOpenJson, onOpenColumn, onRemoveColumn, onToggleAudio } = args;
-  const { onToggleRow, onToggleAllRows } = args;
 
   /** Canvas-relative CSS pixels. DPR never enters this — see `geometry`. */
   const localPoint = (event: MouseEvent<HTMLElement>) => {
@@ -128,37 +133,71 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     return null;
   };
 
-  const handleBodyPointerDown = (event: MouseEvent<HTMLDivElement>) => {
+  /** Selects rows `anchorRow..row` as the rectangle spanning every column. */
+  const selectRows = (anchorRow: number, row: number) => {
+    const { anchor, active } = rowRangeAddresses(
+      anchorRow,
+      row,
+      viewportRef.current.columnCount,
+    );
+    editor.selectRange(anchor, active);
+  };
+
+  const handleBodyPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     const { x, y } = localPoint(event);
     // Kills the text-selection drag. It also cancels the focus the click would
     // have given us, which is why the editor re-focuses the proxy explicitly.
     event.preventDefault();
-    const hit = hitTest(x, y, viewportRef.current);
+    const viewport = viewportRef.current;
+    const hit = hitTest(x, y, viewport);
+
+    // A row number selects its whole row — the rectangle across every column.
+    // The press then arms a drag down the numbers. Nothing to select without
+    // a column.
     if (hit.kind === "gutter") {
-      // The checkbox rect is gutter-x / content-y; the pointer is canvas
-      // space, so only `y` needs the scroll added back.
-      const zone = inflateRect(gutterCheckboxRect(hit.row), CHECKBOX_HIT_PAD);
-      if (containsPoint(zone, x, y + viewportRef.current.scrollY)) {
-        onToggleRow(hit.row);
+      if (viewport.columnCount === 0) {
+        editor.focusProxy();
         return;
       }
+      const { anchor, active } = rowRangeAddresses(
+        hit.row,
+        hit.row,
+        viewport.columnCount,
+      );
+      // Shift picks the row as an area of its own — or unpicks it, and then
+      // there is nothing to drag.
+      if (event.shiftKey) {
+        if (!editor.toggleArea(anchor, active)) return;
+      } else {
+        editor.selectRange(anchor, active);
+      }
+      rangeDrag.begin(event, "rows");
+      return;
     }
     if (hit.kind !== "cell") {
       editor.focusProxy();
       return;
     }
 
-    // Shift-click extends the selection and nothing more — a capsule under
-    // the pointer must not open files or toggle audio mid-selection.
+    // Shift-click picks the cell as an area of its own (or unpicks it) and
+    // nothing more — a capsule under the pointer must not open files or
+    // toggle audio mid-selection. The press then arms a drag that grows the
+    // new area into a rectangle.
     if (event.shiftKey) {
-      editor.extendTo(hit.row, hit.col);
+      const cell = { row: hit.row, col: hit.col };
+      if (editor.toggleArea(cell, cell)) rangeDrag.begin(event, "cells");
       return;
     }
 
     editor.selectCell(hit.row, hit.col);
 
+    // A press on a chip is a click on the chip; only a press on the cell
+    // itself can grow into a drag.
     const target = capsuleTargetAt(hit.row, hit.col, x, y);
-    if (!target) return;
+    if (!target) {
+      rangeDrag.begin(event, "cells");
+      return;
+    }
     if (target.kind === "json") {
       onOpenJson(hit.row, target.columnId);
       return;
@@ -180,10 +219,37 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     window.open(target.url, "_blank", "noopener,noreferrer");
   };
 
+  const handleBodyPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    rangeDrag.move(event);
+  };
+
+  const handleBodyPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    rangeDrag.end(event);
+  };
+
+  const handleBodyPointerCancel = () => {
+    rangeDrag.cancel();
+  };
+
   const handleBodyDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
     const { x, y } = localPoint(event);
     const hit = hitTest(x, y, viewportRef.current);
     if (hit.kind === "cell") editor.beginEdit(hit.row, hit.col);
+  };
+
+  /**
+   * The header corner: every stored row already selected → clear; otherwise
+   * select from the first stored row to the last. Nothing stored, or no
+   * column, and there is nothing for "all" to mean.
+   */
+  const toggleAllRows = () => {
+    const model = modelRef.current;
+    const columnCount = viewportRef.current.columnCount;
+    const bounds = model ? storedRowBounds(model) : null;
+    if (!model || !bounds || columnCount === 0) return;
+    const state = selectAllState(editor.editorRef.current, model, columnCount);
+    if (state === "all") editor.clearSelection();
+    else selectRows(bounds.last, bounds.first);
   };
 
   const handleHeaderPointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -192,7 +258,7 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     // checked before the column hit-test (which starts at GUTTER_WIDTH).
     const corner = inflateRect(headerCheckboxRect(), CHECKBOX_HIT_PAD);
     if (containsPoint(corner, x, y)) {
-      onToggleAllRows();
+      toggleAllRows();
       return;
     }
     const hit = hitTestHeader(x, y, viewportRef.current);
@@ -250,6 +316,9 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
 
   return {
     handleBodyPointerDown,
+    handleBodyPointerMove,
+    handleBodyPointerUp,
+    handleBodyPointerCancel,
     handleBodyDoubleClick,
     handleHeaderPointerDown,
     handleHeaderPointerMove,

@@ -189,6 +189,15 @@ export const sizes = {
   panel: "20rem",
   "sheet-header": `${SHEET_HEADER_PX}px`,
 
+  // The assistant island — at rest the orb and the "Reclit AI" label (or
+  // those plus the page's action pill); the open field; a run's stage or a
+  // confirmation. Rest widths are fixed lengths so the capsule can animate.
+  "island-closed": "9.5rem",
+  "island-action": "15rem",
+  island: "24rem",
+  "island-wide": "30rem",
+  orb: "1.75rem",
+
   // Dashboard widgets — the body height of a chart card (`height` in the
   // dashboard JSON: sm | md | lg).
   "chart-sm": "10rem",

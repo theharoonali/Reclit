@@ -205,6 +205,23 @@ export const updateRowInput = rowRefInput.extend({
     .min(1),
 });
 
+/** The most cells one `updateCells` call writes (service only — the assistant's bulk fill). */
+export const MAX_UPDATE_CELLS = 5000;
+
+/** Cell writes across many rows at once; `null` clears a cell. */
+export const updateCellsInput = idInput.extend({
+  cells: z
+    .array(
+      z.object({
+        rowIndex: gridIndex,
+        columnIndex: gridIndex,
+        value: cellValueSchema,
+      }),
+    )
+    .min(1)
+    .max(MAX_UPDATE_CELLS),
+});
+
 /**
  * A column's new display position, 0..columnCount-1. The upper bound needs the
  * column count, so it is a service check; zod only rules out negatives.
@@ -261,6 +278,7 @@ export type CreateSpreadsheetInput = z.infer<typeof createSpreadsheetInput>;
 export type SheetRowsInput = z.infer<typeof sheetRowsInput>;
 export type SetCellInput = z.infer<typeof setCellInput>;
 export type UpdateRowInput = z.infer<typeof updateRowInput>;
+export type UpdateCellsInput = z.infer<typeof updateCellsInput>;
 export type UpdateColumnInput = z.infer<typeof updateColumnInput>;
 export type ReorderColumnInput = z.infer<typeof reorderColumnInput>;
 export type CreateRowInput = z.infer<typeof createRowInput>;

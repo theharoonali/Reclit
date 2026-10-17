@@ -12,17 +12,14 @@ export const COL_WIDTH = 160;
 /** Shared with the DOM header strip (`h-sheet-header`) through the token. */
 export const HEADER_HEIGHT = SHEET_HEADER_PX;
 /**
- * A selection checkbox plus a row number at `GUTTER_FONT_SIZE`, kept snug so
- * the number sits close to the checkbox. Comfortable through 6 digits; a
- * 7-digit number (row 1,000,000+) reaches the checkbox's edge.
+ * Row numbers only, centred, at `GUTTER_FONT_SIZE`; the header's select-all
+ * checkbox is centred in the same width. Comfortable through 6 digits; a
+ * 7-digit number (row 1,000,000+) reaches the edges.
  */
-export const GUTTER_WIDTH = 56;
+export const GUTTER_WIDTH = 48;
 export const CELL_PAD_X = 10;
-/** The gutter is tight, so its numbers get their own smaller inset. */
-export const GUTTER_PAD_X = 6;
-/** The row-selection checkbox parked at the left edge of the gutter. */
+/** The select-all checkbox in the header's corner block. */
 export const CHECKBOX_SIZE = 14;
-export const CHECKBOX_PAD_X = 6;
 /** The checked state's mini fill box, inset from the outline on every side. */
 export const CHECKBOX_INNER_INSET = 4;
 /** The "+ column" affordance, parked after the last column in the header. */
@@ -41,6 +38,12 @@ export const HEADER_GRIP_HIT_PAD = 4;
 /** Between the grip and whatever the column paints next. */
 export const HEADER_GRIP_GAP = 4;
 export const OVERSCAN = 2;
+/**
+ * Edge autoscroll, shared by the column drag and the range drag: how close
+ * to an edge starts it, and how many CSS pixels it moves per frame.
+ */
+export const AUTOSCROLL_EDGE = 48;
+export const AUTOSCROLL_STEP = 12;
 
 /** Type-scale sizes, mirrored on the canvas: text-body, text-label, caption. */
 export const CELL_FONT_SIZE = 14;
@@ -184,21 +187,9 @@ export const plusButtonRect = (columnCount: number): Rect => ({
   h: HEADER_HEIGHT,
 });
 
-/**
- * A row's selection checkbox. `x` is gutter space (the gutter never scrolls
- * horizontally); `y` is content space — subtract `scrollY` to paint, add it
- * to hit-test.
- */
-export const gutterCheckboxRect = (row: number): Rect => ({
-  x: CHECKBOX_PAD_X,
-  y: row * ROW_HEIGHT + (ROW_HEIGHT - CHECKBOX_SIZE) / 2,
-  w: CHECKBOX_SIZE,
-  h: CHECKBOX_SIZE,
-});
-
-/** The select-all checkbox in the header's corner block. Canvas space. */
+/** The select-all checkbox, centred in the header's corner block. Canvas space. */
 export const headerCheckboxRect = (): Rect => ({
-  x: CHECKBOX_PAD_X,
+  x: (GUTTER_WIDTH - CHECKBOX_SIZE) / 2,
   y: (HEADER_HEIGHT - CHECKBOX_SIZE) / 2,
   w: CHECKBOX_SIZE,
   h: CHECKBOX_SIZE,

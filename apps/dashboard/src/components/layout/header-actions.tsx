@@ -18,8 +18,9 @@ import { createPortal } from "react-dom";
  * outlet. The control therefore stays owned by the component that holds its
  * state — the DOM is all that moves.
  *
- * Two slots exist: `HeaderActions` (right-aligned controls) and `HeaderTitle`
- * (the left title area). Both share one implementation below.
+ * Three slots exist: `HeaderActions` (right-aligned controls), `HeaderTitle`
+ * (the left title area) and `HeaderCenter` (centred over the header — the
+ * assistant island). All share one implementation below.
  */
 function createHeaderSlot(outletClassName: string) {
   const OutletContext = createContext<HTMLElement | null>(null);
@@ -71,11 +72,20 @@ function createHeaderSlot(outletClassName: string) {
 const actionsSlot = createHeaderSlot("flex items-center gap-2");
 // Matches the header's static `title` slot: hidden below lg, never wraps.
 const titleSlot = createHeaderSlot("hidden min-w-0 text-label lg:block");
+// Laid over the whole header and centred by absolute positioning — not a flex
+// child — so the content never drifts when the title or the toolbar grows.
+// The outlet lets clicks through; what is portalled in re-enables them on
+// itself (`pointer-events-auto`). Hidden below md.
+const centerSlot = createHeaderSlot(
+  "pointer-events-none absolute inset-x-0 top-0 hidden h-header items-center justify-center md:flex",
+);
 
 export function HeaderActionsProvider({ children }: { children: ReactNode }) {
   return (
     <actionsSlot.Provider>
-      <titleSlot.Provider>{children}</titleSlot.Provider>
+      <titleSlot.Provider>
+        <centerSlot.Provider>{children}</centerSlot.Provider>
+      </titleSlot.Provider>
     </actionsSlot.Provider>
   );
 }
@@ -84,3 +94,5 @@ export const HeaderActionsOutlet = actionsSlot.Outlet;
 export const HeaderActions = actionsSlot.Portal;
 export const HeaderTitleOutlet = titleSlot.Outlet;
 export const HeaderTitle = titleSlot.Portal;
+export const HeaderCenterOutlet = centerSlot.Outlet;
+export const HeaderCenter = centerSlot.Portal;

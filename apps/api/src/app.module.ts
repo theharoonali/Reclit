@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AppController } from "./app.controller";
 import { PrismaModule } from "./db/prisma.module";
+import { AssistantModule } from "./modules/assistant/assistant.module";
 import { FileModule } from "./modules/file/file.module";
 import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { PopulateModule } from "./modules/populate/populate.module";
@@ -15,6 +16,7 @@ import { SpreadsheetModule } from "./modules/spreadsheet/spreadsheet.module";
     RunAiModule,
     PopulateModule,
     OnboardingModule,
+    AssistantModule,
   ],
   controllers: [AppController],
 })
