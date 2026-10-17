@@ -87,13 +87,6 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     cancelEditRef.current();
   }, [discardPending]);
 
-  const selection = useSheetSelection({
-    modelRef,
-    requestPaint,
-    onBeforeDelete,
-    removeRowsLocal: model.removeRows,
-  });
-
   const openJson = useCallback((row: number, columnId: string) => {
     setPanel({ kind: "json", row, columnId });
   }, []);
@@ -140,9 +133,15 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
 
   // Set after the canvas exists, like `cancelEditRef`: the Run button asks
   // "what would run?" again whenever the selected rectangle or the working
-  // runs change, and both signals come out of the canvas wiring.
+  // runs change, and the row controls ask "is this a row selection?" on the
+  // same rectangle change — the signals come out of the canvas wiring.
   const refreshRunnableRef = useRef<() => void>(() => {});
+  const refreshRowsRef = useRef<() => void>(() => {});
   const refreshRunnable = useCallback(() => refreshRunnableRef.current(), []);
+  const refreshSelection = useCallback(() => {
+    refreshRunnableRef.current();
+    refreshRowsRef.current();
+  }, []);
 
   const canvas = useSheetCanvas({
     modelRef,
@@ -156,7 +155,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     runListening: runListening.listening,
     onRunEnded: runListening.ended,
     onRunsChange: refreshRunnable,
-    onSelectionChange: refreshRunnable,
+    onSelectionChange: refreshSelection,
     onOpenJson: openJson,
     onOpenDate: openDate,
     onOpenAudio: openAudio,
@@ -168,13 +167,19 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     dragChipRef,
     dragChipLabelRef,
     onSelectionPresence: setCellsSelected,
-    selectedRef: selection.selectedRef,
-    selectAllState: selection.selectAllState,
-    onToggleRow: selection.toggleRow,
-    onToggleAllRows: selection.toggleAll,
   });
   requestPaintRef.current = canvas.requestPaint;
   cancelEditRef.current = canvas.editor.cancel;
+
+  // After the canvas: a row selection is the editor's rectangle spanning every
+  // column, so the hook reads the editor rather than the other way round.
+  const selection = useSheetSelection({
+    modelRef,
+    editor: canvas.editor,
+    onBeforeDelete,
+    removeRowsLocal: model.removeRows,
+  });
+  refreshRowsRef.current = selection.refresh;
 
   const runCells = useRunCells({
     modelRef,
@@ -187,22 +192,26 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   });
   refreshRunnableRef.current = runCells.refresh;
   // A column's node or prompt may have changed (the panel form, a delete, a
-  // reorder): the selection's runnability follows the columns.
-  const refreshRunCells = runCells.refresh;
-  useEffect(() => refreshRunCells(), [columnsVersion, refreshRunCells]);
+  // reorder): the selection's runnability follows the columns, and a new
+  // column un-spans a whole-row selection.
+  useEffect(() => refreshSelection(), [columnsVersion, refreshSelection]);
 
   // Run lives in the header's assistant capsule, as its right-hand pill,
-  // only while the selection holds runnable AI cells (or a refusal to show).
-  // The words are resolved here, where the sheet's strings live; the capsule
-  // only displays them: the pill reads "Run AI", its tooltip carries the
-  // count.
+  // while the selection holds an AI cell with a prompt (or a refusal to
+  // show); it refuses clicks and reads "Working…" while any of those cells is
+  // already working. The words are resolved here, where the sheet's strings
+  // live; the capsule only displays them: the pill reads "Run AI", its
+  // tooltip carries the count.
   const runText = t("listen.start");
+  const runWorking = runCells.busyCount > 0;
   const runDescription =
     runCells.status === "running"
       ? t("listen.running")
-      : runCells.count > 1
-        ? t("listen.startMany", { count: runCells.count })
-        : t("listen.start");
+      : runWorking
+        ? t("listen.working")
+        : runCells.count > 1
+          ? t("listen.startMany", { count: runCells.count })
+          : t("listen.start");
   const runErrorMessage =
     runCells.errorCode === null
       ? null
@@ -214,13 +223,13 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
             runCells.errorCode === "BAD_REQUEST"
           ? t("listen.errorTooLarge")
           : t("listen.error");
-  const runReady = runCells.runnable && !runListening.isResolving;
-  const runBusy = runCells.status === "running";
+  const runVisible = runCells.count > 0 && !runListening.isResolving;
+  const runBusy = runCells.status === "running" || runWorking;
   const { run: runSelection, clearError: clearRunError } = runCells;
   useAssistantRunAction(
     useMemo(
       () =>
-        runReady || runErrorMessage !== null
+        runVisible || runErrorMessage !== null
           ? {
               label: runText,
               description: runDescription,
@@ -231,7 +240,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
             }
           : null,
       [
-        runReady,
+        runVisible,
         runText,
         runDescription,
         runBusy,
@@ -463,7 +472,10 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
           columnCount={columns.length}
           label={t("gridLabel", { name: modelRef.current.sheetName })}
           onDoubleClick={canvas.handleBodyDoubleClick}
+          onPointerCancel={canvas.handleBodyPointerCancel}
           onPointerDown={canvas.handleBodyPointerDown}
+          onPointerMove={canvas.handleBodyPointerMove}
+          onPointerUp={canvas.handleBodyPointerUp}
           rowCount={payload.spreadsheet.totalRows}
           scrollerRef={canvas.scrollerRef}
           spacerRef={canvas.spacerRef}

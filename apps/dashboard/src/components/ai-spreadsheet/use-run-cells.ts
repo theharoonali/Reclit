@@ -5,8 +5,8 @@ import { TRPCClientError } from "@trpc/client";
 import { useCallback, useState } from "react";
 import type { RunPlan } from "@/lib/ai-spreadsheet/run-targets";
 import {
-  planRunTargets,
-  selectionRect,
+  planRunBatches,
+  selectionRects,
 } from "@/lib/ai-spreadsheet/run-targets";
 import type {
   ActiveRun,
@@ -19,10 +19,12 @@ import { useTRPC } from "@/trpc/client";
 export type RunCellsStatus = "idle" | "running" | "error";
 
 export type RunCellsApi = {
-  /** The selection holds at least one AI cell with a prompt, and none of them is working. */
+  /** The selection holds at least one AI cell with a prompt, and none of them is working: a click would run. */
   runnable: boolean;
-  /** How many AI cells the selection would run. */
+  /** How many AI cells the selection would run — the Run pill shows while this is above zero. */
   count: number;
+  /** How many of them already have a working run — the pill reads "Working…" and refuses clicks while above zero. */
+  busyCount: number;
   status: RunCellsStatus;
   /**
    * The tRPC code of the last refusal (`CONFLICT` = a cell is busy),
@@ -54,15 +56,16 @@ type RunCellsArgs = {
 
 /**
  * The Run button's brain: which cells it would run, whether it may, and the
- * `runAi.runCells` call itself.
+ * `runAi.runCells` calls themselves — one per batch of the plan, so a
+ * multi-area selection sends every cell exactly once.
  *
- * `runnable` and `count` are React state but recomputed only when told to
- * (`refresh`), from refs — the editor's rectangle and the working runs — so
- * the grid is not re-rendered per keystroke; React bails out when neither
- * changed. The API refuses the whole batch when any target is busy, so the
- * button follows the same rule. The runs need the *persisted* rows (the
- * worker reads the database, not this model), so pending edits are flushed
- * and awaited first.
+ * `runnable`, `count` and `busyCount` are React state but recomputed only
+ * when told to (`refresh`), from refs — the editor's rectangle and the
+ * working runs — so the grid is not re-rendered per keystroke; React bails
+ * out when none changed. The API refuses the whole batch when any target is
+ * busy, so the pill refuses clicks while any is working. The runs need the
+ * *persisted* rows (the worker reads the database, not this model), so
+ * pending edits are flushed and awaited first.
  */
 export function useRunCells(args: RunCellsArgs): RunCellsApi {
   const { modelRef, editorRef, runsRef, flushPending } = args;
@@ -71,17 +74,18 @@ export function useRunCells(args: RunCellsArgs): RunCellsApi {
   const { mutateAsync } = useMutation(trpc.runAi.runCells.mutationOptions());
   const [runnable, setRunnable] = useState(false);
   const [count, setCount] = useState(0);
+  const [busyCount, setBusyCount] = useState(0);
   const [status, setStatus] = useState<RunCellsStatus>("idle");
   const [errorCode, setErrorCode] = useState<string | null>(null);
 
   /** The selection as a run plan, or null without one. */
   const plan = useCallback((): RunPlan | null => {
     const model = modelRef.current;
-    const { active, anchor } = editorRef.current;
-    if (!model || !active) return null;
-    return planRunTargets(
+    const editor = editorRef.current;
+    if (!model || !editor.active) return null;
+    return planRunBatches(
       model.columns,
-      selectionRect(active, anchor),
+      selectionRects(editor),
       runsRef.current,
     );
   }, [editorRef, modelRef, runsRef]);
@@ -89,6 +93,7 @@ export function useRunCells(args: RunCellsArgs): RunCellsApi {
   const refresh = useCallback(() => {
     const targets = plan();
     setCount(targets?.count ?? 0);
+    setBusyCount(targets?.busyCount ?? 0);
     setRunnable(
       targets !== null && targets.count > 0 && targets.busyCount === 0,
     );
@@ -107,18 +112,20 @@ export function useRunCells(args: RunCellsArgs): RunCellsApi {
       return;
     }
     setStatus("running");
+    let sent = 0;
     try {
       await flushPending();
       onStart();
-      const created = await mutateAsync({
-        id: model.sheetId,
-        rowIndexes: targets.rowIndexes,
-        columnIndexes: targets.columnIndexes,
-      });
-      seedRuns(created);
+      for (const batch of targets.batches) {
+        const created = await mutateAsync({ id: model.sheetId, ...batch });
+        sent += 1;
+        seedRuns(created);
+      }
       setStatus("idle");
     } catch (error) {
-      onCancel();
+      // Only an opening that created nothing is undone: once a batch is in,
+      // its runs need the stream.
+      if (sent === 0) onCancel();
       setErrorCode(
         error instanceof TRPCClientError
           ? (error.data?.code ?? "UNKNOWN")
@@ -143,5 +150,14 @@ export function useRunCells(args: RunCellsArgs): RunCellsApi {
     setStatus((current) => (current === "error" ? "idle" : current));
   }, []);
 
-  return { runnable, count, status, errorCode, refresh, clearError, run };
+  return {
+    runnable,
+    count,
+    busyCount,
+    status,
+    errorCode,
+    refresh,
+    clearError,
+    run,
+  };
 }

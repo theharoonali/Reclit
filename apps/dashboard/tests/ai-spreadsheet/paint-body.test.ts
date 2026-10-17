@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createFormatters } from "@/lib/ai-spreadsheet/cell-format";
-import { COL_WIDTH, ROW_HEIGHT } from "@/lib/ai-spreadsheet/geometry";
+import {
+  CHECKBOX_SIZE,
+  COL_WIDTH,
+  GUTTER_WIDTH,
+  ROW_HEIGHT,
+} from "@/lib/ai-spreadsheet/geometry";
 import { paintBody } from "@/lib/ai-spreadsheet/paint-body";
 import { paintEditor } from "@/lib/ai-spreadsheet/paint-editor";
 import { clearMetricsCache } from "@/lib/ai-spreadsheet/text-metrics";
@@ -14,6 +19,7 @@ import {
   createRecordingContext,
   TEST_LABELS,
   TEST_PALETTE,
+  textCalls,
 } from "../support/canvas";
 
 const FORMATTERS = createFormatters("en-US");
@@ -53,6 +59,7 @@ const MODEL: SheetModel = {
 const idleAt = (row: number, col: number): EditorState => ({
   active: { row, col },
   anchor: { row, col },
+  areas: [],
   mode: "idle",
   buffer: "",
   caret: 0,
@@ -66,8 +73,8 @@ const editingAt = (row: number, col: number): EditorState => ({
   mode: "editing",
 });
 
-/** The selection ring, in content space, as the painter actually stroked it. */
-function ringFor(editor: EditorState, dpr: number) {
+/** Every draw call one body paint makes. */
+function paintCalls(editor: EditorState, dpr = 1) {
   const { ctx, calls } = createRecordingContext();
   paintBody({
     ctx,
@@ -79,17 +86,73 @@ function ringFor(editor: EditorState, dpr: number) {
     labels: TEST_LABELS,
     formatters: FORMATTERS,
     fonts: FONTS,
-    selected: new Set<number>(),
     columns: MODEL.columns,
     draggingCol: null,
   });
-  const stroke = calls.find(
+  return calls;
+}
+
+/** The selection ring, in content space, as the painter actually stroked it. */
+function ringFor(editor: EditorState, dpr: number) {
+  const stroke = paintCalls(editor, dpr).find(
     (call) => call.op === "strokeRect" && call.style === "ring",
   );
   return stroke ? { args: stroke.args } : null;
 }
 
 beforeEach(clearMetricsCache);
+
+/**
+ * The gutter is row numbers only: a row is selected by its number, and the
+ * selection shows as a tinted gutter cell rather than a ticked box.
+ */
+describe("the gutter", () => {
+  test("paints no checkbox", () => {
+    const boxes = paintCalls(idleAt(0, 0)).filter(
+      (call) => call.op === "strokeRect" && call.args[2] === CHECKBOX_SIZE,
+    );
+    expect(boxes).toHaveLength(0);
+  });
+
+  test("centres the row numbers", () => {
+    const one = paintCalls(idleAt(0, 0)).find(
+      (call) => call.op === "fillText:1",
+    );
+    expect(one?.args[0]).toBe(GUTTER_WIDTH / 2);
+  });
+
+  test("tints every row of the selection and only those", () => {
+    const editor: EditorState = {
+      ...idleAt(2, 0),
+      anchor: { row: 4, col: 2 },
+    };
+    // The tint is a gutter-wide fill; the range wash is wider than the gutter.
+    const tints = paintCalls(editor).filter(
+      (call) =>
+        call.op === "fillRect" &&
+        call.style === "ring" &&
+        call.args[0] === 0 &&
+        (call.args[2] ?? 0) < GUTTER_WIDTH,
+    );
+    expect(tints.map((call) => call.args[1])).toEqual(
+      [2, 3, 4].map((row) => row * ROW_HEIGHT),
+    );
+  });
+
+  test("paints the selected rows' numbers full-strength and the rest muted", () => {
+    const editor: EditorState = {
+      ...idleAt(2, 0),
+      anchor: { row: 3, col: 2 },
+    };
+    const numbers = textCalls(paintCalls(editor));
+    const styleOf = (text: string) =>
+      numbers.find((call) => call.text === text)?.style;
+    expect(styleOf("3")).toBe("text");
+    expect(styleOf("4")).toBe("text");
+    expect(styleOf("1")).toBe("mutedText");
+    expect(styleOf("5")).toBe("mutedText");
+  });
+});
 
 /**
  * These assert the stroke's geometry, not the clip — the recording context
@@ -132,6 +195,32 @@ describe("the selection ring", () => {
 
   test("is not drawn while a cell is being edited — the overlay owns it", () => {
     expect(ringFor(editingAt(0, 0), 1)).toBeNull();
+  });
+});
+
+describe("the areas", () => {
+  const picked = { rowFirst: 3, rowLast: 3, colFirst: 2, colLast: 2 };
+
+  test("rings every earlier area, then the active cell", () => {
+    const rings = paintCalls({ ...idleAt(0, 0), areas: [picked] }).filter(
+      (call) => call.op === "strokeRect" && call.style === "ring",
+    );
+    expect(rings.map((call) => [call.args[0], call.args[1]])).toEqual([
+      [2 * COL_WIDTH + 1, 3 * ROW_HEIGHT + 1],
+      [1, 1],
+    ]);
+  });
+
+  test("washes a picked single cell, but never the active cell alone", () => {
+    const washes = (editor: EditorState) =>
+      paintCalls(editor).filter(
+        (call) =>
+          call.op === "fillRect" &&
+          call.style === "ring" &&
+          call.args[2] === COL_WIDTH,
+      );
+    expect(washes(idleAt(0, 0))).toHaveLength(0);
+    expect(washes({ ...idleAt(0, 0), areas: [picked] })).toHaveLength(1);
   });
 });
 

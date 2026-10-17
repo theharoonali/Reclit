@@ -1,19 +1,18 @@
 import {
   COL_WIDTH,
   cellRect,
-  GUTTER_PAD_X,
   GUTTER_WIDTH,
-  gutterCheckboxRect,
   ROW_HEIGHT,
   visibleCols,
   visibleRows,
 } from "./geometry";
 import { paintCell } from "./paint-cell";
-import { paintCheckbox } from "./paint-checkbox";
+import { selectionRects } from "./run-targets";
 import { withAlpha } from "./theme-colors";
 import type {
   ActiveRun,
   EditorState,
+  SelectionRect,
   SheetColumn,
   SheetFonts,
   SheetFormatters,
@@ -40,6 +39,28 @@ function hairline(
   ctx.fillRect(Math.round(x * dpr) / dpr, Math.round(y * dpr) / dpr, w, h);
 }
 
+/**
+ * One area of the selection: a wash plus its own ring, inset by half the
+ * ring's width for the reason given where the active ring is painted.
+ */
+function paintArea(
+  ctx: CanvasRenderingContext2D,
+  rect: SelectionRect,
+  palette: SheetPalette,
+  dpr: number,
+) {
+  const x = rect.colFirst * COL_WIDTH;
+  const y = rect.rowFirst * ROW_HEIGHT;
+  const w = (rect.colLast - rect.colFirst + 1) * COL_WIDTH;
+  const h = (rect.rowLast - rect.rowFirst + 1) * ROW_HEIGHT;
+  ctx.fillStyle = withAlpha(palette.ring, 0.08);
+  ctx.fillRect(x, y, w, h);
+  const ring = 2 / dpr;
+  ctx.strokeStyle = palette.ring;
+  ctx.lineWidth = ring;
+  ctx.strokeRect(x + ring / 2, y + ring / 2, w - ring, h - ring);
+}
+
 export type BodyPaintArgs = {
   ctx: CanvasRenderingContext2D;
   dpr: number;
@@ -56,8 +77,6 @@ export type BodyPaintArgs = {
   runs?: ReadonlyMap<string, ActiveRun> | null;
   /** Where the run capsules are in their breath, 0..1. */
   runPhase?: number;
-  /** Row indexes ticked for deletion — drives the gutter checkboxes. */
-  selected: ReadonlySet<number>;
   /**
    * The columns in display order. Normally `model.columns`; during a drag it is
    * the preview order, so the cells slide with their headers rather than
@@ -147,26 +166,18 @@ export function paintBody(args: BodyPaintArgs) {
   // protects the gutter eats it — the first column and first row would come
   // out visibly thinner than the rest.
   const active = editor.active;
-  const anchor = editor.anchor;
-  const hasRange =
-    active !== null &&
-    anchor !== null &&
-    (anchor.row !== active.row || anchor.col !== active.col);
-  if (hasRange && editor.mode === "idle") {
-    // The shift-selection rectangle: a wash plus its own ring, painted first
-    // so the active cell's ring stays readable inside it.
-    const r0 = Math.min(anchor.row, active.row);
-    const c0 = Math.min(anchor.col, active.col);
-    const x = c0 * COL_WIDTH;
-    const y = r0 * ROW_HEIGHT;
-    const w = (Math.abs(anchor.col - active.col) + 1) * COL_WIDTH;
-    const h = (Math.abs(anchor.row - active.row) + 1) * ROW_HEIGHT;
-    ctx.fillStyle = withAlpha(palette.ring, 0.08);
-    ctx.fillRect(x, y, w, h);
-    const ring = 2 / dpr;
-    ctx.strokeStyle = palette.ring;
-    ctx.lineWidth = ring;
-    ctx.strokeRect(x + ring / 2, y + ring / 2, w - ring, h - ring);
+  const rects = selectionRects(editor);
+  if (editor.mode === "idle") {
+    // Every area gets a wash plus its own ring, painted first so the active
+    // cell's ring stays readable inside it. The current area is skipped while
+    // it is a single cell — the active ring already says it.
+    const current = rects.length - 1;
+    rects.forEach((rect, index) => {
+      const single =
+        rect.rowFirst === rect.rowLast && rect.colFirst === rect.colLast;
+      if (index === current && single) return;
+      paintArea(ctx, rect, palette, dpr);
+    });
   }
   if (active && editor.mode === "idle") {
     const rect = cellRect(active.row, active.col);
@@ -189,26 +200,27 @@ export function paintBody(args: BodyPaintArgs) {
   // --- row-number gutter, painted in untranslated space so it stays pinned
   ctx.fillStyle = palette.gutter;
   ctx.fillRect(0, 0, GUTTER_WIDTH, height);
+
+  // The selection's rows get a tinted gutter cell and a full-strength number:
+  // with no checkbox, the gutter is what says "this row is selected", and the
+  // tint spans the whole cell so a row selection reads from edge to edge.
+  // Painted in every mode — an edit in progress is still in that row.
+  ctx.font = fonts.gutter;
+  ctx.textAlign = "center";
+  for (let row = rows.first; row <= rows.last; row++) {
+    const top = row * ROW_HEIGHT - scrollY;
+    if (top < -ROW_HEIGHT || top > height) continue;
+    const inSelection = rects.some(
+      (rect) => row >= rect.rowFirst && row <= rect.rowLast,
+    );
+    if (inSelection) {
+      ctx.fillStyle = withAlpha(palette.ring, 0.08);
+      ctx.fillRect(0, top, GUTTER_WIDTH - lineW, ROW_HEIGHT);
+    }
+    ctx.fillStyle = inSelection ? palette.text : palette.mutedText;
+    ctx.fillText(String(row + 1), GUTTER_WIDTH / 2, top + ROW_HEIGHT / 2);
+  }
   ctx.fillStyle = palette.gridline;
   hairline(ctx, GUTTER_WIDTH - lineW, 0, lineW, height, dpr);
-
-  ctx.font = fonts.gutter;
-  ctx.textAlign = "right";
-  for (let row = rows.first; row <= rows.last; row++) {
-    const y = row * ROW_HEIGHT - scrollY + ROW_HEIGHT / 2;
-    if (y < -ROW_HEIGHT || y > height + ROW_HEIGHT) continue;
-    ctx.fillStyle =
-      active && active.row === row ? palette.text : palette.mutedText;
-    ctx.fillText(String(row + 1), GUTTER_WIDTH - GUTTER_PAD_X, y);
-
-    const box = gutterCheckboxRect(row);
-    paintCheckbox(
-      ctx,
-      { ...box, y: box.y - scrollY },
-      args.selected.has(row) ? "all" : "none",
-      palette,
-      dpr,
-    );
-  }
   ctx.textAlign = "left";
 }

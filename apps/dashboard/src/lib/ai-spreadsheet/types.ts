@@ -125,6 +125,14 @@ export type ActiveRun = { runId: string; status: string; createdAt: Date };
 
 export type CellAddress = { row: number; col: number };
 
+/** A rectangle of cells in display positions, inclusive on both ends. */
+export type SelectionRect = {
+  rowFirst: number;
+  rowLast: number;
+  colFirst: number;
+  colLast: number;
+};
+
 /**
  * A column drag in flight. Lives in a ref and drives `requestPaint()` — it
  * must never be React state, because a re-render remounts the canvas and a
@@ -149,6 +157,25 @@ export type ColumnDragState = {
   clientY: number;
   slot: number;
   active: boolean;
+};
+
+/**
+ * A press-and-drag selection in flight. A ref for the same reason as
+ * `ColumnDragState`, and for one more: every selection change re-renders the
+ * grid, which rebuilds the pointer handlers mid-drag — state kept in a
+ * closure would be gone between one pointer move and the next.
+ */
+export type RangeDragState = {
+  pointerId: number;
+  /** `cells` extends the rectangle to the pointer's cell; `rows` extends whole rows. */
+  mode: "cells" | "rows";
+  /** Canvas-space pointer position, kept for the autoscroll frames. */
+  x: number;
+  y: number;
+  /** The cell the pointer last extended to, so a move within it is a no-op. */
+  last: CellAddress | null;
+  /** The autoscroll's pending animation frame, or null while it is idle. */
+  autoscroll: number | null;
 };
 
 export type SheetHit =
@@ -181,6 +208,13 @@ export type EditorState = {
    * selected. Both are display positions, not wire indexes.
    */
   anchor: CellAddress | null;
+  /**
+   * The earlier areas of a multi-area selection — each a normalised
+   * rectangle kept when a shift-click started a new one. The current area is
+   * `anchor`…`active`; the selection is their union. Empty for a plain
+   * selection, and cleared by anything that selects afresh.
+   */
+  areas: SelectionRect[];
   mode: "idle" | "editing";
   /** The text being typed. Mirrors the hidden textarea's value. */
   buffer: string;

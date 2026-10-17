@@ -3,6 +3,8 @@
 import type { PointerEvent } from "react";
 import { dropTarget } from "@/lib/ai-spreadsheet/column-order";
 import {
+  AUTOSCROLL_EDGE,
+  AUTOSCROLL_STEP,
   dropSlotAt,
   GUTTER_WIDTH,
   maxScrollX,
@@ -20,9 +22,6 @@ import type {
  * gives the "did they click or drag?" question a worse answer.
  */
 const DRAG_THRESHOLD = 4;
-/** How close to an edge starts the autoscroll, and how fast it runs. */
-const AUTOSCROLL_EDGE = 48;
-const AUTOSCROLL_STEP = 12;
 
 export type ColumnDragArgs = {
   modelRef: React.RefObject<SheetModel>;

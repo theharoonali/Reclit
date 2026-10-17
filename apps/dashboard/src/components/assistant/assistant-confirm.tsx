@@ -7,10 +7,11 @@ import { confirmLabel } from "@/lib/assistant/step-label";
 import type { PendingAction } from "@/lib/assistant/types";
 
 /**
- * The capsule while a destructive step waits on the user: the question,
- * then a circular check (confirm) and cross (keep). Both disable the moment
- * an answer is recorded (`pendingAction.response`), so a double click cannot
- * answer twice while the run catches up.
+ * The capsule while a destructive step waits on the user: the question, then
+ * two circles — a success-coloured check on a light success tint (confirm)
+ * and a destructive-coloured cross on a light destructive tint (keep). Both
+ * disable the moment an answer is recorded (`pendingAction.response`), so a
+ * double click cannot answer twice while the run catches up.
  */
 export function AssistantConfirm({
   action,
@@ -32,10 +33,9 @@ export function AssistantConfirm({
         aria-label={t("confirm.delete")}
         disabled={isAnswered}
         onClick={() => onRespond(true)}
-        className="rounded-full"
         size="icon-sm"
         type="button"
-        variant="destructive"
+        variant="island-success"
       >
         <Check aria-hidden="true" />
       </Button>
@@ -45,7 +45,7 @@ export function AssistantConfirm({
         onClick={() => onRespond(false)}
         size="icon-sm"
         type="button"
-        variant="island"
+        variant="island-destructive"
       >
         <X aria-hidden="true" />
       </Button>

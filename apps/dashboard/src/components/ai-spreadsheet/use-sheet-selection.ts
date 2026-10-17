@@ -2,40 +2,44 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
-import type { CheckboxPaintState } from "@/lib/ai-spreadsheet/paint-checkbox";
+import {
+  type RowRange,
+  rowCountOf,
+  selectedRowRanges,
+  storedRowsIn,
+} from "@/lib/ai-spreadsheet/row-selection";
 import type { SheetModel } from "@/lib/ai-spreadsheet/types";
 import { useTRPC } from "@/trpc/client";
+import type { CellEditorApi } from "./use-cell-editor";
 
 export type SheetSelectionApi = {
-  /** Read by the painters and hit-testing — mutated in place, never replaced. */
-  selectedRef: React.RefObject<Set<number>>;
-  /** State, so the header delete control re-renders as ticks change. */
+  /** The whole-row selection as merged ranges, or null while an area leaves a column out. */
+  rows: RowRange[] | null;
+  /** How many rows that is — the header's "N rows selected"; 0 without one. */
   count: number;
   status: "idle" | "deleting" | "error";
-  toggleRow: (row: number) => void;
-  /** The header checkbox: everything stored selected → clear; else select all. */
-  toggleAll: () => void;
-  /** What the header checkbox should paint right now. */
-  selectAllState: () => CheckboxPaintState;
+  /** Re-derives `rows` from the editor — after the selection or the columns change. */
+  refresh: () => void;
   deleteSelected: () => void;
 };
 
-/** Every row index the model knows holds a stored row or a stored cell. */
-function storedRows(model: SheetModel): Set<number> {
-  const rows = new Set<number>(model.rowIds.keys());
-  for (const key of model.cells.keys()) {
-    const row = Number.parseInt(key, 10);
-    if (Number.isInteger(row)) rows.add(row);
-  }
-  return rows;
-}
+const sameRanges = (a: RowRange[] | null, b: RowRange[] | null) =>
+  a === b ||
+  (a !== null &&
+    b !== null &&
+    a.length === b.length &&
+    a.every(
+      (range, i) => range.first === b[i]?.first && range.last === b[i]?.last,
+    ));
 
 /**
- * The gutter's row selection and the delete that acts on it.
+ * The sheet's row selection and the delete that acts on it.
  *
- * The tick set lives in a ref because ticking is a paint concern — the canvas
- * repaints, React does not re-render. Only `count` is state, and only because
- * the delete control in the header is DOM.
+ * There is no row-selection state of its own: a row selection is the editor's
+ * selection when every area spans every column (`row-selection.ts`), so this
+ * hook only mirrors those rows into React state — the header's delete control
+ * is DOM and has to re-render — and owns the mutation. `refresh` runs from the
+ * editor's `onSelectionChange` and when the columns change, never per paint.
  *
  * Deleting follows the sheet's local-model deviation (`use-sheet-sync.ts`):
  * on success the rows are removed from the model ref and repainted — no
@@ -43,17 +47,17 @@ function storedRows(model: SheetModel): Set<number> {
  */
 export function useSheetSelection(args: {
   modelRef: React.RefObject<SheetModel>;
-  requestPaint: () => void;
+  editor: Pick<CellEditorApi, "editorRef" | "clearSelection">;
   /** Runs just before the mutation: cancel edits, drop pending cell writes. */
   onBeforeDelete: () => void;
   /** Removes the rows from the local model after the server confirms. */
   removeRowsLocal: (rows: ReadonlySet<number>) => void;
-}) {
-  const { modelRef, requestPaint, onBeforeDelete, removeRowsLocal } = args;
+}): SheetSelectionApi {
+  const { modelRef, onBeforeDelete, removeRowsLocal } = args;
+  const { editorRef, clearSelection } = args.editor;
   const trpc = useTRPC();
 
-  const selectedRef = useRef(new Set<number>());
-  const [count, setCount] = useState(0);
+  const [rows, setRows] = useState<RowRange[] | null>(null);
   const [status, setStatus] = useState<"idle" | "deleting" | "error">("idle");
 
   const removeRowsMutation = useMutation(
@@ -62,71 +66,42 @@ export function useSheetSelection(args: {
   const mutateRef = useRef(removeRowsMutation.mutate);
   mutateRef.current = removeRowsMutation.mutate;
 
-  const commit = useCallback(() => {
-    setCount(selectedRef.current.size);
-    setStatus("idle");
-    requestPaint();
-  }, [requestPaint]);
-
-  const toggleRow = useCallback(
-    (row: number) => {
-      const selected = selectedRef.current;
-      if (selected.has(row)) selected.delete(row);
-      else selected.add(row);
-      commit();
-    },
-    [commit],
-  );
-
-  const toggleAll = useCallback(() => {
-    const model = modelRef.current;
-    if (!model) return;
-    const selected = selectedRef.current;
-    const stored = storedRows(model);
-    const allSelected =
-      stored.size > 0 && [...stored].every((row) => selected.has(row));
-    selected.clear();
-    if (!allSelected) for (const row of stored) selected.add(row);
-    commit();
-  }, [commit, modelRef]);
-
-  const selectAllState = useCallback((): CheckboxPaintState => {
-    const selected = selectedRef.current;
-    if (selected.size === 0) return "none";
-    const model = modelRef.current;
-    if (!model) return "some";
-    const stored = storedRows(model);
-    const covered =
-      stored.size > 0 && [...stored].every((row) => selected.has(row));
-    return covered ? "all" : "some";
-  }, [modelRef]);
+  const refresh = useCallback(() => {
+    const columnCount = modelRef.current?.columns.length ?? 0;
+    const next = selectedRowRanges(editorRef.current, columnCount);
+    // The same rows keep the same state object, so React bails out of the render.
+    setRows((current) => (sameRanges(current, next) ? current : next));
+    // A new selection is a fresh start; a stale failure must not follow it.
+    setStatus((current) => (current === "error" ? "idle" : current));
+  }, [editorRef, modelRef]);
 
   const deleteSelected = useCallback(() => {
     const model = modelRef.current;
-    const rows = [...selectedRef.current];
-    if (!model || rows.length === 0) return;
+    if (!model || !rows) return;
+    const indexes = storedRowsIn(model, rows);
+    // Blank rows have nothing to remove, and the API rejects an empty list.
+    if (indexes.length === 0) return;
     setStatus("deleting");
     onBeforeDelete();
     mutateRef.current(
-      { id: model.sheetId, rowIndexes: rows },
+      { id: model.sheetId, rowIndexes: indexes },
       {
         onSuccess: () => {
-          removeRowsLocal(new Set(rows));
-          selectedRef.current.clear();
-          commit();
+          removeRowsLocal(new Set(indexes));
+          // Clearing repaints the blanked rows and withdraws the row controls.
+          clearSelection();
+          setStatus("idle");
         },
         onError: () => setStatus("error"),
       },
     );
-  }, [commit, modelRef, onBeforeDelete, removeRowsLocal]);
+  }, [clearSelection, modelRef, onBeforeDelete, removeRowsLocal, rows]);
 
   return {
-    selectedRef,
-    count,
+    rows,
+    count: rows ? rowCountOf(rows) : 0,
     status,
-    toggleRow,
-    toggleAll,
-    selectAllState,
+    refresh,
     deleteSelected,
-  } satisfies SheetSelectionApi;
+  };
 }

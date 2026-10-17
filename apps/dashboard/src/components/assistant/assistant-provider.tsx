@@ -36,15 +36,15 @@ export type PageHandlers = {
 
 /**
  * The one action a page may put in the capsule's right-hand pill — the
- * sheet's Run while its selection holds runnable AI cells. The page owns the
- * words: `label`, `description` and `errorMessage` arrive translated.
+ * sheet's Run while its selection holds AI cells. The page owns the words:
+ * `label`, `description` and `errorMessage` arrive translated.
  */
 export type PageAction = {
   /** The pill's text: short ("Run AI"). */
   label: string;
   /** The accessible name and tooltip: with the count ("Run 3 cells"), or the busy state. */
   description: string;
-  /** The request is on its way: the circle shows a spinner and refuses clicks. */
+  /** The request is on its way, or the cells are already working: the pill shows `description` and refuses clicks. */
   busy: boolean;
   /** Why the last attempt was refused; shown in the capsule until dismissed. */
   errorMessage: string | null;

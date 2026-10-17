@@ -134,7 +134,8 @@ calls `workspace.create` (invalidating `workspace.list` and
   A run widens the capsule to `w-island-wide` and streams its stage —
   Queued, Thinking, "Working: <step>" formatted from the server's tool and
   summarised input — with a cancel ×; a delete pauses it on a question with
-  a circular check and cross, both disabled once answered. The end of a run is one line:
+  a circular green check (light success tint, confirm) and red cross (light
+  destructive tint, keep), both disabled once answered. The end of a run is one line:
   the summary (gone after 8 s), "The run failed." (until dismissed) or
   "Cancelled" (4 s). A refusal (busy, dispatch) or a mic / transcription
   problem shows as an error line in the open capsule with a dismiss ×. The

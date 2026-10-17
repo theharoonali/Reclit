@@ -5,10 +5,10 @@ import type { SheetPalette } from "./types";
 export type CheckboxPaintState = "none" | "some" | "all";
 
 /**
- * The selection checkbox, drawn the same way in the gutter and the header
- * corner: a square outline, and — when checked — a mini primary-coloured box
- * inside it rather than a check glyph. "some" is the header's partial state:
- * the same mini box at reduced alpha.
+ * The select-all checkbox in the header's corner block: a square outline,
+ * and — when checked — a mini primary-coloured box inside it rather than a
+ * check glyph. "some" is the partial state: the same mini box at reduced
+ * alpha. The gutter rows carry no checkbox; a row is selected by its number.
  *
  * `rect` is in whatever space the caller's context is currently in; this
  * paints and nothing else.
