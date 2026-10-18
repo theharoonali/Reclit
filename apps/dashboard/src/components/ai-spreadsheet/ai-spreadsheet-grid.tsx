@@ -3,6 +3,7 @@
 import { Delete02Icon, FileExportIcon } from "@hugeicons/core-free-icons";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAssistantPageAction } from "@/components/assistant/use-page-action";
 import { sheetToCsv } from "@/lib/ai-spreadsheet/export-csv";
 import type {
   ColumnDraft,
@@ -23,7 +24,6 @@ import { AiSpreadsheetSelectionBar } from "./ai-spreadsheet-selection-bar";
 import { AiSpreadsheetSidePanel } from "./ai-spreadsheet-side-panel";
 import { AiSpreadsheetUploadEditor } from "./ai-spreadsheet-upload-editor";
 import { useAssistantRefresh } from "./use-assistant-refresh";
-import { useAssistantRunAction } from "./use-assistant-run-action";
 import { useColumnRemove } from "./use-column-remove";
 import { useColumnReorder } from "./use-column-reorder";
 import { useRunCells } from "./use-run-cells";
@@ -226,7 +226,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   const runVisible = runCells.count > 0 && !runListening.isResolving;
   const runBusy = runCells.status === "running" || runWorking;
   const { run: runSelection, clearError: clearRunError } = runCells;
-  useAssistantRunAction(
+  useAssistantPageAction(
     useMemo(
       () =>
         runVisible || runErrorMessage !== null

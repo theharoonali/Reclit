@@ -95,8 +95,14 @@ async function executeRun(
   signal: AbortSignal | undefined,
 ): Promise<string> {
   await assistantService.markThinking(run.id);
-  const context = await loadAssistantContext(run, sheetId);
-  const system = buildAssistantSystemPrompt(toPromptContext(run, context));
+  const context = await loadAssistantContext({
+    workspaceId: run.workspaceId,
+    scope: run.scope,
+    sheetId,
+  });
+  const system = buildAssistantSystemPrompt(
+    toPromptContext(run.scope, context),
+  );
   const tools = toToolSet(toolSpecsForScope(run.scope));
   const executor = new AssistantExecutor(run, sheetId, {
     confirm: confirmWithUser(run.id),

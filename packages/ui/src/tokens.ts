@@ -193,7 +193,7 @@ export const sizes = {
   // those plus the page's action pill); the open field; a run's stage or a
   // confirmation. Rest widths are fixed lengths so the capsule can animate.
   "island-closed": "9.5rem",
-  "island-action": "15rem",
+  "island-action": "19rem",
   island: "24rem",
   "island-wide": "30rem",
   orb: "1.75rem",

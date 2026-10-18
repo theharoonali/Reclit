@@ -74,6 +74,28 @@ export class AssistantTranscriptionInvalidError extends DomainError {
   }
 }
 
+/** `assistant.recommendWidgets` without a `GOOGLE_GENERATIVE_AI_API_KEY` on the api. */
+export class AssistantRecommendationsUnavailableError extends DomainError {
+  readonly kind = "unavailable";
+  readonly code = "ASSISTANT_RECOMMENDATIONS_UNAVAILABLE";
+  constructor() {
+    super(
+      "AI recommendations are not configured: GOOGLE_GENERATIVE_AI_API_KEY is not set",
+    );
+    this.name = "AssistantRecommendationsUnavailableError";
+  }
+}
+
+/** The model refused or failed the recommendation call, or answered nothing usable. */
+export class AssistantRecommendationsFailedError extends DomainError {
+  readonly kind = "upstream";
+  readonly code = "ASSISTANT_RECOMMENDATIONS_FAILED";
+  constructor(cause: string) {
+    super(`AI recommendations failed: ${cause}`);
+    this.name = "AssistantRecommendationsFailedError";
+  }
+}
+
 /** ElevenLabs refused or failed the transcription. */
 export class AssistantTranscriptionFailedError extends DomainError {
   readonly kind = "upstream";

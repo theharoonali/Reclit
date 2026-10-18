@@ -12,11 +12,12 @@ import type { PageAction } from "./assistant-provider";
 
 /**
  * The capsule's right-hand pill: the one action the current page offers —
- * the sheet's "Run AI", shown while the selection holds AI cells. Outlined
- * in the primary colour, still; while the request is on its way, or the
- * selected cells are already working, it shows its `description`
- * ("Starting…", "Working…") and refuses clicks. The count lives in
- * `description` too ("Run 3 cells"): the accessible name and the tooltip.
+ * the sheet's "Run AI" while the selection holds AI cells, the dashboard's
+ * "AI Recommendations" while it is empty. Outlined in the primary colour,
+ * still; while the request is on its way, or the work is already running,
+ * it shows its `description` ("Starting…", "Thinking…") and refuses clicks.
+ * The count lives in `description` too ("Run 3 cells"): the accessible name
+ * and the tooltip.
  */
 export function AssistantRunAction({ action }: { action: PageAction }) {
   return (

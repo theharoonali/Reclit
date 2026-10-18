@@ -1,11 +1,12 @@
 import {
   applyFilters,
   bindSheet,
+  type ColumnRole,
   normalizeName,
+  profileColumns,
   type SheetPayloadLike,
   type WidgetFilter,
 } from "@reclit/dashboard-engine";
-import { truncateValue } from "../../ai/assistant-prompt";
 import type {
   CellValue,
   ColumnTypeWire,
@@ -62,15 +63,14 @@ export function selectRowIndexes(
   );
 }
 
-const cellOf = (row: SheetRow, key: string): CellValue | undefined =>
-  row.columns.find((entry) => normalizeName(entry.name) === key)?.value;
-
 export type ColumnSummary = {
   column: string;
   type: ColumnTypeWire;
+  role: ColumnRole;
   storedRows: number;
   filled: number;
   blank: number;
+  distinct: number;
   topValues: { value: string; count: number }[];
   numbers?: { min: number; max: number; sum: number; average: number };
   dates?: { min: string; max: string };
@@ -78,57 +78,35 @@ export type ColumnSummary = {
 
 export const TOP_VALUES = 20;
 
-/** One column across every stored row: fill rate, most common values, numeric or date range. */
+/**
+ * One column across every stored row — fill rate, cardinality and role, the
+ * most common values, numeric or date range — as the `getColumnSummary` tool
+ * answers it: the engine's profile of that one column, in the tool's shape.
+ */
 export function summariseColumn(
   rows: readonly SheetRow[],
   column: SheetColumn,
 ): ColumnSummary {
-  const key = normalizeName(column.name);
-  const counts = new Map<string, number>();
-  const numbers: number[] = [];
-  const dates: number[] = [];
-  let filled = 0;
-  for (const row of rows) {
-    const value = cellOf(row, key);
-    if (value === undefined || value === null || value === "") continue;
-    filled += 1;
-    const text = truncateValue(value, 60);
-    counts.set(text, (counts.get(text) ?? 0) + 1);
-    if (column.type === "number" && typeof value === "number") {
-      numbers.push(value);
-    }
-    if (column.type === "date" && typeof value === "string") {
-      const time = Date.parse(value);
-      if (Number.isFinite(time)) dates.push(time);
-    }
-  }
-  const topValues = [...counts]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, TOP_VALUES)
-    .map(([value, count]) => ({ value, count }));
+  const [profile] = profileColumns(
+    { columns: [column], rows },
+    { topValues: TOP_VALUES },
+  );
+  if (!profile) throw new Error("unreachable: one column in, one profile out");
   const summary: ColumnSummary = {
     column: column.name,
     type: column.type,
-    storedRows: rows.length,
-    filled,
-    blank: rows.length - filled,
-    topValues,
+    role: profile.role,
+    storedRows: profile.rows,
+    filled: profile.filled,
+    blank: profile.blank,
+    distinct: profile.distinct,
+    topValues: profile.topValues,
   };
-  if (numbers.length > 0) {
-    const sum = numbers.reduce((total, value) => total + value, 0);
-    summary.numbers = {
-      min: Math.min(...numbers),
-      max: Math.max(...numbers),
-      sum,
-      average: sum / numbers.length,
-    };
+  if (profile.numbers) {
+    const { min, max, sum, average } = profile.numbers;
+    summary.numbers = { min, max, sum, average };
   }
-  if (dates.length > 0) {
-    summary.dates = {
-      min: new Date(Math.min(...dates)).toISOString(),
-      max: new Date(Math.max(...dates)).toISOString(),
-    };
-  }
+  if (profile.dates) summary.dates = profile.dates;
   return summary;
 }
 

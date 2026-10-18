@@ -28,7 +28,7 @@ change.
 | `…/ai-spreadsheet-upload-editor.tsx` | client | upload panel behind file and audio cells (`POST /files`) |
 | `…/ai-spreadsheet-header-action.tsx` | client | one header control (`HeaderActions` + error + `Button`, Hugeicons glyph); `iconOnly` moves the label to `aria-label` + a tooltip; every toolbar control is an instance of it (Run is the assistant capsule's) |
 | `…/ai-spreadsheet-import-button.tsx` | client | Import: the header action with a hidden file input (`useFilePicker`) |
-| `…/use-assistant-run-action.ts` | hook | Publishes Run to the header's assistant capsule as its right-hand pill while the selection holds an AI cell with a prompt ("Run N cells" for more than one; "Working…" and disabled while any of them is working) — label, busy state and the refusal copy; withdrawn otherwise |
+| `apps/dashboard/src/components/assistant/use-page-action.ts` | hook | `useAssistantPageAction` — publishes Run to the header's assistant capsule as its right-hand pill while the selection holds an AI cell with a prompt ("Run N cells" for more than one; "Working…" and disabled while any of them is working) — label, busy state and the refusal copy; withdrawn otherwise. Shared with the dashboard's AI Recommendations pill ([root.md](root.md)) |
 | `…/ai-spreadsheet-selection-bar.tsx` | client | "N rows selected" + Delete rows; renders nothing without a whole-row selection |
 | `…/ai-spreadsheet-drag-chip.tsx` | client | the card that rides the pointer during a column drag |
 | `…/use-sheet-labels.ts` | hook | resolves the canvas's i18n copy once and hands it to the painters as data |

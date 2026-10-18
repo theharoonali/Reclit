@@ -2,12 +2,14 @@ import { tracked } from "@trpc/server";
 import { idInput, workspaceIdInput } from "../../common/schema";
 import {
   assistantChangesInput,
+  recommendWidgetsInput,
   respondAssistantInput,
   startAssistantInput,
 } from "../../modules/assistant/assistant.schema";
 import { assistantService } from "../../modules/assistant/assistant.service";
 import { assistantChangesService } from "../../modules/assistant/assistant-changes.service";
 import { assistantControlService } from "../../modules/assistant/assistant-control.service";
+import { assistantRecommendService } from "../../modules/assistant/assistant-recommend.service";
 import { createTRPCRouter, mapDomainError, publicProcedure } from "../init";
 
 // Routers validate input and delegate. All DB access lives in the services.
@@ -45,6 +47,17 @@ export const assistantRouter = createTRPCRouter({
     .input(respondAssistantInput)
     .mutation(({ input }) =>
       assistantControlService.respond(input).catch(mapDomainError),
+    ),
+
+  /**
+   * One synchronous model call, no run: up to six cards that make sense for
+   * the workspace's sheet, each validated against it. The client adds the
+   * ones it wants through `dashboard.createWidget`, which places them.
+   */
+  recommendWidgets: publicProcedure
+    .input(recommendWidgetsInput)
+    .mutation(({ input }) =>
+      assistantRecommendService.recommend(input).catch(mapDomainError),
     ),
 
   /**

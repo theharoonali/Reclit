@@ -17,10 +17,15 @@ client because the active workspace is client state (localStorage).
 | `apps/dashboard/src/app/(app)/layout.tsx` | RSC | The **one** chrome mount point — renders `<OnboardingGate area="app">` around `<WorkspaceProvider>` around `<AssistantProvider>` around `<AppShell>` (plus `<WorkspaceHeaderTitle>` and `<AssistantIsland>`) for every route in the group |
 | `apps/dashboard/src/components/onboarding/onboarding-gate.tsx` | client | Full-screen loader until `user.me` resolves; sends a user who has not onboarded to `/onboarding` ([onboarding.md](onboarding.md)) |
 | `apps/dashboard/src/app/(app)/page.tsx` | RSC | `<DashboardPanel title subtitle>` with the message-key defaults |
-| `apps/dashboard/src/components/dashboard/dashboard-panel.tsx` | client | `useWorkspace()` → `dashboard.byWorkspace` → `<PageShell wide>` (title / subtitle from the config when set) around loading / error / `<DashboardEmpty>` / `<DashboardGrid>`; mounts `<DashboardHeaderActions>` |
-| `apps/dashboard/src/components/dashboard/dashboard-grid.tsx` | pure | `widgets` → `toRows` (engine) → one 12-column grid per row |
-| `apps/dashboard/src/components/dashboard/dashboard-widget.tsx` | client | `DashboardWidgetCard`: the `Card` spanning `column`, `useWidgetData` → spinner / "cannot compute" / the renderer picked by an exhaustive `switch` on `type`, plus the footer |
-| `apps/dashboard/src/components/dashboard/use-widget-data.ts` | client hook | One `useQuery` per widget under the sheet's own key (`sheetRowsQueryKey`): `fetchAllRows` fetches, `select: runWidget` computes, TanStack memoises — the frontend store of computed data |
+| `apps/dashboard/src/components/dashboard/dashboard-panel.tsx` | client | `useWorkspace()` → `dashboard.byWorkspace` → `<PageShell wide>` (title / subtitle from the config when set) around loading / error / `<DashboardEmpty>` / `<DashboardGrid>` (+ `<DashboardRecommendations>` while a set is open); owns `useDashboardRecommendations` and publishes the "AI Recommendations" pill (`useAssistantPageAction`) while the dashboard is empty and no set is open; mounts `<DashboardHeaderActions>` |
+| `apps/dashboard/src/components/dashboard/dashboard-grid.tsx` | pure | `widgets` → `toRows` (engine) → one 12-column grid per row; `renderCard` draws each item (stored or proposed) |
+| `apps/dashboard/src/components/dashboard/widget-card.tsx` | client | `WidgetCard`: the frame every card renders in — a `Card` spanning `column`, spinner / "cannot compute" / the renderer picked by an exhaustive `switch` on `type`, the footer, and an optional trailing `action` |
+| `apps/dashboard/src/components/dashboard/dashboard-widget.tsx` | client | `DashboardWidgetCard`: a stored widget — `useWidgetData` + `WidgetCard` |
+| `apps/dashboard/src/components/dashboard/use-widget-data.ts` | client hook | One `useQuery` per widget (stored or proposed) under the sheet's own key (`sheetRowsQueryKey`): `fetchAllRows` fetches, `select: runWidget` computes, TanStack memoises — the frontend store of computed data |
+| `apps/dashboard/src/components/dashboard/use-dashboard-recommendations.ts` | client hook | The recommendation flow: `assistant.recommendWidgets` → the proposed cards in component state; `add` / `addAll` (sequential) → `dashboard.createWidget` without a slot, invalidating `dashboard.byWorkspace`; `dismiss`; the pill's `errorMessage` from the tRPC code |
+| `apps/dashboard/src/components/dashboard/dashboard-recommendations.tsx` | client | The proposed cards laid out as they will land (the engine's `placeWidgets`) through `DashboardGrid`, with Add all / Dismiss above and the empty copy when the model found nothing |
+| `apps/dashboard/src/components/dashboard/dashboard-recommendation-card.tsx` | client | A proposed card: `useWidgetData` over `{ spreadsheetId, type, variant, query }` + `WidgetCard` with Add in its footer |
+| `apps/dashboard/src/components/assistant/use-page-action.ts` | client hook | `useAssistantPageAction` — publishes a page's action as the capsule's right-hand pill, withdrawn on `null` and unmount (shared with [`/ai-spreadsheet`](ai-spreadsheet.md)) |
 | `apps/dashboard/src/components/dashboard/dashboard-empty.tsx` | client | The empty state with the "Create starter dashboard" button → `dashboard.createStarter` |
 | `apps/dashboard/src/components/dashboard/dashboard-header-actions.tsx` | client | The Refresh button portalled into the header: invalidates the sheet rows and the config |
 | `apps/dashboard/src/components/dashboard/widgets/*.tsx` | client / RSC | One renderer per type: `stat` · `area` · `bar` · `line` · `pie` · `radar` · `radial` (client, recharts) · `heatmap` · `table` (RSC) · `widget-footer`. Each takes a `ResolvedWidget` (config + computed `data`) |
@@ -72,6 +77,8 @@ and the `pill` `Input` / `island` + `island-outline` + `island-plain` `Button` v
 | `dashboard.byWorkspace` | query | `dashboard-panel.tsx`, on load and on workspace switch | — |
 | `spreadsheet.rows` | query | `use-widget-data.ts` through `fetchAllRows`, once per sheet (every widget of a sheet shares the entry), under `sheetRowsQueryKey` — **not** the tRPC key the sheet page uses | — |
 | `dashboard.createStarter` | mutation | `dashboard-empty.tsx` | `dashboard.byWorkspace` |
+| `assistant.recommendWidgets` | mutation | `use-dashboard-recommendations.ts`, from the capsule's "AI Recommendations" pill | — (the cards stay in component state) |
+| `dashboard.createWidget` | mutation | `use-dashboard-recommendations.ts`, Add / Add all (no `row` / `sort`: the api places the card) | `dashboard.byWorkspace` |
 | Refresh button | — | `dashboard-header-actions.tsx` | `sheetRowsQueryKey` prefix + `dashboard.byWorkspace` |
 
 The assistant island (shared with [`/ai-spreadsheet`](ai-spreadsheet.md);
@@ -124,7 +131,9 @@ calls `workspace.create` (invalidating `workspace.list` and
   button. There is no search field, no notification bell and no header avatar.
 - **The assistant island** sits centred in the header (`md` and up). At
   rest it is the orb and a short "Reclit AI" label, centred in a
-  `w-island-closed` capsule; hovering, focusing or clicking it widens the
+  `w-island-closed` capsule (`w-island-action` with the page's action pill
+  beside it — this page's "AI Recommendations" while the dashboard is
+  empty); hovering, focusing or clicking it widens the
   capsule to
   `w-island` and the same pill grows into the field, the mic fading in
   inside its right end (hidden where the browser cannot record; a right
@@ -176,6 +185,24 @@ calls `workspace.create` (invalidating `workspace.list` and
   starter dashboard": `dashboard.createStarter` derives a row-count stat, a
   stat per number column, a bar and a monthly line from the first text /
   date columns, and a table of the first columns.
+- **AI Recommendations.** While the dashboard is empty the assistant island's
+  right-hand pill reads "AI Recommendations" (`md` and up — the island is
+  hidden below). One click asks `assistant.recommendWidgets` ("Thinking…" in
+  the pill, ~5–15 s; a refusal shows in the capsule as an error line) and the
+  empty state gives way to "Recommended charts": up to six proposed cards,
+  each computed live from the sheet with the real renderers and laid out as
+  they will land (the engine's `placeWidgets`, the rule the api applies on
+  Add). Add puts one card on the dashboard through `dashboard.createWidget`
+  without a slot — the api takes the first row with room for its width —
+  and removes it from the set; Add all does that one card at a time; Dismiss
+  drops the set. Once the first card is added the real grid shows above the
+  remaining proposals; when the last one is added the set closes. The set is
+  component state and does not survive a reload. A sheet the model finds
+  nothing meaningful in gets the empty copy and Dismiss.
+- **Every new card fills the grid top-first.** Whatever creates it — the
+  recommendations' Add, the capsule's `createWidget` tool, an API caller
+  leaving `row` / `sort` out — the api places it in the first row with room
+  for its width, after that row's last card, and only otherwise on a new row.
 - **The page title and subtitle** come from `en.json` unless the dashboard
   config sets `title` / `description`.
 - Widget titles, descriptions, series labels and footers are **data** from

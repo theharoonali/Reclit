@@ -45,6 +45,46 @@ export function checkLayout(
   return null;
 }
 
+/** A card's place in the grid: its row and its order within it. */
+export type WidgetSlot = { row: number; sort: number };
+
+const nextSort = (widgets: readonly { sort: number }[]): number =>
+  widgets.reduce((max, widget) => Math.max(max, widget.sort), -1) + 1;
+
+/**
+ * Where a new card of width `span` goes: the first row (ascending) whose
+ * spans leave room for it, after that row's last card — so the grid fills
+ * top-first — or a new bottom row when no row has room. A given `row` means
+ * "after the last card of that row", whatever its width.
+ */
+export function placeWidget(
+  widgets: readonly { row: number; column: number; sort: number }[],
+  span: number,
+  row?: number,
+): WidgetSlot {
+  if (row !== undefined) {
+    return { row, sort: nextSort(widgets.filter((w) => w.row === row)) };
+  }
+  for (const group of toRows(widgets)) {
+    const used = group.widgets.reduce((total, w) => total + w.column, 0);
+    if (used + span <= GRID_COLUMNS) {
+      return { row: group.row, sort: nextSort(group.widgets) };
+    }
+  }
+  const last = widgets.reduce((max, w) => Math.max(max, w.row), -1);
+  return { row: last + 1, sort: 0 };
+}
+
+/** The slots cards of these widths take when added one after another to an empty grid. */
+export function placeWidgets(spans: readonly number[]): WidgetSlot[] {
+  const placed: { row: number; column: number; sort: number }[] = [];
+  return spans.map((span) => {
+    const slot = placeWidget(placed, span);
+    placed.push({ ...slot, column: span });
+    return slot;
+  });
+}
+
 /** One dashboard row: its index and its widgets, left → right. */
 export type DashboardRow<T> = { row: number; widgets: T[] };
 

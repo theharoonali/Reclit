@@ -20,7 +20,7 @@ import { GEMINI_DEFAULT_MODEL, gemini } from "./gemini";
 // `output` schema: Gemini rejects tools and a JSON response schema in one
 // request (search-output.ts).
 
-/** `ASSISTANT_MODEL` in the worker's environment overrides the default Gemini model. */
+/** `ASSISTANT_MODEL` in the environment (the worker's loop, the api's recommendation call) overrides the default Gemini model. */
 export const assistantModelId = (): string =>
   process.env.ASSISTANT_MODEL || GEMINI_DEFAULT_MODEL;
 

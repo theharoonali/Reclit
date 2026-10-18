@@ -36,8 +36,10 @@ export type PageHandlers = {
 
 /**
  * The one action a page may put in the capsule's right-hand pill — the
- * sheet's Run while its selection holds AI cells. The page owns the words:
- * `label`, `description` and `errorMessage` arrive translated.
+ * sheet's Run while its selection holds AI cells, the dashboard's AI
+ * Recommendations while it is empty (`useAssistantPageAction`). The page
+ * owns the words: `label`, `description` and `errorMessage` arrive
+ * translated.
  */
 export type PageAction = {
   /** The pill's text: short ("Run AI"). */

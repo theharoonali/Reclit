@@ -6,8 +6,8 @@ import { useCallback } from "react";
 import type { SheetPayload } from "@/lib/ai-spreadsheet/types";
 import { sheetRowsQueryKey } from "@/lib/dashboard/sheet-rows-query";
 import {
-  type DashboardWidget,
   toWidgetState,
+  type WidgetSource,
   type WidgetState,
 } from "@/lib/dashboard/widget-state";
 import { fetchAllRows } from "@/lib/spreadsheet/fetch-all-rows";
@@ -26,8 +26,11 @@ import { useTRPCClient } from "@/trpc/client";
  * `runWidget` never throws — a query that no longer fits the sheet (a renamed
  * column) comes back as an issue, not as a query error, so there is no
  * `retry` storm and the card can say what is wrong.
+ *
+ * `widget` is memoised on identity (it is the `select`'s only input), so a
+ * caller building one from parts keeps it in a `useMemo`.
  */
-export function useWidgetData(widget: DashboardWidget): WidgetState {
+export function useWidgetData(widget: WidgetSource): WidgetState {
   const client = useTRPCClient();
   const sheetId = widget.spreadsheetId;
   const select = useCallback(

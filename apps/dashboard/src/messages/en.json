@@ -82,6 +82,21 @@
       "creating": "Creating…",
       "error": "The dashboard could not be created."
     },
+    "recommendations": {
+      "action": "AI Recommendations",
+      "description": "Suggest charts for this sheet",
+      "busy": "Thinking…",
+      "title": "Recommended charts",
+      "subtitle": "{count, plural, one {# card} other {# cards}} computed live from your sheet. Add the ones that make sense.",
+      "empty": "No meaningful charts were found for this sheet.",
+      "add": "Add",
+      "adding": "Adding…",
+      "addAll": "Add all",
+      "dismiss": "Dismiss",
+      "error": "Recommendations could not be loaded.",
+      "unavailable": "AI recommendations are not configured.",
+      "addError": "The card could not be added."
+    },
     "widget": {
       "loading": "Loading widget data",
       "loadError": "The sheet could not be loaded.",

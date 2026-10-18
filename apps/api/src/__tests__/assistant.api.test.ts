@@ -63,6 +63,10 @@
  *   | { type: "run"; run: AssistantRun }               // one run after an insert or update
  *   | { type: "closed" }                               // the run finished and nothing is active; last event
  * AssistantTranscription = { text: string; languageCode: string | null }
+ * AssistantRecommendation = { name; description: string | null; type; variant; height;
+ *   column: 1..12; query: WidgetQuery }   // a dashboard WidgetInput without its slot
+ * AssistantRecommendations = { spreadsheetId: string; recommendations: AssistantRecommendation[] (≤ 6);
+ *   skipped: number; model: string; usage: { inputTokens, outputTokens, totalTokens } }
  * Dates cross the wire as real Date objects (superjson). Status, scope and
  * source are lowercase on the wire and uppercase in the database.
  *
@@ -75,6 +79,7 @@
  * | assistant.cancel          | mutation     | { id }                                               | AssistantRun (cancelled)        | BAD_REQUEST, NOT_FOUND, CONFLICT                         |
  * | assistant.respond         | mutation     | { id; approved: boolean }                            | AssistantRun                    | BAD_REQUEST, NOT_FOUND, CONFLICT                         |
  * | assistant.onChange        | subscription | { workspaceId; lastEventId? }                        | SSE of tracked AssistantChange  | BAD_REQUEST                                              |
+ * | assistant.recommendWidgets| mutation     | { workspaceId }                                      | AssistantRecommendations        | BAD_REQUEST, NOT_FOUND, SERVICE_UNAVAILABLE, BAD_GATEWAY |
  * | POST /assistant/transcribe| REST         | multipart "file": an audio recording ≤ 10 MB         | 200 AssistantTranscription      | 400, 502, 503                                            |
  *
  * NOTES
@@ -139,17 +144,35 @@
  *   `ELEVENLABS_API_KEY` on the api it is 503
  *   (`ASSISTANT_TRANSCRIPTION_UNAVAILABLE`); an upstream failure is 502
  *   (`ASSISTANT_TRANSCRIPTION_FAILED`). Error bodies are `{ code, message }`.
+ * - `recommendWidgets` is one synchronous model call, no run row: the
+ *   workspace's sheet is profiled (the first 2,000 rows: fill, cardinality, a
+ *   role per column — identifier, year, time, flag, category, measure, text)
+ *   and the model answers with cards as JSON. Each card is then parsed
+ *   against the dashboard contract, validated with the engine against the
+ *   sheet's columns and dropped when it fails, dropped when it repeats a card
+ *   the dashboard already has (same type and query), and the first 6 are
+ *   answered with their defaults filled (`variant` "default", `height` "md",
+ *   `column` by type: stat 3, table 12, else 6); `skipped` counts the rest.
+ *   A recommendation has no `row` / `sort`: `dashboard.createWidget` places
+ *   it. An unknown workspace or one without a sheet is NOT_FOUND; without a
+ *   `GOOGLE_GENERATIVE_AI_API_KEY` on the api it is SERVICE_UNAVAILABLE
+ *   (`ASSISTANT_RECOMMENDATIONS_UNAVAILABLE`); a model failure is BAD_GATEWAY
+ *   (`ASSISTANT_RECOMMENDATIONS_FAILED`).
  * - Every procedure is public; there is no auth yet.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import type { ColumnProfile } from "@reclit/dashboard-engine";
 import {
   buildAssistantSystemPrompt,
+  buildRecommendationPrompt,
+  CHART_SENSE_RULES,
   MAX_SAMPLE_ROWS,
   truncateValue,
   UNTRUSTED_DATA_RULE,
   WIDGET_GRAMMAR,
 } from "../ai/assistant-prompt";
+import type { RecommendationGenerator } from "../ai/assistant-recommend";
 import {
   addUsage,
   toolResultsMessage,
@@ -160,6 +183,7 @@ import { pingDatabase, prisma } from "../db/prisma";
 import {
   AssistantFinishedError,
   AssistantNotAwaitingError,
+  AssistantRecommendationsFailedError,
 } from "../modules/assistant/assistant.errors";
 import { assistantFeed } from "../modules/assistant/assistant.feed";
 import type {
@@ -179,14 +203,12 @@ import {
 } from "../modules/assistant/assistant.schema";
 import { assistantService } from "../modules/assistant/assistant.service";
 import { assistantControlService } from "../modules/assistant/assistant-control.service";
-import {
-  placeWidget,
-  toWidgetQueryInput,
-} from "../modules/assistant/assistant-dashboard-tools";
+import { toWidgetQueryInput } from "../modules/assistant/assistant-dashboard-tools";
 import {
   AssistantExecutor,
   type ConfirmationOutcome,
 } from "../modules/assistant/assistant-executor";
+import { assistantRecommendService } from "../modules/assistant/assistant-recommend.service";
 import {
   coerceToolValue,
   resolveColumn,
@@ -1089,7 +1111,7 @@ describe.skipIf(!dbUp)("the executor (dashboard scope)", () => {
     await caller.dashboard.remove({ workspaceId }).catch(() => {});
   });
 
-  it("creates cards, placing each new one on a new bottom row with a width for its type", async () => {
+  it("creates cards, placing each new one in the first row with room and a width for its type", async () => {
     const stat = await call("createWidget", {
       name: "Total fees",
       type: "stat",
@@ -1124,8 +1146,8 @@ describe.skipIf(!dbUp)("the executor (dashboard scope)", () => {
     expect(bar.output).toMatchObject({
       dashboard: {
         widgets: [
-          { name: "Total fees", row: 0 },
-          { name: "Fees by name", row: 1, sort: 0, column: 6, height: "lg" },
+          { name: "Total fees", row: 0, sort: 0 },
+          { name: "Fees by name", row: 0, sort: 1, column: 6, height: "lg" },
         ],
       },
     });
@@ -1228,6 +1250,171 @@ describe.skipIf(!dbUp)("POST /assistant/transcribe", () => {
     expect(await res.json()).toMatchObject({
       code: "ASSISTANT_TRANSCRIPTION_UNAVAILABLE",
     });
+  });
+});
+
+describe.skipIf(!dbUp)("assistant.recommendWidgets", () => {
+  let savedKey: string | undefined;
+  const usage = { inputTokens: 1, outputTokens: 2, totalTokens: 3 };
+  const card = (over: Record<string, unknown> = {}) => ({
+    name: "Total fees",
+    type: "stat",
+    query: {
+      series: [{ key: "sum", label: "Total", formula: "SUM({Fees})" }],
+    },
+    ...over,
+  });
+  const generator =
+    (cards: unknown[]): RecommendationGenerator =>
+    async () => ({ cards, model: "fake-model", usage });
+
+  beforeAll(() => {
+    savedKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  });
+
+  afterAll(async () => {
+    if (savedKey === undefined) delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    else process.env.GOOGLE_GENERATIVE_AI_API_KEY = savedKey;
+    await caller.dashboard.remove({ workspaceId }).catch(() => {});
+  });
+
+  it("is NOT_FOUND for an unknown workspace and SERVICE_UNAVAILABLE without a Gemini key on the api", async () => {
+    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    await expectTRPCError(
+      caller.assistant.recommendWidgets({ workspaceId: "does-not-exist" }),
+      "NOT_FOUND",
+    );
+    await expectTRPCError(
+      caller.assistant.recommendWidgets({ workspaceId }),
+      "SERVICE_UNAVAILABLE",
+    );
+  });
+
+  it("keeps the cards that pass the contract and the engine, fills their defaults and counts the rest", async () => {
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = "contract-test-key";
+    const result = await assistantRecommendService.recommend(
+      { workspaceId },
+      {
+        generate: generator([
+          card(),
+          card({
+            name: "Fees by country",
+            description: "Where the fees come from",
+            type: "bar",
+            height: "lg",
+            column: 12,
+            query: {
+              groupBy: { column: "Country" },
+              series: [{ key: "fees", label: "Fees", formula: "SUM({Fees})" }],
+            },
+          }),
+          card({
+            name: "Unknown column",
+            query: {
+              series: [{ key: "x", label: "X", formula: "SUM({Nope})" }],
+            },
+          }),
+          card({
+            name: "Two series pie",
+            type: "pie",
+            query: {
+              groupBy: { column: "Country" },
+              series: [
+                { key: "a", label: "A", formula: "COUNT()" },
+                { key: "b", label: "B", formula: "COUNT()" },
+              ],
+            },
+          }),
+          card({
+            name: "Bad key",
+            query: {
+              series: [{ key: "total fees", label: "T", formula: "COUNT()" }],
+            },
+          }),
+          { name: "", type: "stat" },
+          card({ name: "Repeat" }),
+        ]),
+      },
+    );
+    expect(result).toMatchObject({
+      spreadsheetId: sheetId,
+      skipped: 5,
+      model: "fake-model",
+      usage,
+    });
+    expect(result.recommendations).toEqual([
+      {
+        name: "Total fees",
+        description: null,
+        type: "stat",
+        variant: "default",
+        height: "md",
+        column: 3,
+        query: {
+          filters: [],
+          groupBy: null,
+          series: [{ key: "sum", label: "Total", formula: "SUM({Fees})" }],
+        },
+      },
+      {
+        name: "Fees by country",
+        description: "Where the fees come from",
+        type: "bar",
+        variant: "default",
+        height: "lg",
+        column: 12,
+        query: {
+          filters: [],
+          groupBy: { column: "Country", bucket: "none" },
+          series: [{ key: "fees", label: "Fees", formula: "SUM({Fees})" }],
+        },
+      },
+    ]);
+  });
+
+  it("skips a card the dashboard already has and caps the set at six", async () => {
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = "contract-test-key";
+    await caller.dashboard.createWidget({
+      workspaceId,
+      name: "Total fees",
+      type: "stat",
+      column: 3,
+      query: {
+        series: [{ key: "sum", label: "Total", formula: "SUM({Fees})" }],
+      },
+    });
+    const counts = Array.from({ length: 8 }, (_, index) =>
+      card({
+        name: `Count ${index}`,
+        query: {
+          series: [{ key: `c${index}`, label: "Rows", formula: "COUNT()" }],
+        },
+      }),
+    );
+    const result = await assistantRecommendService.recommend(
+      { workspaceId },
+      { generate: generator([card(), ...counts]) },
+    );
+    expect(result.recommendations.map((item) => item.name)).toEqual(
+      counts.slice(0, 6).map((item) => item.name),
+    );
+    expect(result.skipped).toBe(3);
+  });
+
+  it("is BAD_GATEWAY when the model call fails", async () => {
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = "contract-test-key";
+    const error = await expectError(
+      assistantRecommendService.recommend(
+        { workspaceId },
+        {
+          generate: async () => {
+            throw new Error("quota exhausted");
+          },
+        },
+      ),
+      AssistantRecommendationsFailedError,
+    );
+    expect(error.message).toContain("quota exhausted");
   });
 });
 
@@ -1343,22 +1530,6 @@ describe("the tool table", () => {
     expect(defaultWidgetSpan("stat")).toBe(3);
     expect(defaultWidgetSpan("table")).toBe(12);
     expect(defaultWidgetSpan("bar")).toBe(6);
-  });
-
-  it("places a new card on a new bottom row, or after the last card of a chosen row", () => {
-    expect(placeWidget([], undefined, undefined)).toEqual({ row: 0, sort: 0 });
-    const widgets = [
-      { row: 0, sort: 0 },
-      { row: 0, sort: 1 },
-      { row: 2, sort: 0 },
-    ];
-    expect(placeWidget(widgets, undefined, undefined)).toEqual({
-      row: 3,
-      sort: 0,
-    });
-    expect(placeWidget(widgets, 0, undefined)).toEqual({ row: 0, sort: 2 });
-    expect(placeWidget(widgets, 5, undefined)).toEqual({ row: 5, sort: 0 });
-    expect(placeWidget(widgets, 1, 4)).toEqual({ row: 1, sort: 4 });
   });
 
   it("maps the flat tool query onto the engine's query", () => {
@@ -1511,10 +1682,13 @@ describe("the sheet helpers", () => {
     expect(fees).toMatchObject({
       filled: 2,
       blank: 1,
+      distinct: 2,
+      role: "measure",
       numbers: { min: 50, max: 100, sum: 150, average: 75 },
     });
     const paid = summariseColumn(payload.rows, payload.columns[2] as never);
     expect(paid.dates?.min).toBe("2026-01-05T00:00:00.000Z");
+    expect(paid.role).toBe("time");
   });
 
   it("shapes a model value for its column type", () => {
@@ -1595,6 +1769,94 @@ describe("the prompt and the step helpers", () => {
       dashboard: null,
     });
     expect(empty).toContain("has no dashboard yet");
+    expect(empty).toContain(CHART_SENSE_RULES);
+  });
+
+  it("adds the column profile and the chart rules to the dashboard prompt only", () => {
+    const profile: ColumnProfile[] = [
+      {
+        name: "Year",
+        type: "number",
+        role: "year",
+        rows: 3,
+        filled: 3,
+        blank: 0,
+        distinct: 3,
+        topValues: [],
+        numbers: {
+          min: 2021,
+          max: 2023,
+          sum: 6066,
+          average: 2022,
+          integers: true,
+        },
+      },
+      {
+        name: "Region",
+        type: "string",
+        role: "category",
+        rows: 3,
+        filled: 3,
+        blank: 0,
+        distinct: 2,
+        topValues: [
+          { value: "EMEA", count: 2 },
+          { value: "APAC", count: 1 },
+        ],
+      },
+      {
+        name: "Signed",
+        type: "date",
+        role: "time",
+        rows: 3,
+        filled: 2,
+        blank: 1,
+        distinct: 2,
+        topValues: [],
+        dates: {
+          min: "2026-01-05T00:00:00.000Z",
+          max: "2026-02-10T00:00:00.000Z",
+        },
+      },
+    ];
+    const prompt = buildAssistantSystemPrompt({
+      ...context,
+      scope: "dashboard",
+      dashboard: null,
+      profile,
+      profiledRows: 3,
+    });
+    expect(prompt).toContain(
+      [
+        "Column profile over the first 3 of the 1234 stored rows:",
+        "<column-profile>",
+        "- Year (number, year): 3 filled, 0 blank, every value distinct; min 2021, max 2023, average 2022",
+        "- Region (string, category): 3 filled, 0 blank, 2 distinct; top: EMEA 2, APAC 1",
+        "- Signed (date, time): 2 filled, 1 blank, every value distinct; from 2026-01-05 to 2026-02-10",
+        "</column-profile>",
+      ].join("\n"),
+    );
+    const sheet = buildAssistantSystemPrompt({
+      ...context,
+      scope: "spreadsheet",
+      profile,
+      profiledRows: 3,
+    });
+    expect(sheet).not.toContain("</column-profile>");
+    expect(sheet).not.toContain(CHART_SENSE_RULES);
+  });
+
+  it("builds the recommendation prompt without the tool-loop rules", () => {
+    const { system, prompt } = buildRecommendationPrompt(
+      { ...context, scope: "dashboard", dashboard: null },
+      6,
+    );
+    expect(system).toContain(UNTRUSTED_DATA_RULE);
+    expect(system).toContain(WIDGET_GRAMMAR);
+    expect(system).toContain(CHART_SENSE_RULES);
+    expect(system).toContain("has no dashboard yet");
+    expect(system).not.toContain("one tool call at a time");
+    expect(prompt).toContain("up to 6 dashboard cards");
   });
 
   it("truncates values to one line", () => {

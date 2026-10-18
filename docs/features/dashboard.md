@@ -46,7 +46,7 @@ sort)`, `DashboardWidget.spreadsheetId` · Relations: `Workspace.dashboard?`,
 
 | Path | Layer | Responsibility |
 | --- | --- | --- |
-| `packages/dashboard-engine/` | engine | `WidgetQuery` + the vocabularies, the formula parser/evaluator, `validateWidget` (every semantic rule), `checkLayout`, `runWidget` (browser side) — shared with the dashboard app |
+| `packages/dashboard-engine/` | engine | `WidgetQuery` + the vocabularies, the formula parser/evaluator, `validateWidget` (every semantic rule), `checkLayout`, `placeWidget` / `placeWidgets` (top-first placement), `profileColumns` (fill, cardinality, ranges and a heuristic role per column), `runWidget` (browser side) — shared with the dashboard app |
 | `apps/api/prisma/schema.prisma` | model | `Dashboard`, `DashboardWidget`, the two enums |
 | `apps/api/src/modules/dashboard/dashboard.schema.ts` | schema | zod inputs/outputs (structural), wire ↔ db enum mirrors, `toWidgetQuery` (the typecheck tie to the engine type) |
 | `apps/api/src/modules/dashboard/dashboard.errors.ts` | errors | the eight `Dashboard*Error`s, `formatPath` |
@@ -85,6 +85,14 @@ sort)`, `DashboardWidget.spreadsheetId` · Relations: `Workspace.dashboard?`,
   and `createMany`s the new ones. A failure anywhere changes nothing.
 - **The dashboard is created lazily** by `replace` and `createWidget`
   (`upsert` on the unique `workspaceId`); `byWorkspace` is null until then.
+- **`createWidget` places what it is not told.** With `row` and `sort`
+  omitted the widget takes the first row (ascending) with room for its
+  `column`, after that row's last card, else a new bottom row — the engine's
+  `placeWidget`, run inside the transaction against the slots as they are
+  then, so the grid fills top-first for every caller (the assistant's tool,
+  the recommendations' Add, any API client). A `row` without a `sort` goes
+  after that row's last card and must still fit. `replace` takes every
+  placement as given.
 - **`updateWidget` validates stored ⊕ patch.** The sheet is read again only
   when `query`, `spreadsheetId`, `type` or `variant` changes; the layout is
   checked against the dashboard's other widgets every time.
@@ -111,7 +119,9 @@ sort)`, `DashboardWidget.spreadsheetId` · Relations: `Workspace.dashboard?`,
 ## Used by
 
 - `/` ([route doc](../routes/root.md)) — `byWorkspace` on load,
-  `createStarter` from the empty state.
-- Nothing calls `replace`, `update`, `remove`, `createWidget`, `updateWidget`
-  or `removeWidget` from the UI yet: they are the surface the LLM (or any
-  caller) rebuilds the dashboard through.
+  `createStarter` from the empty state, `createWidget` (without a slot) from
+  the AI recommendations' Add.
+- The assistant's dashboard tools ([assistant.md](assistant.md)) —
+  `createWidget`, `updateWidget`, `removeWidget`, `update`.
+- Nothing calls `replace` or `remove` from the UI: they are the surface an
+  API caller rebuilds the dashboard through.

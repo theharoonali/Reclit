@@ -162,9 +162,9 @@ no Prisma code; `bunx turbo build` is the check.
 | `ALLOWED_API_ORIGINS` | api | CORS allowlist (default `http://localhost:4000`) |
 | `SUPABASE_URL`, `SUPABASE_KEY` | api | Supabase Storage for `POST /files`; unset → 503 on upload |
 | `TRIGGER_SECRET_KEY` | api | Trigger.dev environment key the api enqueues with (`src/jobs/run-ai-dispatch.ts`); the Trigger CLI reads it too |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | worker | Gemini key for the Vercel AI SDK (`src/ai/gemini.ts`), including the `google_search` node's grounding; the local worker reads `apps/api/.env`, a deployed one its Trigger environment |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | api, worker | Gemini key for the Vercel AI SDK (`src/ai/gemini.ts`), including the `google_search` node's grounding; the local worker reads `apps/api/.env`, a deployed one its Trigger environment; the api answers `assistant.recommendWidgets` with it (without it the procedure is SERVICE_UNAVAILABLE) |
 | `ELEVENLABS_API_KEY` | api, worker | ElevenLabs Speech-to-Text (`src/ai/elevenlabs.ts`): the worker transcribes audio cells (without it the prompt says the audio could not be transcribed); the api transcribes the header capsule's mic recording through `POST /assistant/transcribe` (without it the route answers 503) |
-| `ASSISTANT_MODEL` | worker | optional; the Gemini model the assistant's tool loop uses (`src/ai/assistant-step.ts`), default `gemini-2.5-flash` |
+| `ASSISTANT_MODEL` | api, worker | optional; the Gemini model the assistant's tool loop (worker) and its recommendation call (api) use (`src/ai/assistant-step.ts`), default `gemini-2.5-flash` |
 | `FIRECRAWL_API_KEY` | worker | Firecrawl for url cells (`src/ai/firecrawl.ts`, the `crawl-website` task); same two places; without it the prompt says the site could not be crawled |
 | `NEXT_PUBLIC_API_URL` | dashboard | browser tRPC target (default `http://localhost:4001`) |
 | `API_INTERNAL_URL` | dashboard | optional SSR-side override |

@@ -3,8 +3,9 @@
 **Purpose:** one record per prompt the user sends from the header capsule —
 what was asked, every tool call the model made, where the run stands — plus
 the live stream the capsule paints from, the Trigger.dev task that runs the
-model's tool loop through the spreadsheet and dashboard services, and the
-mic's transcription route.
+model's tool loop through the spreadsheet and dashboard services, the mic's
+transcription route, and the dashboard's AI recommendations: one synchronous
+model call that proposes cards for the workspace's sheet, no run row.
 
 **Contract:** `apps/api/src/__tests__/assistant.api.test.ts` — payloads,
 responses, stream events, step shapes, error codes and every client-visible
@@ -57,18 +58,20 @@ which also holds what the Prisma schema cannot express:
 | `apps/api/src/modules/assistant/assistant.feed.ts` | feed | `assistantFeed = new LiveFeed("assistant_run_changed", "assistant")` |
 | `apps/api/src/modules/assistant/assistant.controller.ts` | controller | `POST /assistant/transcribe` (multipart `file`) |
 | `apps/api/src/modules/assistant/assistant.module.ts` | module | the feed's Nest lifecycle + the controller |
-| `apps/api/src/modules/assistant/assistant-context.ts` | reads | `loadAssistantContext` (workspace name, row count, columns, 10 sample rows, the dashboard for that scope), `toPromptContext`, `readAllRows` (every stored row, ≤ 20,000, for the rule tools) |
-| `apps/api/src/modules/assistant/assistant-tools.ts` | pure | the tool table (`ASSISTANT_TOOLS`: description + flat zod `inputSchema` per tool), `toolsForScope`, the per-call caps, `summariseStepInput`, `defaultWidgetSpan`, `toolWidgetQuerySchema` (the engine's query with `groupBy` optional and `in` as `values`) |
-| `apps/api/src/modules/assistant/assistant-sheet.ts` | pure | `resolveColumn` (trimmed, case-insensitive), `toWidgetFilter`, `selectRowIndexes` (engine `bindSheet` + `applyFilters`), `summariseColumn`, `coerceToolValue` |
+| `apps/api/src/modules/assistant/assistant-context.ts` | reads | `loadAssistantContext({ workspaceId, scope, sheetId })` (workspace name, row count, columns, 10 sample rows; dashboard scope: the first 2,000 rows profiled with the engine's `profileColumns` and the dashboard), `toPromptContext(scope, context)`, `readAllRows(sheetId, maxRows?)` (every stored row, ≤ 20,000, for the rule tools) |
+| `apps/api/src/modules/assistant/assistant-tools.ts` | pure | the tool table (`ASSISTANT_TOOLS`: description + flat zod `inputSchema` per tool), `toolsForScope`, the per-call caps, `summariseStepInput`, `defaultWidgetSpan`, `toolWidgetQuerySchema` (the engine's query with `groupBy` optional and `in` as `values`), `recommendationCardSchema` (the strict shape of one proposed card) |
+| `apps/api/src/modules/assistant/assistant-sheet.ts` | pure | `resolveColumn` (trimmed, case-insensitive), `toWidgetFilter`, `selectRowIndexes` (engine `bindSheet` + `applyFilters`), `summariseColumn` (the engine's `profileColumns` of one column, in the tool's shape: fill, distinct count, role, top values, ranges), `coerceToolValue` |
+| `apps/api/src/modules/assistant/assistant-recommend.service.ts` | service | prisma-free: `recommend({ workspaceId }, deps?)` — the sheet through `createSheetResolver`, the dashboard context, one model call (`deps.generate`, injectable), then per card: strict parse → defaults → engine `validateWidget` → dedupe against the dashboard → cap at `MAX_RECOMMENDATIONS` (6); `toRecommendation` |
 | `apps/api/src/modules/assistant/assistant-tool-runtime.ts` | pure | `ToolContext`, `ToolResult`, `ToolInputError` (a model mistake, reported back, never a failed run), `ToolBudget` (2,000 cell writes per run) |
 | `apps/api/src/modules/assistant/assistant-sheet-tools.ts` | handlers | the spreadsheet tools over `spreadsheetService` / `spreadsheetColumnsService` / `spreadsheetCellsService` (`updateCells` for the bulk writes); `prepareRemoveColumn` / `prepareRemoveRows` (count first, write after the confirmation) |
-| `apps/api/src/modules/assistant/assistant-dashboard-tools.ts` | handlers | the dashboard tools over `dashboardWidgetsService` / `dashboardService`; `placeWidget` (new bottom row, or after the row's last card), `toWidgetQueryInput`, `prepareRemoveWidget` |
+| `apps/api/src/modules/assistant/assistant-dashboard-tools.ts` | handlers | the dashboard tools over `dashboardWidgetsService` / `dashboardService`; a card the model leaves unplaced gets a width for its type here and its slot from the service (the engine's `placeWidget`: the first row with room, else a new one); `toWidgetQueryInput`, `prepareRemoveWidget` |
 | `apps/api/src/modules/assistant/assistant-executor.ts` | executor | `AssistantExecutor.execute(stepIndex, call)`: scope check, zod validation, the confirmation for a destructive tool (`deps.confirm`), `ToolInputError` / `DomainError` → a failed step the model reads; `AssistantConfirmationTimeoutError`; `toolSpecsForScope` |
-| `apps/api/src/ai/assistant-prompt.ts` | pure | `buildAssistantSystemPrompt`: the rules, the tagged untrusted data blocks (`<columns>`, `<sample-rows>`, `<widgets>`), `WIDGET_GRAMMAR` for the dashboard scope; `truncateValue` |
+| `apps/api/src/ai/assistant-prompt.ts` | pure | `buildAssistantSystemPrompt`: the rules, the tagged untrusted data blocks (`<columns>`, `<column-profile>`, `<sample-rows>`, `<widgets>`), `WIDGET_GRAMMAR` + `CHART_SENSE_RULES` for the dashboard scope; `buildRecommendationPrompt(context, max)` → `{ system, prompt }` (no tool-loop rules); `truncateValue` |
 | `apps/api/src/ai/assistant-step.ts` | model | `runAssistantStep` — one `generateText` with the scope's tools (no `execute`, no `output`) → text or tool calls; `toToolSet`, `toolResultsMessage`, `toUsage` / `addUsage`, `trimTranscript`, `assistantModelId` (`ASSISTANT_MODEL`, default `gemini-2.5-flash`) |
+| `apps/api/src/ai/assistant-recommend.ts` | model | `generateWidgetRecommendations` — one `generateText` with `Output.object` over a deliberately lenient card schema (`recommendationOutputSchema`) and no tools; `RecommendationGenerator` (the injectable type) |
 | `apps/api/src/trigger/assistant-run.ts` | task | `assistant-run` (`{ runId }`): the loop — see Behaviour |
 | `apps/api/src/jobs/assistant-dispatch.ts` | job client | `registerAssistantDispatcher()` → `tasks.trigger("assistant-run", …, { idempotencyKey: runId })`, `runs.cancel`, `wait.completeToken`; the only `@trigger.dev/sdk` importer for this feature; called from `src/main.ts` |
-| `apps/api/src/trpc/routers/assistant.ts` | router | `start`, `byId`, `active`, `cancel`, `respond`, `onChange` (subscription) |
+| `apps/api/src/trpc/routers/assistant.ts` | router | `start`, `byId`, `active`, `cancel`, `respond`, `recommendWidgets`, `onChange` (subscription) |
 
 ## Procedures
 
@@ -79,6 +82,7 @@ which also holds what the Prisma schema cannot express:
 | `assistant.active` | query | `AssistantService.active` | validation |
 | `assistant.cancel` | mutation | `AssistantControlService.cancel` | `ASSISTANT_NOT_FOUND`, `ASSISTANT_FINISHED`, validation |
 | `assistant.respond` | mutation | `AssistantControlService.respond` | `ASSISTANT_NOT_FOUND`, `ASSISTANT_NOT_AWAITING`, validation |
+| `assistant.recommendWidgets` | mutation | `AssistantRecommendService.recommend` | `WORKSPACE_NOT_FOUND`, `SPREADSHEET_NOT_FOUND`, `ASSISTANT_RECOMMENDATIONS_UNAVAILABLE`, `ASSISTANT_RECOMMENDATIONS_FAILED`, validation |
 | `assistant.onChange` | subscription (SSE) | `AssistantChangesService.changes` | validation |
 | `POST /assistant/transcribe` | REST | `AssistantTranscribeService.transcribe` | 400, `ASSISTANT_TRANSCRIPTION_INVALID`, `ASSISTANT_TRANSCRIPTION_UNAVAILABLE`, `ASSISTANT_TRANSCRIPTION_FAILED` |
 
@@ -152,6 +156,27 @@ which also holds what the Prisma schema cannot express:
   to 80 characters) and the current cards are wrapped in tags and declared
   untrusted; every tool input is validated and column names re-resolved, and
   deletes need a human — the posture against instructions hidden in cells.
+- **The dashboard scope knows a quantity from a label.** Its context reads
+  the first 2,000 rows and profiles every column with the engine
+  (`profileColumns`: fill, distinct count, ranges, top values and a
+  heuristic role — `identifier`, `year`, `time`, `flag`, `category`,
+  `measure`, `text`, `other`); the prompt shows it as `<column-profile>` and
+  `CHART_SENSE_RULES` say what each role may be (a measure is summed, a year
+  or a date is an axis, an identifier is neither). The spreadsheet scope
+  reads only its 10 sample rows.
+- **Recommendations are one call, filtered by the contract.** `recommend`
+  resolves the sheet, refuses without a Gemini key on the api
+  (`ASSISTANT_RECOMMENDATIONS_UNAVAILABLE`), builds the no-tool prompt
+  (`buildRecommendationPrompt`) and asks for JSON once (`Output.object` over
+  a lenient schema: Gemini drops `pattern` and array caps from a response
+  schema, so a strict one would lose the whole answer over one bad series
+  key). Each card is then parsed with `recommendationCardSchema`, given its
+  defaults (`variant` "default", `height` "md", `column` by type), validated
+  with `validateWidget` against the sheet, dropped when it fails or repeats
+  a stored card (same type and query), and the first six are answered; the
+  rest are `skipped`. A model failure is `ASSISTANT_RECOMMENDATIONS_FAILED`.
+  Nothing is stored: the client adds the cards it wants through
+  `dashboard.createWidget`, which places them.
 - **Transcription stores nothing.** The route accepts `audio/*` (or the
   `video/webm` / `video/mp4` container an audio-only `MediaRecorder` may
   label a clip with), ≤ 10 MB, needs `ELEVENLABS_API_KEY` on the **api**
@@ -176,6 +201,9 @@ which also holds what the Prisma schema cannot express:
   `ASSISTANT_DESTRUCTIVE_TOOLS`.
 - `readAllRows`, `summariseColumn`, `selectRowIndexes` — whole-sheet reads
   and rules for any server-side consumer.
+- `AssistantRecommendService.recommend(input, { generate })` — the
+  model-free path for any caller that wants the contract's filtering over
+  its own cards (a scripted setup, a test).
 - `spreadsheetCellsService.updateCells` and `spreadsheetService.countRows`
   ([spreadsheet.md](spreadsheet.md)) were added for this feature and are
   general.
@@ -185,6 +213,8 @@ which also holds what the Prisma schema cannot express:
 - `/` and `/ai-spreadsheet` ([root.md](../routes/root.md),
   [ai-spreadsheet.md](../routes/ai-spreadsheet.md)) — the header capsule:
   `active` on load, `start`, `cancel`, `respond`, `onChange` while a run is
-  active, `POST /assistant/transcribe` for the mic.
+  active, `POST /assistant/transcribe` for the mic; `/` alone calls
+  `recommendWidgets` from the capsule's "AI Recommendations" pill while its
+  dashboard is empty.
 - The `assistant-run` Trigger.dev task is the writer of every transition
   after `pending` except `cancel` and `respond`.
