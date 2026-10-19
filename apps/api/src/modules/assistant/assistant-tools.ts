@@ -133,7 +133,7 @@ export const ASSISTANT_TOOLS = {
   },
   getColumnSummary: {
     description:
-      "Describes one column across every stored row: how many are filled, the most common values, and min/max/sum/average for numbers or dates.",
+      "Describes one column across every stored row: how many are filled, how many distinct values it holds and its role (identifier, year, time, flag, category, measure, text), the most common values, and min/max/sum/average for numbers or dates.",
     inputSchema: z.object({ column: columnName }),
   },
   createColumn: {
@@ -213,7 +213,7 @@ export const ASSISTANT_TOOLS = {
   },
   createWidget: {
     description:
-      "Adds a card to the dashboard. Omit row/column/sort to place it on a new bottom row with a width that fits its type. The query is validated against the sheet; an error names what to fix.",
+      "Adds a card to the dashboard. Omit row/column/sort: the card gets a width that fits its type and the first row with room for it, else a new row. The query is validated against the sheet; an error names what to fix.",
     inputSchema: z.object({
       name: widgetFields.name,
       description: widgetFields.description.optional(),
@@ -256,6 +256,23 @@ export const ASSISTANT_TOOLS = {
     inputSchema: z.object({ id: z.string().min(1) }),
   },
 } satisfies Record<AssistantToolName, AssistantToolSpec>;
+
+/**
+ * One proposed card, as `assistant.recommendWidgets` validates each item of
+ * the model's answer: the strict twin of the lenient generation schema in
+ * `src/ai/assistant-recommend.ts` (Gemini drops `pattern` and array caps from
+ * a response schema, so the strict checks run here, per card).
+ */
+export const recommendationCardSchema = z.object({
+  name: widgetFields.name,
+  description: widgetFields.description.optional(),
+  type: widgetFields.type,
+  variant: widgetFields.variant.optional(),
+  height: widgetFields.height.optional(),
+  column: widgetFields.column.optional(),
+  query: widgetFields.query,
+});
+export type RecommendationCard = z.infer<typeof recommendationCardSchema>;
 
 /** A tool's parsed input, as its handler receives it. */
 export type ToolInput<N extends AssistantToolName> = z.infer<

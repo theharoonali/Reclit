@@ -1,5 +1,6 @@
 "use client";
 
+import type { RouterOutputs } from "@reclit/api/trpc/routers/_app";
 import { Button } from "@reclit/ui/button";
 import { useMutation } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
@@ -27,7 +28,8 @@ export function PublicForm({
 }: {
   spreadsheetId: string;
   fields: FormField[];
-  onDone: () => void;
+  /** The saved row and the runs it started — what the output column follows. */
+  onDone: (submission: RouterOutputs["populate"]["submit"]) => void;
 }) {
   const t = useTranslations("publicForm");
   const trpc = useTRPC();
@@ -36,11 +38,11 @@ export function PublicForm({
   const uploads = usePublicFormUploads(draft, setDraft);
   const submit = useMutation(
     trpc.populate.submit.mutationOptions({
-      onSuccess: () => {
+      onSuccess: (submission) => {
         // Cleared here, not on "submit another": once the row is saved its
         // files must be out of reach of the remove button.
         setDraft({});
-        onDone();
+        onDone(submission);
       },
     }),
   );

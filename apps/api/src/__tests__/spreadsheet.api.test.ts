@@ -25,7 +25,10 @@
  * On the wire both vocabularies are lowercase ("string", "audio", "ai", ...).
  *
  * MODELS (wire — ids are always the short form)
- *   SpreadsheetMeta = { id, name, totalRows, totalColumns, createdAt: Date,
+ *   SpreadsheetMeta = { id, name, description: string | null,
+ *                       purpose: string | null,     // set by onboarding, else null
+ *                       formOutputEnabled: boolean, // populate.setOutput, false by default
+ *                       totalRows, totalColumns, createdAt: Date,
  *                       updatedAt: Date }           (dates via superjson)
  *   SheetColumn  = { id: "col.<i>", index, sortOrder, name, type,
  *                    node: "ai" | "email" | "google_search" | null,
@@ -271,7 +274,14 @@ describe.skipIf(!dbUp)("spreadsheet.byId", () => {
   it("reads back a created sheet", async () => {
     const created = await makeSheet("readable");
     const sheet = await caller.spreadsheet.byId({ id: created.id });
-    expect(sheet).toMatchObject({ id: created.id, name: "readable" });
+    expect(sheet).toMatchObject({
+      id: created.id,
+      name: "readable",
+      // Only onboarding sets these; a sheet made any other way has neither.
+      description: null,
+      purpose: null,
+      formOutputEnabled: false,
+    });
   });
 
   it("returns NOT_FOUND for a missing id", async () => {

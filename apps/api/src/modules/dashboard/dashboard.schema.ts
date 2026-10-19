@@ -219,9 +219,16 @@ export const updateDashboardInput = workspaceIdInput.extend({
   description: description.optional(),
 });
 
-export const createWidgetInput = widgetInputSchema.extend(
-  workspaceIdInput.shape,
-);
+/**
+ * One widget, placed by the service when `row` / `sort` are left out: the
+ * first row with room for its width, after that row's last card (the engine's
+ * `placeWidget`). A `row` without a `sort` goes after that row's last card.
+ */
+export const createWidgetInput = widgetInputSchema.extend({
+  ...workspaceIdInput.shape,
+  row: widgetFields.row.optional(),
+  sort: widgetFields.sort.optional(),
+});
 
 export const updateWidgetInput = z
   .object(widgetFields)

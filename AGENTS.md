@@ -50,6 +50,7 @@ bun run start:api           # run the api in production mode (bun runs TS direct
 bunx turbo test             # run tests (bun test; api smoke + feature contracts)
 bun run --filter=@reclit/api db:generate   # regenerate the Prisma client
 bun run --filter=@reclit/api db:migrate    # create + apply a migration
+bun run --filter=@reclit/api db:reset      # empty every table, leave one user who has not onboarded
 bun run --filter=@reclit/api trigger:dev   # Trigger.dev dev worker (Node CLI; loads apps/api/.env)
 ```
 

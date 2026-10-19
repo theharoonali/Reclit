@@ -2,7 +2,8 @@
 
 **Purpose:** a public form that adds one row to a spreadsheet — one field per
 fillable column, typed to match — and starts the sheet's AI columns for that
-row.
+row. When the sheet's "Enable output" switch is on, the visitor watches those
+columns fill in beside the form.
 
 **Rendering:** dynamic (`force-dynamic`) — the fields mirror the sheet's live
 columns.
@@ -18,9 +19,12 @@ never a bespoke layout inside `(app)` (FRONTEND.md).
 | --- | --- | --- |
 | `apps/dashboard/src/app/(public)/layout.tsx` | RSC | chrome-less shell + powered-by footer |
 | `apps/dashboard/src/app/(public)/form/[spreadsheetId]/page.tsx` | RSC | metadata, renders the panel — no prefetch |
-| `apps/dashboard/src/components/public-form/public-form-panel.tsx` | client | `populate.form` query; header + `<main>` with loading / error / empty / form / success |
+| `apps/dashboard/src/components/public-form/public-form-panel.tsx` | client | `populate.form` query; header + `<main>` with loading / error / empty / form / success; holds the submission and, when `outputEnabled` and the sheet has outputs, lays the form and the output column side by side (`lg:grid-cols-2`, `max-w-6xl`) |
+| `apps/dashboard/src/components/public-form/public-form-output.tsx` | client | the output column: the `AssistantOrb` (`size-orb-md`, running while a cell works), one row per AI column — waiting, working with its stage, the value, or failed / skipped |
+| `apps/dashboard/src/components/public-form/use-public-form-output.ts` | hook | the column's state: seeded from the submission's runs, followed on `runAi.onChange` while a cell of the row is working |
+| `apps/dashboard/src/lib/public-form-output.ts` | lib | pure `waitingOutputs` / `seedOutputs` / `applyOutputChange` / `isOutputWorking` / `formatOutputValue` |
 | `apps/dashboard/src/components/public-form/public-form-header.tsx` | RSC-safe | the sheet's name over a bottom border, in the app header's geometry |
-| `apps/dashboard/src/components/public-form/public-form.tsx` | client | the form card: draft, inline errors, `populate.submit` |
+| `apps/dashboard/src/components/public-form/public-form.tsx` | client | the form card: draft, inline errors, `populate.submit` (`onDone` hands the submission up) |
 | `apps/dashboard/src/components/public-form/public-form-fields.tsx` | client | the two-column grid, one control per column type, placeholders |
 | `apps/dashboard/src/components/public-form/public-form-file-field.tsx` | client | file selector: drop target (`components/common/file-drop-zone.tsx`) → uploading → uploaded (replace / remove) → error |
 | `apps/dashboard/src/components/public-form/use-public-form-uploads.ts` | hook | upload on pick, delete on remove / replace |
@@ -31,14 +35,16 @@ never a bespoke layout inside `(app)` (FRONTEND.md).
 Shared pieces used: `@reclit/ui/{button,checkbox,input,label,textarea,spinner}`,
 `components/common/{form-field,loading-state,error-state}`,
 `hooks/{use-file-picker,use-latest-ref}`, `lib/format-file-size.ts`.
-Tests: `apps/dashboard/tests/public-form/public-form.test.ts`.
+Tests: `apps/dashboard/tests/public-form/public-form.test.ts`,
+`apps/dashboard/tests/public-form/public-form-output.test.ts`.
 
 ## APIs called
 
 | Procedure | Kind | Called by | Invalidates |
 | --- | --- | --- | --- |
 | `populate.form` | query | `PublicFormPanel` | — |
-| `populate.submit` | mutation | `PublicForm` | nothing — the page holds no list |
+| `populate.submit` | mutation | `PublicForm` | nothing — the page holds no list; its `runs` seed the output column |
+| `runAi.onChange` | subscription (SSE) | `usePublicFormOutput`, while one of the submitted row's cells is working | — |
 | `POST /files` | REST | `usePublicFormUploads` via `uploadFile()` | — |
 | `DELETE /files` | REST | `usePublicFormUploads` via `deleteFile()` | — |
 
@@ -74,8 +80,21 @@ Backend detail: [docs/features/populate.md](../features/populate.md),
 - Validation mirrors the backend (`lib/public-form.ts`): invalid number/
   email/url/json shows an inline per-field error and blocks the submit.
 - **Submitting runs the AI columns.** `populate.submit` appends the row, then
-  starts every runnable AI column for it; the visitor sees only the
-  confirmation. A `runError` in the response is not shown — the row is saved.
+  starts every runnable AI column for it. Without the sheet's output switch
+  the visitor sees only the confirmation; a `runError` in the response is not
+  shown — the row is saved.
+- **With "Enable output" on** (`form.outputEnabled`, and the sheet has
+  `outputs`): the form sits on the left and an output column on the right —
+  the AI orb and one row per AI column. Before a submission each reads
+  "waiting"; the submit response's `runs` turn them to working (a column with
+  no run is "not run", e.g. on `runError`), and the sheet's `runAi.onChange`
+  stream fills them in — the stage while working, the value once completed,
+  "could not be filled" on a failure or when the stream closes with a cell
+  still working. The orb runs while any cell works. "Submit another" resets
+  the column. The stream is per sheet, so the browser receives every run
+  event of the sheet and keeps only its row's (no auth exists anywhere today
+  — `docs/SECURITY.md`); a reload after submitting returns the column to
+  waiting, the row is saved regardless.
 - Success replaces the form with a confirmation and a "Submit another
   response" reset. The form unmounts on success, so its draft — and with it
   any remove button — is gone: a file a saved row references can never be

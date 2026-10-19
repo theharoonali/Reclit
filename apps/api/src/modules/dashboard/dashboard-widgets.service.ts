@@ -1,3 +1,4 @@
+import { placeWidget } from "@reclit/dashboard-engine";
 import { isRecordNotFound } from "../../common/prisma-errors";
 import { prisma } from "../../db/prisma";
 import { workspaceService } from "../workspace/workspace.service";
@@ -29,12 +30,16 @@ import {
 const slotSelect = { id: true, row: true, column: true, sort: true } as const;
 
 export class DashboardWidgetsService {
-  /** Creates the dashboard too when the workspace has none. */
+  /**
+   * Creates the dashboard too when the workspace has none. A widget without
+   * a `row` and `sort` is placed inside the transaction, against the slots
+   * as they are then: the first row with room for its width, else a new row.
+   */
   async createWidget(input: CreateWidgetInput): Promise<DashboardDetail> {
-    const { workspaceId, ...widget } = input;
+    const { workspaceId, row, sort, ...rest } = input;
     await workspaceService.byId(workspaceId);
-    const sheet = await createSheetResolver(workspaceId)(widget.spreadsheetId);
-    assertWidgetValid(widget, sheet.columns);
+    const sheet = await createSheetResolver(workspaceId)(rest.spreadsheetId);
+    assertWidgetValid(rest, sheet.columns);
     const record = await prisma.$transaction(async (tx) => {
       const dashboard = await tx.dashboard.upsert({
         where: { workspaceId },
@@ -42,6 +47,11 @@ export class DashboardWidgetsService {
         update: {},
         select: { id: true, widgets: { select: slotSelect } },
       });
+      const placement =
+        row !== undefined && sort !== undefined
+          ? { row, sort }
+          : placeWidget(dashboard.widgets, rest.column, row);
+      const widget: WidgetInput = { ...rest, ...placement };
       assertLayoutValid([...dashboard.widgets, widget]);
       await tx.dashboardWidget.create({
         data: {

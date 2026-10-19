@@ -3,8 +3,9 @@ import type { ReactNode } from "react";
 
 /**
  * The frame of a normal `(app)` page: the gutters (`<main>` has none — pages
- * own theirs), the width cap, and the title + description header. A page
- * renders this and one or two feature components, nothing else.
+ * own theirs), the width cap, and — when the page has one — the title +
+ * description header. A page renders this and one or two feature
+ * components, nothing else.
  *
  * `narrow` is for a single-column page such as `/populate`; `wide` drops the
  * cap for a page that lays out its own grid (the dashboard). A full-bleed page
@@ -17,8 +18,9 @@ export function PageShell({
   wide = false,
   children,
 }: {
-  title: string;
-  description: string;
+  /** Absent: no header, the content starts at the top (the dashboard). */
+  title?: string;
+  description?: string;
   narrow?: boolean;
   wide?: boolean;
   children: ReactNode;
@@ -30,10 +32,14 @@ export function PageShell({
         narrow ? "max-w-3xl" : wide ? "max-w-none" : "max-w-6xl",
       )}
     >
-      <header className="space-y-1">
-        <h1 className="text-title">{title}</h1>
-        <p className="text-subtitle text-muted-foreground">{description}</p>
-      </header>
+      {title && (
+        <header className="space-y-1">
+          <h1 className="text-title">{title}</h1>
+          {description && (
+            <p className="text-subtitle text-muted-foreground">{description}</p>
+          )}
+        </header>
+      )}
 
       {children}
     </div>

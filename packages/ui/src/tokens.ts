@@ -25,27 +25,27 @@
 
 const light = {
   background: "0 0% 100%",
-  /** The app's black, `#1B1D20`: light-mode text, dark-mode page surface. */
-  foreground: "216 8.5% 11.6%",
-  card: "45 18% 96%",
-  "card-foreground": "216 8.5% 11.6%",
-  popover: "45 18% 96%",
-  "popover-foreground": "216 8.5% 11.6%",
+  /** The app's black: a neutral near-black, light-mode text and dark-mode page surface. */
+  foreground: "0 0% 11%",
+  card: "0 0% 97%",
+  "card-foreground": "0 0% 11%",
+  popover: "0 0% 97%",
+  "popover-foreground": "0 0% 11%",
   /** The orange accent — a separate decision from the black. */
   primary: "20 90% 55%",
   "primary-foreground": "0 0% 100%",
-  secondary: "40 11% 89%",
-  "secondary-foreground": "216 8.5% 11.6%",
-  muted: "40 11% 89%",
-  "muted-foreground": "0 0% 38%",
-  accent: "40 10% 94%",
-  "accent-foreground": "216 8.5% 11.6%",
+  secondary: "0 0% 91%",
+  "secondary-foreground": "0 0% 11%",
+  muted: "0 0% 91%",
+  "muted-foreground": "0 0% 42%",
+  accent: "0 0% 94%",
+  "accent-foreground": "0 0% 11%",
   destructive: "0 84.2% 60.2%",
   "destructive-foreground": "0 0% 98%",
   success: "142 70% 38%",
   warning: "45 90% 42%",
-  border: "45 5% 85%",
-  input: "45 5% 85%",
+  border: "0 0% 87%",
+  input: "0 0% 87%",
   ring: "20 90% 55%",
   /** The dialog scrim; its alpha is `opacity.overlay`. */
   overlay: "0 0% 0%",
@@ -58,48 +58,48 @@ const light = {
   "chart-2": "218 92% 78%",
   "chart-3": "230 55% 42%",
   "chart-4": "262 70% 66%",
-  "chart-5": "220 9% 84%",
+  "chart-5": "0 0% 84%",
 };
 
 export type ColorToken = keyof typeof light;
 
 const dark: Record<ColorToken, string> = {
-  background: "216 8.5% 11.6%",
+  background: "0 0% 11%",
   foreground: "0 0% 98%",
-  card: "216 8.5% 15%",
+  card: "0 0% 15%",
   "card-foreground": "0 0% 98%",
-  popover: "216 8.5% 15%",
+  popover: "0 0% 15%",
   "popover-foreground": "0 0% 98%",
   primary: "20 90% 58%",
   "primary-foreground": "0 0% 100%",
-  secondary: "216 8% 18%",
+  secondary: "0 0% 18%",
   "secondary-foreground": "0 0% 98%",
-  muted: "216 8% 18%",
-  "muted-foreground": "216 6% 64%",
-  accent: "216 8% 18%",
+  muted: "0 0% 18%",
+  "muted-foreground": "0 0% 64%",
+  accent: "0 0% 18%",
   "accent-foreground": "0 0% 98%",
   destructive: "359 100% 61%",
   "destructive-foreground": "0 0% 100%",
   success: "142 60% 45%",
   warning: "45 85% 52%",
-  border: "216 7% 22%",
-  input: "216 7% 26%",
+  border: "0 0% 22%",
+  input: "0 0% 26%",
   ring: "20 90% 58%",
   overlay: "0 0% 0%",
   "chart-1": "225 90% 66%",
   "chart-2": "218 80% 72%",
   "chart-3": "230 60% 56%",
   "chart-4": "262 70% 70%",
-  "chart-5": "220 7% 40%",
+  "chart-5": "0 0% 40%",
 };
 
 export const colors = { light, dark };
 
 /**
- * The one corner. `rounded-sm` derives from it (`--radius - 4px`) and is the
+ * The one corner: 3px (`rounded-sm` derives from it, `--radius - 4px`) and is the
  * only corner step the app defines; `rounded-full` is for pills.
  */
-export const radius = "0.625rem";
+export const radius = "0.4375rem";
 
 /**
  * The type scale. Each step carries its own line-height, tracking and weight,
@@ -113,7 +113,7 @@ export const fontSize = {
   ],
   title: [
     "1.5rem",
-    { lineHeight: "2rem", letterSpacing: "-0.02em", fontWeight: "600" },
+    { lineHeight: "1.75rem", letterSpacing: "-0.03em", fontWeight: "600" },
   ],
   heading: [
     "1.125rem",
@@ -173,6 +173,10 @@ export const sizes = {
   // Small primitives.
   checkbox: "1rem",
   "checkbox-mark": "0.75rem",
+  /** The switch: its track (width, height) and thumb; the thumb travels its own width. */
+  switch: "2.25rem",
+  "switch-track": "1.25rem",
+  "switch-thumb": "1rem",
   avatar: "2.5rem",
   "avatar-sm": "2rem",
   progress: "0.5rem",
@@ -193,10 +197,13 @@ export const sizes = {
   // those plus the page's action pill); the open field; a run's stage or a
   // confirmation. Rest widths are fixed lengths so the capsule can animate.
   "island-closed": "9.5rem",
-  "island-action": "15rem",
+  "island-action": "19rem",
   island: "24rem",
   "island-wide": "30rem",
   orb: "1.75rem",
+  /** The onboarding's AI canvas: beside the checklist, and alone on the first screen. */
+  "orb-md": "3.5rem",
+  "orb-lg": "10rem",
 
   // Dashboard widgets — the body height of a chart card (`height` in the
   // dashboard JSON: sm | md | lg).

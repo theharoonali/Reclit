@@ -95,6 +95,12 @@ export function cellValueMatchesType(
 export const spreadsheetMetaSchema = z.object({
   id: z.string(),
   name: z.string(),
+  /** What the sheet holds; null until onboarding (or an API caller) sets it. */
+  description: z.string().nullable(),
+  /** "We see it as": a short label for the sheet ("Hiring pipeline"). */
+  purpose: z.string().nullable(),
+  /** The public form shows a submitted row's AI columns filling in live. */
+  formOutputEnabled: z.boolean(),
   totalRows: z.number().int(),
   totalColumns: z.number().int(),
   createdAt: z.date(),
@@ -262,18 +268,47 @@ export const removeRowsInput = idInput.extend({
   rowIndexes: z.array(gridIndex).min(1).max(10_000),
 });
 
-export const createColumnInput = idInput
-  .extend({
-    name,
-    type: columnTypeWire.default("string"),
-    node: nodeTypeWire.nullable().default(null),
-    prompt: prompt.nullable().default(null),
-  })
-  .refine((input) => input.node !== null || input.prompt === null, {
-    message: "A prompt requires a node",
-    path: ["prompt"],
-  });
+/** A column as a caller describes it, without the sheet: the create input's fields. */
+const columnDraftFields = {
+  name,
+  type: columnTypeWire.default("string"),
+  node: nodeTypeWire.nullable().default(null),
+  prompt: prompt.nullable().default(null),
+};
 
+const promptRequiresNode = (input: { node: unknown; prompt: unknown }) =>
+  input.node !== null || input.prompt === null;
+const PROMPT_REQUIRES_NODE = {
+  message: "A prompt requires a node",
+  path: ["prompt"],
+};
+
+/**
+ * One column to create, without a sheet id — what onboarding takes a list of.
+ * The same fields and the same rule as `createColumnInput`, which is a refined
+ * schema and so cannot be `.omit`ed.
+ */
+export const columnDraftInput = z
+  .object(columnDraftFields)
+  .refine(promptRequiresNode, PROMPT_REQUIRES_NODE);
+
+export const createColumnInput = idInput
+  .extend(columnDraftFields)
+  .refine(promptRequiresNode, PROMPT_REQUIRES_NODE);
+
+export const MAX_SPREADSHEET_DESCRIPTION = 1000;
+export const MAX_SPREADSHEET_PURPOSE = 80;
+
+/** The sheet's description and label; `null` clears either. */
+export const updateSpreadsheetMetaInput = idInput.extend({
+  description: z.string().trim().max(MAX_SPREADSHEET_DESCRIPTION).nullable(),
+  purpose: z.string().trim().max(MAX_SPREADSHEET_PURPOSE).nullable(),
+});
+
+export type ColumnDraftInput = z.infer<typeof columnDraftInput>;
+export type UpdateSpreadsheetMetaInput = z.infer<
+  typeof updateSpreadsheetMetaInput
+>;
 export type CreateSpreadsheetInput = z.infer<typeof createSpreadsheetInput>;
 export type SheetRowsInput = z.infer<typeof sheetRowsInput>;
 export type SetCellInput = z.infer<typeof setCellInput>;

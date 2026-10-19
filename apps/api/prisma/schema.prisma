@@ -69,6 +69,12 @@ model Workspace {
 model Spreadsheet {
   id               String            @id @default(uuid())
   name             String
+  /// What the sheet holds, written by the onboarding wizard's AI and edited by the user.
+  description      String?
+  /// "We see it as": a short label for what the sheet is ("Hiring pipeline").
+  purpose          String?
+  /// The public form shows the AI columns of a submitted row filling in live.
+  formOutputEnabled Boolean         @default(false)
   totalRows        Int               @default(5000000)
   workspaceId      String
   createdAt        DateTime          @default(now())

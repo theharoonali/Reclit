@@ -36,7 +36,8 @@
  *                       sheet); name: 1..200; description?: string | null;
  *                       type; variant? (default "default"); row: 0..100;
  *                       column: 1..12; sort: 0..100; height? (default "md");
- *                       query: WidgetQuery }
+ *                       query: WidgetQuery } — `createWidget` alone takes
+ *                       `row` and `sort` as optional (see NOTES)
  *   WidgetQuery     = {
  *     filters?:  { column; op: eq|neq|gt|gte|lt|lte|contains|in|isEmpty|
  *                  notEmpty; value?: string|number|boolean|(string|number)[]
@@ -99,7 +100,7 @@
  * | dashboard.replace       | mutation | { workspaceId; title?; description?; widgets: WidgetInput[] (≤ 50) } | DashboardDetail | NOT_FOUND (workspace, spreadsheet), BAD_REQUEST (validation, layout, column, formula, query, mismatch) |
  * | dashboard.update        | mutation | { workspaceId; title?: string \| null; description?: string \| null } | DashboardDetail | NOT_FOUND (no dashboard), BAD_REQUEST                               |
  * | dashboard.remove        | mutation | { workspaceId }                                           | { id }                  | NOT_FOUND                                                                   |
- * | dashboard.createWidget  | mutation | { workspaceId } & WidgetInput                             | DashboardDetail         | NOT_FOUND (workspace, spreadsheet), BAD_REQUEST (as replace)                |
+ * | dashboard.createWidget  | mutation | { workspaceId } & WidgetInput with row?, sort?            | DashboardDetail         | NOT_FOUND (workspace, spreadsheet), BAD_REQUEST (as replace)                |
  * | dashboard.updateWidget  | mutation | { id } & Partial<WidgetInput>                             | DashboardDetail         | NOT_FOUND (widget, spreadsheet), BAD_REQUEST (as replace)                   |
  * | dashboard.removeWidget  | mutation | { id }                                                    | DashboardDetail         | NOT_FOUND                                                                   |
  * | dashboard.createStarter | mutation | { workspaceId }                                           | DashboardDetail         | NOT_FOUND (workspace, no sheet), CONFLICT (widgets exist)                   |
@@ -119,6 +120,11 @@
  *   deleting a workspace cascades its dashboard.
  * - Every widget mutation returns the whole `DashboardDetail`: the layout is
  *   a dashboard-wide rule and the client holds one query.
+ * - `createWidget` places a widget whose `row` and `sort` are omitted: the
+ *   first row (ascending) with room for its `column`, after that row's last
+ *   card, else a new bottom row — the grid fills top-first. A `row` without
+ *   a `sort` goes after that row's last card and must still fit it. `replace`
+ *   takes every placement as given.
  * - `updateWidget` validates the stored widget merged with the patch: the
  *   query is re-checked against the sheet whenever `query`, `spreadsheetId`,
  *   `type` or `variant` changes, the layout always. `undefined` leaves a
@@ -208,6 +214,9 @@ const bar = (over: Partial<WidgetIn> = {}): WidgetIn => ({
   },
   ...over,
 });
+
+/** A widget for `createWidget` to place: the same card without its slot. */
+const unplaced = ({ row: _row, sort: _sort, ...rest }: WidgetIn) => rest;
 
 /** Asserts BAD_REQUEST and that the message names the problem. */
 async function expectBadRequest(
@@ -691,6 +700,59 @@ describe.skipIf(!dbUp)("dashboard.createWidget", () => {
       height: "lg",
       spreadsheetId: host.sheetId,
     });
+  });
+
+  it("places a widget without row and sort in the first row with room, else on a new row", async () => {
+    const host = await makeHost();
+    const slots = (detail: { widgets: { row: number; sort: number }[] }) =>
+      detail.widgets.map((w) => [w.row, w.sort]);
+    const first = await caller.dashboard.createWidget({
+      workspaceId: host.id,
+      ...unplaced(stat()),
+    });
+    expect(slots(first)).toEqual([[0, 0]]);
+    const second = await caller.dashboard.createWidget({
+      workspaceId: host.id,
+      ...unplaced(bar({ column: 6 })),
+    });
+    expect(slots(second)).toEqual([
+      [0, 0],
+      [0, 1],
+    ]);
+    const third = await caller.dashboard.createWidget({
+      workspaceId: host.id,
+      ...unplaced(bar({ name: "Wide", column: 12 })),
+    });
+    expect(slots(third)).toEqual([
+      [0, 0],
+      [0, 1],
+      [1, 0],
+    ]);
+    const fourth = await caller.dashboard.createWidget({
+      workspaceId: host.id,
+      ...unplaced(stat({ name: "Fits", column: 3 })),
+    });
+    expect(fourth.widgets.find((w) => w.name === "Fits")).toMatchObject({
+      row: 0,
+      sort: 2,
+    });
+    const pinned = await caller.dashboard.createWidget({
+      workspaceId: host.id,
+      ...unplaced(stat({ name: "Pinned", column: 3 })),
+      row: 3,
+    });
+    expect(pinned.widgets.find((w) => w.name === "Pinned")).toMatchObject({
+      row: 3,
+      sort: 0,
+    });
+    await expectBadRequest(
+      caller.dashboard.createWidget({
+        workspaceId: host.id,
+        ...unplaced(stat({ name: "Overflow", column: 3 })),
+        row: 1,
+      }),
+      /spans 15 of 12/,
+    );
   });
 
   it("rejects a taken slot, an overflowing row and an invalid query", async () => {

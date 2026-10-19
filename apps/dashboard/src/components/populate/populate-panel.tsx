@@ -1,31 +1,36 @@
 "use client";
 
 import { Button } from "@reclit/ui/button";
+import { Label } from "@reclit/ui/label";
+import { Switch } from "@reclit/ui/switch";
 import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { formPath } from "@/config/populate";
 import { PopulateApiCard } from "./populate-api-card";
 import { useCopy } from "./use-copy";
+import { useFormOutput } from "./use-form-output";
 
 /**
- * The two Populate cards: the public form link and the API. Both address the
- * active workspace's spreadsheet, so switching workspaces switches them.
- * Client component for the clipboard; the absolute URL needs
- * `location.origin`, so it starts as the bare path and fills in after mount to
- * keep hydration clean.
+ * The two Populate cards: the public form link (with the "Enable output"
+ * switch) and the API. Both address the active workspace's spreadsheet, so
+ * switching workspaces switches them. Client component for the clipboard;
+ * the absolute URL needs `location.origin`, so it starts as the bare path
+ * and fills in after mount to keep hydration clean.
  */
 export function PopulatePanel() {
   const t = useTranslations("populate");
   const { activeWorkspace } = useWorkspace();
   const [origin, setOrigin] = useState("");
   const { copied, copy } = useCopy();
+  const switchId = useId();
 
   useEffect(() => setOrigin(window.location.origin), []);
 
   const spreadsheetId = activeWorkspace?.spreadsheetId ?? null;
   const path = spreadsheetId ? formPath(spreadsheetId) : null;
   const url = path ? `${origin}${path}` : null;
+  const output = useFormOutput(spreadsheetId);
 
   return (
     <div className="space-y-6">
@@ -40,6 +45,26 @@ export function PopulatePanel() {
         <p className="break-all rounded-sm border bg-muted/50 px-3 py-2 font-mono text-body">
           {url ?? t("form.noSheet")}
         </p>
+
+        <div className="flex items-center gap-3">
+        <Switch
+            checked={output.enabled}
+            disabled={!spreadsheetId || output.isLoading || output.isPending}
+            id={switchId}
+            onCheckedChange={output.set}
+          />
+          <div className="space-y-0.5">
+            <Label htmlFor={switchId}>{t("form.output.label")}</Label>
+            <p className="text-caption text-muted-foreground">
+              {t("form.output.hint")}
+            </p>
+            {output.isError && (
+              <p className="text-caption text-destructive" role="alert">
+                {t("form.output.error")}
+              </p>
+            )}
+          </div>
+        </div>
 
         <div className="flex gap-2">
           <Button

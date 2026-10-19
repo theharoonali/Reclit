@@ -61,6 +61,22 @@ export default {
       opacity,
       transitionDuration: { smooth: motion.duration },
       transitionTimingFunction: { smooth: motion.easing },
+      // The one enter animation: a screen or a list rising into place. It
+      // reads `motion` like the transitions, so the app has a single tempo.
+      keyframes: {
+        "slide-up": {
+          from: { opacity: "0", transform: "translateY(1.5rem)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "slide-in": {
+          from: { opacity: "0", transform: "translateX(2rem)" },
+          to: { opacity: "1", transform: "translateX(0)" },
+        },
+      },
+      animation: {
+        "slide-up": `slide-up 450ms ${motion.easing} both`,
+        "slide-in": `slide-in 450ms ${motion.easing} both`,
+      },
       // One corner for the whole app: every element uses `rounded-sm`, which
       // derives from `--radius`. The other steps are deliberately undefined;
       // besides `rounded-sm`, only `rounded-full` and `rounded-none` are used.

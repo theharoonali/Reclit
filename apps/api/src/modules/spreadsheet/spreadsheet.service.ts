@@ -19,6 +19,7 @@ import type {
   SheetRow,
   SheetRowsInput,
   SpreadsheetMeta,
+  UpdateSpreadsheetMetaInput,
 } from "./spreadsheet.schema";
 import type { CellRecord, ColumnRecord } from "./spreadsheet.shape";
 import { buildRow, toSheetCell, toSheetColumn } from "./spreadsheet.shape";
@@ -30,6 +31,9 @@ import { buildRow, toSheetCell, toSheetColumn } from "./spreadsheet.shape";
 const metaSelect = {
   id: true,
   name: true,
+  description: true,
+  purpose: true,
+  formOutputEnabled: true,
   totalRows: true,
   createdAt: true,
   updatedAt: true,
@@ -98,6 +102,40 @@ export class SpreadsheetService {
     try {
       await prisma.spreadsheet.delete({ where: { id } });
       return { id };
+    } catch (error) {
+      if (isRecordNotFound(error)) throw new SpreadsheetNotFoundError(id);
+      throw error;
+    }
+  }
+
+  /** Whether the public form shows a submitted row's AI columns live (populate writes it). */
+  async setFormOutput(id: string, enabled: boolean): Promise<SpreadsheetMeta> {
+    try {
+      const record = await prisma.spreadsheet.update({
+        where: { id },
+        data: { formOutputEnabled: enabled },
+        select: metaSelect,
+      });
+      return toMeta(record);
+    } catch (error) {
+      if (isRecordNotFound(error)) throw new SpreadsheetNotFoundError(id);
+      throw error;
+    }
+  }
+
+  /** Sets the sheet's description and label (onboarding writes them; `null` clears). */
+  async updateMeta({
+    id,
+    description,
+    purpose,
+  }: UpdateSpreadsheetMetaInput): Promise<SpreadsheetMeta> {
+    try {
+      const record = await prisma.spreadsheet.update({
+        where: { id },
+        data: { description, purpose },
+        select: metaSelect,
+      });
+      return toMeta(record);
     } catch (error) {
       if (isRecordNotFound(error)) throw new SpreadsheetNotFoundError(id);
       throw error;

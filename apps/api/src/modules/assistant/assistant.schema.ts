@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { idInput, workspaceIdInput } from "../../common/schema";
+import { widgetInputSchema } from "../dashboard/dashboard.schema";
 
 // Single source of truth for the assistant shapes. Like run-ai, `status` is
 // text: lowercase on the wire, its uppercase mirror in the database; `scope`
@@ -236,6 +237,38 @@ export type AssistantTranscription = z.infer<
   typeof assistantTranscriptionSchema
 >;
 
+/* -------------------------------------------------------- recommendations */
+
+/** Cards one `assistant.recommendWidgets` call answers with, at most. */
+export const MAX_RECOMMENDATIONS = 6;
+
+/** A proposed card: a dashboard `WidgetInput` without its slot — `createWidget` places it. */
+export const assistantRecommendationSchema = widgetInputSchema.pick({
+  name: true,
+  description: true,
+  type: true,
+  variant: true,
+  height: true,
+  column: true,
+  query: true,
+});
+export type AssistantRecommendation = z.infer<
+  typeof assistantRecommendationSchema
+>;
+
+/** What `assistant.recommendWidgets` answers. */
+export const assistantRecommendationsSchema = z.object({
+  spreadsheetId: z.string(),
+  recommendations: z.array(assistantRecommendationSchema),
+  /** Proposals that failed the contract or the engine, repeated a card, or exceeded the cap. */
+  skipped: z.number().int(),
+  model: z.string(),
+  usage: assistantUsageSchema,
+});
+export type AssistantRecommendations = z.infer<
+  typeof assistantRecommendationsSchema
+>;
+
 /* ----------------------------------------------------------------- inputs */
 
 const prompt = z
@@ -254,6 +287,10 @@ export type StartAssistantInput = z.infer<typeof startAssistantInput>;
 /** Router input for `respond`. */
 export const respondAssistantInput = idInput.extend({ approved: z.boolean() });
 export type RespondAssistantInput = z.infer<typeof respondAssistantInput>;
+
+/** Router input for `recommendWidgets`. */
+export const recommendWidgetsInput = workspaceIdInput;
+export type RecommendWidgetsInput = z.infer<typeof recommendWidgetsInput>;
 
 /** Router input for `onChange`. tRPC fills `lastEventId` in on reconnect. */
 export const assistantChangesInput = workspaceIdInput.extend({

@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   onboardingErrorKey,
+  trpcErrorKey,
   workspaceNameFromFile,
-} from "@/lib/onboarding/complete-onboarding";
+} from "@/lib/onboarding/api";
 import { onboardingRedirect } from "@/lib/onboarding/route";
 
 describe("onboardingRedirect", () => {
@@ -58,10 +59,27 @@ describe("onboardingErrorKey", () => {
       "errorTooLarge",
     );
     expect(onboardingErrorKey("VALIDATION_FAILED")).toBe("errorName");
+    expect(onboardingErrorKey("SPREADSHEET_COLUMN_NAME_TAKEN")).toBe(
+      "errorColumnName",
+    );
+    expect(onboardingErrorKey("ONBOARDING_AI_UNAVAILABLE")).toBe(
+      "aiUnavailable",
+    );
+    expect(onboardingErrorKey("ONBOARDING_AI_FAILED")).toBe("aiFailed");
   });
 
   test("falls back to the generic message", () => {
     expect(onboardingErrorKey("SPREADSHEET_IMPORT_UNREADABLE")).toBe("error");
     expect(onboardingErrorKey("UNKNOWN")).toBe("error");
+  });
+});
+
+describe("trpcErrorKey", () => {
+  test("maps the wizard's tRPC codes", () => {
+    expect(trpcErrorKey("SERVICE_UNAVAILABLE")).toBe("aiUnavailable");
+    expect(trpcErrorKey("BAD_GATEWAY")).toBe("aiFailed");
+    expect(trpcErrorKey("CONFLICT")).toBe("errorConflict");
+    expect(trpcErrorKey("BAD_REQUEST")).toBe("errorWidgets");
+    expect(trpcErrorKey(undefined)).toBe("error");
   });
 });

@@ -14,8 +14,26 @@ import type {
 export type Dashboard = NonNullable<RouterOutputs["dashboard"]["byWorkspace"]>;
 export type DashboardWidget = Dashboard["widgets"][number];
 
+/** What a card is drawn from — a stored widget, or a proposed one with no id and no slot. */
+export type WidgetView = Pick<
+  DashboardWidget,
+  "name" | "description" | "type" | "variant" | "height" | "column" | "query"
+>;
+
+/** What a card computes from: the sheet it reads and the engine's `WidgetSpec`. */
+export type WidgetSource = Pick<
+  DashboardWidget,
+  "spreadsheetId" | "type" | "variant" | "query"
+>;
+
 /** A widget config with its computed data — what the renderers take. */
-export type ResolvedWidget = DashboardWidget & { data: WidgetData };
+export type ResolvedWidget = WidgetView & { data: WidgetData };
+
+/** The assistant's proposed cards (`assistant.recommendWidgets`). */
+export type AssistantRecommendations =
+  RouterOutputs["assistant"]["recommendWidgets"];
+export type AssistantRecommendation =
+  AssistantRecommendations["recommendations"][number];
 
 /** The `dashboard.widget.errors.*` message for an engine issue. */
 export type WidgetIssueKey = "unknownColumn" | "formula" | "query";

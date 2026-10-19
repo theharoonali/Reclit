@@ -10,17 +10,19 @@ responses, and error codes live in its header. Do not duplicate them here.
 
 ## Table
 
-None. Populate owns no data: the row is written by the `spreadsheet` feature
-and the runs by `run-ai`.
+None of its own. The row is written by the `spreadsheet` feature and the
+runs by `run-ai`; the public form's "Enable output" switch is
+`Spreadsheet.formOutputEnabled` ([spreadsheet.md](spreadsheet.md)), which
+only `populate.setOutput` writes.
 
 ## Files
 
 | Path | Layer | Responsibility |
 | --- | --- | --- |
-| `apps/api/src/modules/populate/populate.schema.ts` | schema | `populateFormSchema`, `populateSubmitInput`, `populateSubmissionSchema`, `MAX_POPULATE_FIELDS` |
+| `apps/api/src/modules/populate/populate.schema.ts` | schema | `populateFormSchema` (fields, `outputEnabled`, `outputs`), `populateSubmitInput`, `populateSetOutputInput`, `populateSubmissionSchema`, `MAX_POPULATE_FIELDS` |
 | `apps/api/src/modules/populate/populate.errors.ts` | errors | `PopulateUnknownFieldError`, `PopulateFieldNotFillableError` |
-| `apps/api/src/modules/populate/populate.service.ts` | service | `form()`, `submit()`; pure `isFillable`, `fillableByName`, `resolveCells` |
-| `apps/api/src/trpc/routers/populate.ts` | router | `populate.form`, `populate.submit` |
+| `apps/api/src/modules/populate/populate.service.ts` | service | `form()`, `setOutput()`, `submit()`; pure `isFillable`, `fillableByName`, `resolveCells`, `toField` |
+| `apps/api/src/trpc/routers/populate.ts` | router | `populate.form`, `populate.setOutput`, `populate.submit` |
 | `apps/api/src/modules/populate/populate.controller.ts` | controller | `GET /populate/:id`, `POST /populate/:id` — the Populate API |
 | `apps/api/src/modules/populate/populate.module.ts` | module | registers the controller |
 
@@ -30,6 +32,7 @@ and the runs by `run-ai`.
 | --- | --- | --- | --- |
 | `populate.form` | `GET /populate/:id` | `PopulateService.form` | not found |
 | `populate.submit` | `POST /populate/:id` (201) | `PopulateService.submit` | not found, bad request |
+| `populate.setOutput` | — (the admin's switch, not part of the Populate API) | `PopulateService.setOutput` | not found |
 
 ## Behaviour
 
@@ -39,6 +42,12 @@ and the runs by `run-ai`.
   `appendRow`; populate never touches prisma.
 - **Fillable** = not a formula and no `node`. One predicate (`isFillable`)
   decides both what `form` lists and what `submit` accepts.
+- **Outputs** = the run-ai `isRunnable` set (a node with an executor and a
+  prompt) — exactly the columns `submit` starts for the new row — listed in
+  `form.outputs` in display order whatever the switch says, so a client can
+  show their names before a submission. `outputEnabled` mirrors
+  `Spreadsheet.formOutputEnabled`; `setOutput` writes it through
+  `spreadsheetService.setFormOutput` and answers the form.
 - Column names are unique for every column created since plan 026, but
   nothing in the database enforces it and older sheets may hold duplicates.
   `fillableByName` gives a name
@@ -62,8 +71,9 @@ and the runs by `run-ai`.
 
 ## Used by
 
-- `/form/[spreadsheetId]` ([route doc](../routes/form.md)) — `form` on load,
+- `/form/[spreadsheetId]` ([route doc](../routes/form.md)) — `form` on load
+  (its `outputEnabled` / `outputs` decide the live output column),
   `submit` on submit.
 - `/populate` ([route doc](../routes/populate.md)) — `form`, to build the curl
-  example of the API card.
+  example of the API card and to read the switch; `setOutput` from the switch.
 - External callers — the REST twins.

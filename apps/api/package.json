@@ -13,6 +13,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:seed": "bun prisma/seed.ts",
+    "db:reset": "bun prisma/reset.ts",
     "postinstall": "prisma generate",
     "trigger:dev": "npx trigger.dev@4.5.15 dev"
   },

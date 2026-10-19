@@ -51,7 +51,7 @@ export type RunAiDispatcher = (batch: RunAiBatchJob) => Promise<void>;
  * A column Run executes. `node` stays the database's uppercase word — the
  * whole service reads it through `toWireNodeType`.
  */
-type RunnableColumn = ColumnRecord & { node: string; prompt: string };
+export type RunnableColumn = ColumnRecord & { node: string; prompt: string };
 
 /** One cell the batch will run, in series order: row ascending, then column sort order. */
 type Target = { rowIndex: number; column: RunnableColumn; cellId: string };
@@ -59,9 +59,10 @@ type Target = { rowIndex: number; column: RunnableColumn; cellId: string };
 /**
  * Which columns a Run click executes: a node with an executor, and a prompt
  * (the instruction). A column that has a node but no prompt yet is skipped
- * silently — it is a half-finished column, not a client error.
+ * silently — it is a half-finished column, not a client error. Exported for
+ * onboarding's final step, which runs every runnable column of a new sheet.
  */
-function isRunnable(column: ColumnRecord): column is RunnableColumn {
+export function isRunnable(column: ColumnRecord): column is RunnableColumn {
   if (column.node === null || column.prompt === null) return false;
   switch (toWireNodeType(column.node)) {
     case "ai":

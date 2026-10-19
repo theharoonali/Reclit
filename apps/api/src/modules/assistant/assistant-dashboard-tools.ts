@@ -18,8 +18,9 @@ import {
 
 // The dashboard tools: thin calls into the dashboard services. The services
 // validate every query against the sheet and name the path of the first
-// problem, which is exactly what the model needs to correct itself; this file
-// only fills in what the model left to us — a new card's placement.
+// problem, which is exactly what the model needs to correct itself, and place
+// a card the model left unplaced (the engine's `placeWidget`: the first row
+// with room, else a new one); this file only fills in a width for its type.
 
 /** The dashboard as the model reads it back after a write: placement, no queries. */
 function compact(detail: DashboardDetail) {
@@ -57,28 +58,12 @@ export function toWidgetQueryInput(
   };
 }
 
-/** A new card goes on a new bottom row, or after the last card of the row the model chose. */
-export function placeWidget(
-  widgets: readonly { row: number; sort: number }[],
-  row: number | undefined,
-  sort: number | undefined,
-): { row: number; sort: number } {
-  if (row === undefined) {
-    const last = widgets.reduce((max, widget) => Math.max(max, widget.row), -1);
-    return { row: last + 1, sort: 0 };
-  }
-  if (sort !== undefined) return { row, sort };
-  const inRow = widgets.filter((widget) => widget.row === row);
-  const last = inRow.reduce((max, widget) => Math.max(max, widget.sort), -1);
-  return { row, sort: last + 1 };
-}
-
 async function createWidget(
   ctx: ToolContext,
   input: ToolInput<"createWidget">,
 ): Promise<ToolResult> {
   const current = await dashboardService.byWorkspace(ctx.workspaceId);
-  const placement = placeWidget(current?.widgets ?? [], input.row, input.sort);
+  const known = new Set((current?.widgets ?? []).map((widget) => widget.id));
   const widget: CreateWidgetInput = {
     workspaceId: ctx.workspaceId,
     name: input.name,
@@ -87,15 +72,12 @@ async function createWidget(
     variant: input.variant ?? "default",
     height: input.height ?? "md",
     column: input.column ?? defaultWidgetSpan(input.type),
-    row: placement.row,
-    sort: placement.sort,
+    ...(input.row !== undefined && { row: input.row }),
+    ...(input.sort !== undefined && { sort: input.sort }),
     query: toWidgetQueryInput(input.query),
   };
   const detail = await dashboardWidgetsService.createWidget(widget);
-  const created = detail.widgets.find(
-    (candidate) =>
-      candidate.row === placement.row && candidate.sort === placement.sort,
-  );
+  const created = detail.widgets.find((candidate) => !known.has(candidate.id));
   return {
     mutated: true,
     output: { created: created?.id ?? null, dashboard: compact(detail) },
