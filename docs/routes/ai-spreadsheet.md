@@ -107,8 +107,11 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   one. Widths are uniform and fixed. Hovering a header shows a red × (delete)
   at the right and a six-dot grip (reorder) at the left; the grip's lane is
   reserved on every column so the name never shifts.
-- **Column nodes.** The form offers None / AI / Email / Google Search;
-  choosing a node reveals a Prompt textarea, the node's whole configuration.
+- **Column nodes.** The form offers None / AI / Email / API / Google Search.
+  Email and API are locked (a lock on the capsule; they cannot be selected).
+  API is not a wire node. An existing email column still shows Email as its
+  current value and can still be saved. Choosing an unlocked node reveals a
+  Prompt textarea, the node's whole configuration.
   A column whose node has a glyph (`ai` → ✨, `NODE_GLYPHS` in
   `paint-header.ts`) paints it before its name. An `ai` or `google_search`
   column's prompt is what Run executes; a Google Search column searches

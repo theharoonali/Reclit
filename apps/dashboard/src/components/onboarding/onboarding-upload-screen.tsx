@@ -11,8 +11,9 @@ import type { OnboardingWizardApi } from "./use-onboarding-wizard";
 
 /**
  * The first screen: the title and one field. The field opens the file
- * picker and shows the picked file; Next under it (or Enter) moves on. The
- * hidden input is the picker's — the one control the user never sees.
+ * picker and shows the picked file; Next under it (or Enter) moves on.
+ * Skip sits beside Next and does nothing yet. The hidden input is the
+ * picker's — the one control the user never sees.
  */
 export function OnboardingUploadScreen({
   details,
@@ -51,7 +52,10 @@ export function OnboardingUploadScreen({
           </p>
         )}
       </div>
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost">
+          {t("skip")}
+        </Button>
         <Button disabled={!details.file} type="submit" variant="default">
           {t("next")}
           <ArrowRight />

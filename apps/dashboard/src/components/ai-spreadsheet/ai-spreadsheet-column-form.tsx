@@ -13,7 +13,7 @@ import {
 import { Textarea } from "@reclit/ui/textarea";
 import { type FormEvent, useId, useState } from "react";
 import { FormField } from "@/components/common/form-field";
-import { columnTypes, nodeTypes } from "@/lib/ai-spreadsheet/cell-format";
+import { columnTypes } from "@/lib/ai-spreadsheet/cell-format";
 import { isColumnNameTaken } from "@/lib/ai-spreadsheet/column-names";
 import type {
   ColumnDraft,
@@ -23,9 +23,22 @@ import type {
 } from "@/lib/ai-spreadsheet/types";
 
 // "No node" is this sentinel inside the capsule control and `null` everywhere
-// else — the wire never sees it.
+// else — the wire never sees it. `api` is shown locked and is not a wire node.
 const NO_NODE = "none";
-type NodeChoice = NodeType | typeof NO_NODE;
+const API_NODE = "api";
+type NodeChoice = NodeType | typeof NO_NODE | typeof API_NODE;
+
+/** Email stays on the wire for columns that already use it; neither can be picked. */
+const LOCKED_NODES = new Set<NodeChoice>(["email", API_NODE]);
+
+/** Picker order. API sits with Email, the two locked choices. */
+const NODE_CHOICES: NodeChoice[] = [
+  NO_NODE,
+  "ai",
+  "email",
+  API_NODE,
+  "google_search",
+];
 
 type AiSpreadsheetColumnFormProps = {
   /** Absent means "add a new column". One component, both jobs. */
@@ -43,7 +56,7 @@ type AiSpreadsheetColumnFormProps = {
     submit: string;
     cancel: string;
     typeNames: Record<ColumnType, string>;
-    nodeNames: Record<NodeType | typeof NO_NODE, string>;
+    nodeNames: Record<NodeChoice, string>;
   };
   onSubmit: (draft: ColumnDraft) => void;
   onCancel: () => void;
@@ -127,10 +140,17 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
       <FormField label={labels.node} labelId={nodeId}>
         <CapsuleSelect
           aria-labelledby={nodeId}
-          onValueChange={(value) => setNode(value === NO_NODE ? null : value)}
-          options={([NO_NODE, ...nodeTypes] as NodeChoice[]).map((option) => ({
+          onValueChange={(value) => {
+            if (value === NO_NODE) {
+              setNode(null);
+              return;
+            }
+            if (value === "ai" || value === "google_search") setNode(value);
+          }}
+          options={NODE_CHOICES.map((option) => ({
             value: option,
             label: labels.nodeNames[option],
+            locked: LOCKED_NODES.has(option),
           }))}
           value={node ?? NO_NODE}
         />

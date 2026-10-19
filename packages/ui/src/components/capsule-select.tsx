@@ -1,5 +1,6 @@
 "use client";
 
+import { Lock } from "lucide-react";
 import * as React from "react";
 import { focusRing } from "../styles/focus-ring";
 import { cn } from "../utils";
@@ -7,6 +8,8 @@ import { cn } from "../utils";
 export type CapsuleOption<T extends string = string> = {
   value: T;
   label: string;
+  /** Visible, but not selectable. Arrow keys skip it. */
+  locked?: boolean;
 };
 
 export type CapsuleSelectProps<T extends string = string> = {
@@ -31,13 +34,21 @@ function CapsuleSelect<T extends string = string>(
   const groupRef = React.useRef<HTMLDivElement>(null);
 
   const moveBy = (offset: number) => {
+    const count = options.length;
+    if (count === 0) return;
     const at = options.findIndex((option) => option.value === value);
-    const next = options[(at + offset + options.length) % options.length];
-    if (next === undefined) return;
-    onValueChange(next.value);
-    groupRef.current
-      ?.querySelector<HTMLButtonElement>(`[data-value="${next.value}"]`)
-      ?.focus();
+    const step = offset > 0 ? 1 : -1;
+    let index = at < 0 ? (step > 0 ? -1 : 0) : at;
+    for (let n = 0; n < count; n++) {
+      index = (index + step + count) % count;
+      const next = options[index];
+      if (next === undefined || next.locked) continue;
+      onValueChange(next.value);
+      groupRef.current
+        ?.querySelector<HTMLButtonElement>(`[data-value="${next.value}"]`)
+        ?.focus();
+      return;
+    }
   };
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -60,25 +71,34 @@ function CapsuleSelect<T extends string = string>(
     >
       {options.map((option) => {
         const checked = option.value === value;
+        const locked = option.locked === true;
         return (
           <button
             aria-checked={checked}
+            aria-disabled={locked || undefined}
             className={cn(
-              "inline-flex h-control-sm items-center rounded-full border px-control-x-sm text-label transition-colors",
-              checked
-                ? "border-primary bg-transparent text-primary"
-                : "border-input bg-transparent text-muted-foreground hover:text-foreground",
+              "inline-flex h-control-sm items-center gap-inline rounded-full border px-control-x-sm text-label transition-colors",
               // Buttons keep the halo recipe: a checked capsule's border is
               // the ring colour, so a border-only focus would vanish.
               focusRing,
+              locked && "cursor-default",
+              checked
+                ? "border-primary bg-transparent text-primary"
+                : locked
+                  ? "border-input bg-transparent text-muted-foreground/60"
+                  : "border-input bg-transparent text-muted-foreground hover:text-foreground",
             )}
             data-value={option.value}
             key={option.value}
-            onClick={() => onValueChange(option.value)}
+            onClick={() => {
+              if (locked) return;
+              onValueChange(option.value);
+            }}
             role="radio"
             tabIndex={checked ? 0 : -1}
             type="button"
           >
+            {locked && <Lock aria-hidden="true" className="size-icon" />}
             {option.label}
           </button>
         );

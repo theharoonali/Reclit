@@ -3,7 +3,7 @@
 import { Button } from "@reclit/ui/button";
 import { cn } from "@reclit/ui/cn";
 import { focusRing } from "@reclit/ui/focus-ring";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Lock, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -142,10 +142,16 @@ function NavRow({
           {item.badge}
         </span>
       )}
+      {item.locked && (
+        <Lock
+          aria-hidden="true"
+          className={cn("size-icon shrink-0", !collapsed && "ml-auto")}
+        />
+      )}
     </>
   );
 
-  if (item.disabled) {
+  if (item.disabled || item.locked) {
     return (
       <span
         title={collapsed ? label : undefined}

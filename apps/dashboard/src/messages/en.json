@@ -6,7 +6,8 @@
     "items": {
       "dashboard": "Dashboard",
       "aiSpreadsheet": "AI Spreadsheet",
-      "populate": "Populate"
+      "populate": "Populate",
+      "chat": "Chat"
     }
   },
   "sidebar": {
@@ -166,6 +167,7 @@
       "none": "None",
       "ai": "AI",
       "email": "Email",
+      "api": "API",
       "google_search": "Google Search"
     },
     "json": {
@@ -340,6 +342,7 @@
     "purposeLabel": "We see it as",
     "purposePlaceholder": "We see it as…",
     "next": "Next",
+    "skip": "Skip",
     "back": "Back",
     "continuing": "Thinking…",
     "review": {

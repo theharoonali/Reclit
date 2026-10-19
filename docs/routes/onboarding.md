@@ -8,7 +8,8 @@ starts the AI columns and hands the user to `/`.
 **Rendering:** dynamic, the same as every route (the `locale` cookie opts the
 app out of prerendering). The decision to show this page is made on the
 client by `OnboardingGate`; the page is one client component, two columns
-filling the viewport, no chrome, no page scroll.
+filling the viewport. The left column keeps a static logo and the
+Reclit name at its top left; the page itself does not scroll.
 
 ## Frontend files
 
@@ -17,8 +18,8 @@ filling the viewport, no chrome, no page scroll.
 | `apps/dashboard/src/app/(onboarding)/layout.tsx` | RSC | The `(onboarding)` route group has no chrome: `<OnboardingGate area="onboarding">` around an `h-dvh overflow-hidden` wrapper — the page never scrolls; a column does when its screen is taller |
 | `apps/dashboard/src/app/(onboarding)/onboarding/page.tsx` | RSC | `pageMetadata("onboarding")` + `<OnboardingWizard />` |
 | `apps/dashboard/src/components/onboarding/onboarding-gate.tsx` | client | `user.me` → full-screen `LoadingState` while pending or redirecting, full-screen `ErrorState` on failure, otherwise its children. Also mounted by `(app)/layout.tsx` with `area="app"` |
-| `apps/dashboard/src/components/onboarding/onboarding-wizard.tsx` | client | The page: `useOnboardingWizard` → the viewport-high two-column grid (stacked, half-height each, below `lg`). Left, the current screen, vertically centred, re-mounted per stage with `animate-slide-up`; right, `<OnboardingAiPanel>` |
-| `apps/dashboard/src/components/onboarding/onboarding-upload-screen.tsx` | client | Screen 1: the title, one read-only `Input` that opens the file picker and shows the file, one example line, Next at the bottom right (Enter submits too) |
+| `apps/dashboard/src/components/onboarding/onboarding-wizard.tsx` | client | The page: `useOnboardingWizard` → the viewport-high two-column grid (stacked, half-height each, below `lg`). Left, a static lockup (`/brand/icon-fill.png` and `APP_NAME`) at the top left that does not scroll, then the current screen, vertically centred, re-mounted per stage with `animate-slide-in`; right, `<OnboardingAiPanel>` |
+| `apps/dashboard/src/components/onboarding/onboarding-upload-screen.tsx` | client | Screen 1: the title, one read-only `Input` that opens the file picker and shows the file, one example line, Skip (no action yet) beside Next at the bottom right (Enter submits too) |
 | `apps/dashboard/src/components/onboarding/onboarding-review-screen.tsx` | client | Screen 2: the title, the file and its counts, the name and "We see it as" `Input`s side by side and the description `Textarea` (placeholders name them, no labels; spinner while the AI writes it), Back and Next under them |
 | `apps/dashboard/src/components/onboarding/onboarding-column-list.tsx` · `onboarding-column-card.tsx` · `onboarding-column-form.tsx` | client | Screen 3: one divided list, a row per draft readable first (the name, chips for type and the AI mark, the prompt as two lines) with a pencil opening the form in place (name, type and kind `Select`s on one row, the prompt under; a column the user adds starts open), the "Tell us more" box when the AI asked for context, the add buttons, then Back and Create workspace |
 | `apps/dashboard/src/components/onboarding/onboarding-widget-list.tsx` · `onboarding-widget-card.tsx` · `onboarding-widget-form.tsx` · `onboarding-widget-series.tsx` | client | Screen 4: one divided list, a row per proposed card showing its title, chart type and subtitle — no formulas — with a pencil opening the config in place (title, subtitle, chart, style, x axis + date bucket, the y series), the engine's first issue as a caption, Add card on the left, the summary line and Run AI on the right |
@@ -69,9 +70,9 @@ Payloads and responses are in the contract headers of
   reload anywhere in the wizard lands back here.
 - **Screen 1, upload.** The title and one field. Clicking the
   field opens the picker; the picked file's name shows in it and
-  `POST /onboarding/describe` starts at once. Next under the field, or
-  Enter, slides to screen 2 (the field is a form). The right column is
-  the AI canvas alone, large.
+  `POST /onboarding/describe` starts at once. Skip (no action yet) sits
+  beside Next under the field; Next, or Enter, slides to screen 2 (the
+  field is a form). The right column is the AI canvas alone, large.
 - **Screen 2, review.** The name (unless typed), the label and the
   description fill themselves from the answer and stay editable. Next sends
   them with the describe step's columns and sample rows to

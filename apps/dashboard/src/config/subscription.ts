@@ -27,7 +27,7 @@ export type Addon = {
 export const currentPlanId: PlanId = "pro";
 
 /** Stubbed usage shown in the sidebar credits bar. */
-export const credits = { used: 700, total: 1000 };
+export const credits = { used: 0, total: 1000 };
 
 export const plans: Plan[] = [
   { id: "pro", price: 29, credits: 1000 },

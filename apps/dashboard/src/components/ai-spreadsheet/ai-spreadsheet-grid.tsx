@@ -512,6 +512,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
                   none: t("nodes.none"),
                   ai: t("nodes.ai"),
                   email: t("nodes.email"),
+                  api: t("nodes.api"),
                   google_search: t("nodes.google_search"),
                 },
               }}

@@ -117,9 +117,9 @@ calls `workspace.create` (invalidating `workspace.list` and
   (`public/brand/icon-fill.png`), app name, and current-plan capsule; when
   collapsed it is the only thing left in that row. It is labelled for screen
   readers and carries `aria-expanded`.
-- `Dashboard`, `AI Spreadsheet` and `Populate` are real destinations;
-  `/settings` is reached from the account menu (there is no pinned Settings
-  nav row).
+- `Dashboard`, `AI Spreadsheet` and `Populate` are real destinations.
+  `Chat` is listed and locked (no route yet). `/settings` is reached from
+  the account menu (there is no pinned Settings nav row).
 - The active row is derived from `usePathname()` and marked `aria-current="page"`.
 - **Light only.** `providers.tsx` passes `forcedTheme="light"`, so the `.dark`
   tokens in `@reclit/ui` can never apply and there is no theme control in the

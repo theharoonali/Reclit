@@ -1,10 +1,16 @@
-import { LayoutDashboard, type LucideIcon, Send, Table2 } from "lucide-react";
+import {
+  LayoutDashboard,
+  type LucideIcon,
+  MessageSquare,
+  Send,
+  Table2,
+} from "lucide-react";
 
 /**
  * A single row in the sidebar. `disabled` marks a destination that has no route
  * yet: it renders as inert text rather than a link, because `not-found.tsx`
  * redirects unknown paths to `/` and a dead link would silently bounce the user
- * home with no explanation.
+ * home with no explanation. `locked` is that same inert row plus a lock icon.
  *
  * Labels are message keys, never display text — see `src/messages/en.json`.
  */
@@ -14,6 +20,7 @@ export type NavItem = {
   href: string;
   icon: LucideIcon;
   disabled?: boolean;
+  locked?: boolean;
   badge?: number;
 };
 
@@ -33,6 +40,7 @@ export const navSections: NavSection[] = [
       { labelKey: "dashboard", href: "/", icon: LayoutDashboard },
       { labelKey: "aiSpreadsheet", href: "/ai-spreadsheet", icon: Table2 },
       { labelKey: "populate", href: "/populate", icon: Send },
+      { labelKey: "chat", href: "/chat", icon: MessageSquare, locked: true },
     ],
   },
 ];

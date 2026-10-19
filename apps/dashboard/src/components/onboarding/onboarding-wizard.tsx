@@ -1,8 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { ErrorState } from "@/components/common/error-state";
 import { LoadingState } from "@/components/common/loading-state";
+import { APP_NAME } from "@/config/nav";
 import { OnboardingAiPanel } from "./onboarding-ai-panel";
 import { OnboardingColumnList } from "./onboarding-column-list";
 import { OnboardingReviewScreen } from "./onboarding-review-screen";
@@ -59,12 +61,25 @@ export function OnboardingWizard() {
 
   return (
     <main className="grid h-dvh grid-rows-2 lg:grid-cols-2 lg:grid-rows-1">
-      <section className="flex min-h-0 flex-col overflow-y-auto border-border border-b p-6 lg:border-r lg:border-b-0 lg:p-10">
-        <div
-          className="m-auto w-full max-w-lg animate-slide-in motion-reduce:animate-none"
-          key={stage}
-        >
-          {screen}
+      <section className="flex min-h-0 flex-col overflow-hidden border-border border-b lg:border-r lg:border-b-0">
+        <div className="flex shrink-0 items-center gap-2 px-6 pt-6 lg:px-10 lg:pt-10">
+          <Image
+            alt=""
+            className="h-6 w-auto shrink-0"
+            height={24}
+            priority
+            src="/brand/icon-fill.png"
+            width={21}
+          />
+          <span className="truncate text-heading">{APP_NAME}</span>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-6 lg:px-10 lg:pb-10">
+          <div
+            className="m-auto w-full max-w-lg animate-slide-in motion-reduce:animate-none"
+            key={stage}
+          >
+            {screen}
+          </div>
         </div>
       </section>
       <section className="min-h-0 overflow-y-auto bg-muted/40 p-6 lg:p-10">
