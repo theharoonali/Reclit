@@ -104,7 +104,8 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   wheel is handled directly (a notch ≈ three rows); scrollbars are hidden.
 - **Columns.** Types come from the payload; unknown types degrade to `string`.
   Clicking a header opens the panel to edit; the `+` after the last column adds
-  one. Widths are uniform and fixed. Hovering a header shows a red × (delete)
+  one, always on a blank form (every open remounts it, since the closed panel
+  keeps rendering its last content while it slides away). Widths are uniform and fixed. Hovering a header shows a red × (delete)
   at the right and a six-dot grip (reorder) at the left; the grip's lane is
   reserved on every column so the name never shifts.
 - **Column nodes.** The form offers None / AI / Email / API / Google Search.
@@ -112,8 +113,9 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   API is not a wire node. An existing email column still shows Email as its
   current value and can still be saved. Choosing an unlocked node reveals a
   Prompt textarea, the node's whole configuration.
-  A column whose node has a glyph (`ai` → ✨, `NODE_GLYPHS` in
-  `paint-header.ts`) paints it before its name. An `ai` or `google_search`
+  A column whose node has an icon (`ai` → Hugeicons `AiBrain01Icon`,
+  `NODE_ICONS` in `lib/ai-spreadsheet/node-icons.ts`) shows it on its picker
+  capsule and paints the same path data before its name in the header. An `ai` or `google_search`
   column's prompt is what Run executes; a Google Search column searches
   Google about the row before answering.
 - **Run.** The Run control is the outlined "Run AI" pill at the right end
@@ -201,8 +203,9 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   form shows an inline error and disables Save for a taken name: adds and
   renames are optimistic, so the refusal has to happen before the model
   changes.
-- **Toolbar.** Import, Export, cell clear and row delete are icon-only
-  buttons (`size="icon-sm"`, label in `aria-label` and a tooltip). Run is
+- **Toolbar.** Import is a text button labelled "Import". Export, cell clear
+  and row delete are icon-only buttons (`size="icon-sm"`, label in
+  `aria-label` and a tooltip). Run is
   not in the toolbar: it **appears** in the assistant capsule the moment the
   selection (a click, a shift-click or drag for a range, a row number) holds
   an AI cell with a prompt — a pill outlined in the primary colour, labelled

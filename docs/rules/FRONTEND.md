@@ -34,7 +34,7 @@ apps/dashboard/src/
 
 Shared primitives live in `packages/ui/src/components/` and are imported by
 subpath (`@reclit/ui/button`) — see the [inventory](#reclitui-inventory).
-Routes today: `/`, `/ai-spreadsheet`, `/populate`, `/settings` (the `(app)`
+Routes today: `/`, `/ai-spreadsheet`, `/populate`, `/chat`, `/settings` (the `(app)`
 group) and `/form/[spreadsheetId]` (the `(public)` group).
 
 ### Adding a page
@@ -155,7 +155,7 @@ that queries, and `<feature>-list.tsx` / `<feature>-form.tsx` that render.
 | `@reclit/ui/avatar` | `Avatar`, `AvatarImage`, `AvatarFallback` | fallback shows until the image loads |
 | `@reclit/ui/button` | `Button`, `buttonVariants` | `variant`: `default` · `secondary` · `outline` · `ghost` · `destructive` · `destructive-outline` · `link` · `island` (a round ghost for the transparent assistant capsule: circular hover) · `island-outline` (a pill with the primary border: the capsule's Run AI button) · `island-plain` (round, no hover feedback — the mic inside the field) · `island-success` (round, light success tint with the success-coloured icon — the confirmation's check) · `island-destructive` (its destructive twin — the confirmation's cross); `size`: `default` · `sm` · `lg` · `icon` · `icon-sm`; `asChild` |
 | `@reclit/ui/calendar` | `Calendar` | inline month over `react-day-picker`, no popover |
-| `@reclit/ui/capsule-select` | `CapsuleSelect` | single-choice pill row, radiogroup semantics |
+| `@reclit/ui/capsule-select` | `CapsuleSelect` | single-choice pill row, radiogroup semantics; an option may be `locked` or carry an `icon` |
 | `@reclit/ui/card` | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` | the boxed surface; `CardTitle` is an `h3` in `text-subheading` |
 | `@reclit/ui/chart` | `ChartContainer`, `ChartTooltip`, `ChartTooltipContent`, `ChartLegend`, `ChartLegendContent`, `ChartStyle`, `ChartConfig` | shadcn charts on recharts; colours are `hsl(var(--chart-N))`; pass `isAnimationActive={false}` on every series |
 | `@reclit/ui/checkbox` | `Checkbox` | Radix |

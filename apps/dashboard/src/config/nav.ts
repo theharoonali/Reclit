@@ -40,7 +40,7 @@ export const navSections: NavSection[] = [
       { labelKey: "dashboard", href: "/", icon: LayoutDashboard },
       { labelKey: "aiSpreadsheet", href: "/ai-spreadsheet", icon: Table2 },
       { labelKey: "populate", href: "/populate", icon: Send },
-      { labelKey: "chat", href: "/chat", icon: MessageSquare, locked: true },
+      { labelKey: "chat", href: "/chat", icon: MessageSquare },
     ],
   },
 ];

@@ -14,6 +14,7 @@ import {
   plusButtonRect,
   visibleCols,
 } from "./geometry";
+import { NODE_ICON_VIEWBOX, NODE_ICONS } from "./node-icons";
 import { type CheckboxPaintState, paintCheckbox } from "./paint-checkbox";
 import { measureWidth, truncateToWidth } from "./text-metrics";
 import { withAlpha } from "./theme-colors";
@@ -28,12 +29,48 @@ import type {
 } from "./types";
 
 /**
- * The badge painted left of a column's name, keyed by its node. A node with
- * no entry (email, for now) paints nothing. Emoji ignore `fillStyle`, so no
- * colour plumbing is needed; the glyph is decorative and not hit-tested.
+ * The node's icon (`NODE_ICONS`) painted left of a column's name, stroked in
+ * the name's colour. Decorative and not hit-tested.
  */
-const NODE_GLYPHS: Partial<Record<NodeType, string>> = { ai: "✨" };
+const GLYPH_SIZE = 14;
 const GLYPH_GAP = 4;
+
+/** Each icon's paths, built once — the header repaints on every hover. */
+const glyphPaths = new Map<NodeType, Path2D[]>();
+
+function nodeGlyphPaths(node: NodeType): Path2D[] | undefined {
+  const icon = NODE_ICONS[node];
+  if (icon === undefined) return undefined;
+  let paths = glyphPaths.get(node);
+  if (paths === undefined) {
+    paths = icon.flatMap(([tag, attrs]) =>
+      tag === "path" && typeof attrs.d === "string"
+        ? [new Path2D(attrs.d)]
+        : [],
+    );
+    glyphPaths.set(node, paths);
+  }
+  return paths;
+}
+
+/** Strokes a node's icon in a GLYPH_SIZE square, vertically centred. */
+function paintGlyph(
+  ctx: CanvasRenderingContext2D,
+  paths: Path2D[],
+  x: number,
+  color: string,
+) {
+  const scale = GLYPH_SIZE / NODE_ICON_VIEWBOX;
+  ctx.save();
+  ctx.translate(x, (HEADER_HEIGHT - GLYPH_SIZE) / 2);
+  ctx.scale(scale, scale);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const path of paths) ctx.stroke(path);
+  ctx.restore();
+}
 
 /** The grip's dots: two columns of three, each this many CSS pixels square. */
 const GRIP_DOT = 2;
@@ -179,11 +216,12 @@ export function paintHeader(args: HeaderPaintArgs) {
     // inset. Reserve it in one and not the other and names run under the type
     // label; reserve it only while hovered and they jitter as the grip fades in.
     const leftInset = CELL_PAD_X + HEADER_GRIP_WIDTH + HEADER_GRIP_GAP;
-    const glyph = column.node === null ? undefined : NODE_GLYPHS[column.node];
+    const glyph =
+      column.node === null ? undefined : nodeGlyphPaths(column.node);
     let glyphSpace = 0;
     if (glyph !== undefined) {
-      ctx.fillText(glyph, x + leftInset, HEADER_HEIGHT / 2);
-      glyphSpace = measureWidth(ctx, glyph) + GLYPH_GAP;
+      paintGlyph(ctx, glyph, x + leftInset, palette.headerText);
+      glyphSpace = GLYPH_SIZE + GLYPH_GAP;
     }
     const room =
       COL_WIDTH - leftInset - CELL_PAD_X * 2 - rightWidth - glyphSpace;

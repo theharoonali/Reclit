@@ -1,5 +1,6 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@reclit/ui/button";
 import { CapsuleSelect } from "@reclit/ui/capsule-select";
 import { Input } from "@reclit/ui/input";
@@ -15,6 +16,7 @@ import { type FormEvent, useId, useState } from "react";
 import { FormField } from "@/components/common/form-field";
 import { columnTypes } from "@/lib/ai-spreadsheet/cell-format";
 import { isColumnNameTaken } from "@/lib/ai-spreadsheet/column-names";
+import { NODE_ICONS } from "@/lib/ai-spreadsheet/node-icons";
 import type {
   ColumnDraft,
   ColumnType,
@@ -39,6 +41,17 @@ const NODE_CHOICES: NodeChoice[] = [
   API_NODE,
   "google_search",
 ];
+
+/** The picker shows a node's icon — the same one the header paints. */
+function nodeIcon(option: NodeChoice) {
+  const icon =
+    option === NO_NODE || option === API_NODE ? undefined : NODE_ICONS[option];
+  return (
+    icon && (
+      <HugeiconsIcon aria-hidden="true" className="size-icon" icon={icon} />
+    )
+  );
+}
 
 type AiSpreadsheetColumnFormProps = {
   /** Absent means "add a new column". One component, both jobs. */
@@ -151,6 +164,7 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
             value: option,
             label: labels.nodeNames[option],
             locked: LOCKED_NODES.has(option),
+            icon: nodeIcon(option),
           }))}
           value={node ?? NO_NODE}
         />

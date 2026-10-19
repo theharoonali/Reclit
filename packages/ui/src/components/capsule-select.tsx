@@ -10,6 +10,8 @@ export type CapsuleOption<T extends string = string> = {
   label: string;
   /** Visible, but not selectable. Arrow keys skip it. */
   locked?: boolean;
+  /** Shown before the label, sized by the caller (`size-icon`). A lock wins. */
+  icon?: React.ReactNode;
 };
 
 export type CapsuleSelectProps<T extends string = string> = {
@@ -98,7 +100,11 @@ function CapsuleSelect<T extends string = string>(
             tabIndex={checked ? 0 : -1}
             type="button"
           >
-            {locked && <Lock aria-hidden="true" className="size-icon" />}
+            {locked ? (
+              <Lock aria-hidden="true" className="size-icon" />
+            ) : (
+              option.icon
+            )}
             {option.label}
           </button>
         );

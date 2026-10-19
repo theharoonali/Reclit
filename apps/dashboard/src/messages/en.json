@@ -463,6 +463,29 @@
     "aiUnavailable": "AI is not configured on the server. Fill the fields in yourself.",
     "aiFailed": "The AI could not answer. Try again."
   },
+  "chat": {
+    "title": "Chat",
+    "description": "Talk to Reclit AI about your workspace.",
+    "greeting": "Reclit for {workspace}",
+    "greetingNoWorkspace": "Reclit",
+    "placeholder": "How can I help you today?",
+    "replyPlaceholder": "Reply to Reclit AI…",
+    "disclaimer": "Reclit AI can make mistakes. Please double-check responses.",
+    "thinking": "Thinking",
+    "threadLabel": "Conversation",
+    "composerLabel": "Message",
+    "attach": "Add files",
+    "send": "Send message",
+    "model": "Choose model",
+    "fixtureReply": "Here's a quick take on that.\n\nThis chat is a UI preview — replies are placeholders until the chat API is connected. Once it is, answers will draw on your workspace's spreadsheet, dashboard and forms.",
+    "actions": {
+      "copy": "Copy",
+      "copied": "Copied",
+      "good": "Good response",
+      "bad": "Bad response",
+      "retry": "Retry"
+    }
+  },
   "assistant": {
     "label": "Assistant",
     "askAi": "Reclit AI",

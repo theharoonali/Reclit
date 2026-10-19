@@ -8,6 +8,7 @@ every file and API behind the page and what it does today.
 | `/` | [root.md](root.md) | The backend-configured dashboard (stat cards, every shadcn chart, heatmap, table — computed in the browser from the workspace's sheet) and the app shell — sidebar + header. Calls `dashboard.byWorkspace`, `dashboard.createStarter`, `spreadsheet.rows` |
 | `/ai-spreadsheet` | [ai-spreadsheet.md](ai-spreadsheet.md) | A canvas spreadsheet: endless rows, typed columns, canvas-drawn editing. Persists through the spreadsheet API + `POST /files` uploads |
 | `/populate` | [populate.md](populate.md) | The public form link + the Populate API (endpoint and curl). Calls `populate.form` |
+| `/chat` | [chat.md](chat.md) | claude.ai-style chat UI: greeting, thread, message actions, composer with model chip. UI only, with fixture replies and no API |
 | `/settings` | [settings.md](settings.md) | Display-only user profile + stubbed subscription cards. Calls `user.me` |
 | `/onboarding` | [onboarding.md](onboarding.md) | First run: upload a CSV/XLSX to create the first workspace. Every `(app)` route is gated on `user.me` and sends a user who has not onboarded here. Calls `user.me`, `POST /onboarding` |
 | `/form/[spreadsheetId]` | [form.md](form.md) | Public form that adds a row to a spreadsheet and runs its AI columns. Calls `populate.form`, `populate.submit`, `POST /files`, `DELETE /files` |

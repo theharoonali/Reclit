@@ -99,7 +99,12 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   const openFile = useCallback((row: number, columnId: string) => {
     setPanel({ kind: "file", row, columnId });
   }, []);
+  // Bumped on every column open and part of the form's key. The panel stays
+  // mounted while closed, so without it "+" after an add would reuse the
+  // "new" form — still holding the name just submitted.
+  const [columnFormSession, setColumnFormSession] = useState(0);
   const openColumn = useCallback((columnId?: string) => {
+    setColumnFormSession((session) => session + 1);
     setPanel({ kind: "column", columnId });
   }, []);
   const closePanel = useCallback(() => setPanel({ kind: "closed" }), []);
@@ -496,7 +501,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
           {shown.kind === "column" && (
             <AiSpreadsheetColumnForm
               column={editedColumn}
-              key={shown.columnId ?? "new"}
+              key={`${columnFormSession}:${shown.columnId ?? "new"}`}
               labels={{
                 name: t("column.name"),
                 namePlaceholder: t("column.namePlaceholder"),

@@ -14,14 +14,14 @@ import { HeaderActions } from "@/components/layout/header-actions";
 
 type AiSpreadsheetHeaderActionProps = {
   /** A Hugeicons glyph — the sheet toolbar's icon set (FRONTEND.md). */
-  icon: IconSvgElement;
+  icon?: IconSvgElement;
   label: string;
   variant: NonNullable<ButtonProps["variant"]>;
   onClick: () => void;
   disabled?: boolean;
   /**
    * The icon alone, the label moved to the accessible name and a tooltip. For
-   * the controls whose glyph says it all — Import, Export, the deletes.
+   * the controls whose glyph says it all — Export and the deletes.
    */
   iconOnly?: boolean;
   /** Already resolved to copy. Shown before the control, desktop only. */
@@ -52,7 +52,7 @@ export function AiSpreadsheetHeaderAction(
       type="button"
       variant={props.variant}
     >
-      <HugeiconsIcon aria-hidden="true" icon={props.icon} />
+      {props.icon && <HugeiconsIcon aria-hidden="true" icon={props.icon} />}
       {!props.iconOnly && props.label}
     </Button>
   );

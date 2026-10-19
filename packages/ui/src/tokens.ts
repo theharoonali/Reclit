@@ -205,6 +205,12 @@ export const sizes = {
   "orb-md": "3.5rem",
   "orb-lg": "10rem",
 
+  // Chat — the centred reading column, a user bubble's widest line, and the
+  // composer field's tallest growth before it scrolls.
+  "chat-column": "48rem",
+  "chat-bubble": "36rem",
+  "chat-composer": "12rem",
+
   // Dashboard widgets — the body height of a chart card (`height` in the
   // dashboard JSON: sm | md | lg).
   "chart-sm": "10rem",
