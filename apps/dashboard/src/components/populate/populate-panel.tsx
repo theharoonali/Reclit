@@ -46,8 +46,8 @@ export function PopulatePanel() {
           {url ?? t("form.noSheet")}
         </p>
 
-        <div className="flex items-start gap-3">
-          <Switch
+        <div className="flex items-center gap-3">
+        <Switch
             checked={output.enabled}
             disabled={!spreadsheetId || output.isLoading || output.isPending}
             id={switchId}
