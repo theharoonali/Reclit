@@ -14,26 +14,21 @@ import { DashboardGrid } from "./dashboard-grid";
 import { DashboardHeaderActions } from "./dashboard-header-actions";
 import { DashboardRecommendations } from "./dashboard-recommendations";
 import { DashboardWidgetCard } from "./dashboard-widget";
+import { useDashboardLiveRows } from "./use-dashboard-live-rows";
 import { useDashboardRecommendations } from "./use-dashboard-recommendations";
 
 /**
  * The page body: the active workspace's dashboard config
- * (`dashboard.byWorkspace`) → the grid, or the empty state. The config
- * decides the page's own title and subtitle too, falling back to the
- * message keys the page passes in. Switching workspaces swaps the query —
+ * (`dashboard.byWorkspace`) → the grid, or the empty state. The page has
+ * no heading of its own; a title and subtitle show only when the config
+ * sets them. Switching workspaces swaps the query —
  * the URL never carries the workspace (docs/plans/013-workspaces.md).
  *
  * While the dashboard is empty the assistant island offers "AI
  * Recommendations" (the page's action pill); the proposed cards render here,
  * in place of the empty state, or under the grid once the first was added.
  */
-export function DashboardPanel({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
+export function DashboardPanel() {
   const t = useTranslations("dashboard");
   const trpc = useTRPC();
   const workspace = useWorkspace();
@@ -47,6 +42,9 @@ export function DashboardPanel({
   );
   const config = dashboard.data ?? null;
   const widgets = config?.widgets ?? [];
+  const live = useDashboardLiveRows(
+    workspace.activeWorkspace?.spreadsheetId ?? "",
+  );
   const isLoaded =
     workspaceId !== "" && !dashboard.isPending && !dashboard.isError;
 
@@ -99,13 +97,11 @@ export function DashboardPanel({
 
   return (
     <PageShell
-      description={config?.description ?? description}
-      title={config?.title ?? title}
+      description={config?.description ?? undefined}
+      title={config?.title ?? undefined}
       wide
     >
-      {workspaceId !== "" && (
-        <DashboardHeaderActions workspaceId={workspaceId} />
-      )}
+      <DashboardHeaderActions fillingCount={live.pendingCount} />
       {body}
     </PageShell>
   );

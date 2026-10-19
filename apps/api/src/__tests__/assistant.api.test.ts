@@ -168,9 +168,12 @@ import {
   buildRecommendationPrompt,
   CHART_SENSE_RULES,
   MAX_SAMPLE_ROWS,
+  PENDING_AI_COLUMN_RULE,
+  roleForType,
   truncateValue,
   UNTRUSTED_DATA_RULE,
   WIDGET_GRAMMAR,
+  withPendingAiColumns,
 } from "../ai/assistant-prompt";
 import type { RecommendationGenerator } from "../ai/assistant-recommend";
 import {
@@ -1857,6 +1860,97 @@ describe("the prompt and the step helpers", () => {
     expect(system).toContain("has no dashboard yet");
     expect(system).not.toContain("one tool call at a time");
     expect(prompt).toContain("up to 6 dashboard cards");
+  });
+
+  it("marks an empty AI column as pending with a role from its type", () => {
+    const blank = {
+      rows: 3,
+      filled: 0,
+      blank: 3,
+      distinct: 0,
+      topValues: [],
+    };
+    const profile: ColumnProfile[] = [
+      { name: "Score", type: "number", role: "other", ...blank },
+      { name: "Stage", type: "string", role: "other", ...blank },
+      { name: "Urgent", type: "boolean", role: "other", ...blank },
+      { name: "Due", type: "date", role: "other", ...blank },
+      { name: "Notes", type: "string", role: "text", ...blank, filled: 2 },
+      { name: "Plain", type: "string", role: "other", ...blank },
+    ];
+    const columns = [
+      { name: "Score", type: "number", node: "ai", prompt: "Score 1-10" },
+      { name: "Stage", type: "string", node: "ai", prompt: "Classify" },
+      { name: "Urgent", type: "boolean", node: "ai", prompt: "Is it urgent" },
+      { name: "Due", type: "date", node: "ai", prompt: "The due date" },
+      { name: "Notes", type: "string", node: "ai", prompt: "Summarise" },
+      { name: "Plain", type: "string", node: null },
+    ];
+    const marked = withPendingAiColumns(profile, columns);
+    expect(marked.map((column) => [column.role, column.pendingPrompt])).toEqual(
+      [
+        ["measure", "Score 1-10"],
+        ["category", "Classify"],
+        ["flag", "Is it urgent"],
+        ["time", "The due date"],
+        ["text", undefined], // filled: left as profiled
+        ["other", undefined], // no node: left as profiled
+      ],
+    );
+    expect(roleForType("email")).toBe("category");
+    expect(roleForType("json")).toBe("other");
+
+    const { system } = buildRecommendationPrompt(
+      {
+        ...context,
+        scope: "dashboard",
+        dashboard: null,
+        profile: marked,
+        profiledRows: 3,
+      },
+      6,
+    );
+    expect(system).toContain(
+      '- Score (number, measure, PENDING AI COLUMN): no values yet; the AI fills every row from the prompt "Score 1-10" — chart it as if populated',
+    );
+    expect(system).toContain(PENDING_AI_COLUMN_RULE);
+
+    const plain = buildRecommendationPrompt(
+      {
+        ...context,
+        scope: "dashboard",
+        dashboard: null,
+        profile,
+        profiledRows: 3,
+      },
+      6,
+    );
+    expect(plain.system).not.toContain(PENDING_AI_COLUMN_RULE);
+  });
+
+  it("carries the sheet's description and label as an untrusted block", () => {
+    const { system } = buildRecommendationPrompt(
+      {
+        ...context,
+        sheet: {
+          ...context.sheet,
+          description: "One row per applicant.",
+          purpose: "Hiring Pipeline",
+        },
+        scope: "dashboard",
+        dashboard: null,
+      },
+      6,
+    );
+    expect(system).toContain(
+      "<sheet-description>\nLabel: Hiring Pipeline\nDescription: One row per applicant.\n</sheet-description>",
+    );
+    expect(UNTRUSTED_DATA_RULE).toContain("<sheet-description>");
+    const { system: bare } = buildRecommendationPrompt(
+      { ...context, scope: "dashboard", dashboard: null },
+      6,
+    );
+    expect(bare).not.toContain("</sheet-description>");
   });
 
   it("truncates values to one line", () => {

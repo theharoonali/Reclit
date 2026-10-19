@@ -1,5 +1,5 @@
 import { DomainError, describeError } from "../../common/errors";
-import { runAiBatchService } from "../run-ai/run-ai-batch.service";
+import { isRunnable, runAiBatchService } from "../run-ai/run-ai-batch.service";
 import type { CellValue } from "../spreadsheet/spreadsheet.schema";
 import { toWireColumnType } from "../spreadsheet/spreadsheet.schema";
 import { spreadsheetService } from "../spreadsheet/spreadsheet.service";
@@ -10,7 +10,9 @@ import {
   PopulateUnknownFieldError,
 } from "./populate.errors";
 import type {
+  PopulateField,
   PopulateForm,
+  PopulateSetOutputInput,
   PopulateSubmission,
   PopulateSubmitInput,
 } from "./populate.schema";
@@ -22,6 +24,13 @@ import type {
 /** A column a person fills: formulas and node (AI) columns are computed. */
 const isFillable = (column: ColumnRecord) =>
   column.node === null && toWireColumnType(column.type) !== "formula";
+
+/** A column as the form lists it, fillable or output. */
+const toField = (column: ColumnRecord): PopulateField => ({
+  name: column.name,
+  type: toWireColumnType(column.type),
+  columnIndex: column.index,
+});
 
 /**
  * Column names are not unique. The first fillable column in display order
@@ -56,17 +65,28 @@ function resolveCells(
 }
 
 export class PopulateService {
+  /**
+   * The sheet's name, its fillable columns and the AI columns a submission
+   * fills (`outputs`: the run-ai `isRunnable` set, what `submit` starts).
+   */
   async form(id: string): Promise<PopulateForm> {
     const sheet = await spreadsheetService.byId(id);
     const columns = await spreadsheetService.columnsOf(id);
     return {
       spreadsheet: { id: sheet.id, name: sheet.name },
-      fields: [...fillableByName(columns).values()].map((column) => ({
-        name: column.name,
-        type: toWireColumnType(column.type),
-        columnIndex: column.index,
-      })),
+      fields: [...fillableByName(columns).values()].map(toField),
+      outputEnabled: sheet.formOutputEnabled,
+      outputs: columns.filter(isRunnable).map(toField),
     };
+  }
+
+  /** The admin's switch, answered with the form as the public page reads it. */
+  async setOutput({
+    id,
+    enabled,
+  }: PopulateSetOutputInput): Promise<PopulateForm> {
+    await spreadsheetService.setFormOutput(id, enabled);
+    return this.form(id);
   }
 
   /** Appends the row, then starts the row's AI columns. */

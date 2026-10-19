@@ -14,6 +14,8 @@ them here.
 | --- | --- | --- |
 | `Spreadsheet.id` | `String` | pk, `@default(uuid())` |
 | `Spreadsheet.name` | `String` | required — kept equal to the workspace's name by `workspace.create`/`rename` |
+| `Spreadsheet.description` / `purpose` | `String?` | what the sheet holds, and its short label ("Hiring pipeline"); written by onboarding ([onboarding.md](onboarding.md)), read into the assistant's prompts; null otherwise |
+| `Spreadsheet.formOutputEnabled` | `Boolean` | default false; the public form shows a submitted row's AI columns live; written by `populate.setOutput` ([populate.md](populate.md)) |
 | `Spreadsheet.totalRows` | `Int` | default 5,000,000 (`DEFAULT_TOTAL_ROWS`) — the virtual grid height |
 | `Spreadsheet.workspaceId` | `String` | required, fk cascade → `Workspace`, indexed ([workspace.md](workspace.md)) |
 | `Column.id` | `String` | pk, scoped `"<sheetId>.col.<index>"` |
@@ -51,10 +53,10 @@ database one — tightening the index would break the reorder.
 | --- | --- | --- |
 | `apps/api/prisma/schema.prisma` | model | the four tables + `ColumnType` + `NodeType` |
 | `apps/api/src/modules/spreadsheet/spreadsheet.ids.ts` | ids | scoped/short id builders, `parseCellId` |
-| `apps/api/src/modules/spreadsheet/spreadsheet.schema.ts` | schema | zod shapes, wire↔db type case, `cellValueMatchesType`, `isPlainObject` |
+| `apps/api/src/modules/spreadsheet/spreadsheet.schema.ts` | schema | zod shapes, wire↔db type case, `cellValueMatchesType`, `isPlainObject`, `columnDraftInput` (a column to create without its sheet — the fields and rule of `createColumnInput`), `updateSpreadsheetMetaInput` |
 | `apps/api/src/modules/spreadsheet/spreadsheet.errors.ts` | errors | the domain errors |
 | `apps/api/src/modules/spreadsheet/spreadsheet.shape.ts` | shape | records → wire: `toSheetColumn`, `toSheetCell`, `buildRow` (stored cells, sorted), `buildRowCells` (every column, blanks null — the AI run input) |
-| `apps/api/src/modules/spreadsheet/spreadsheet.service.ts` | service | reads + sheet lifecycle, `columnOrThrow`, `columnsOf`, `rowCells` |
+| `apps/api/src/modules/spreadsheet/spreadsheet.service.ts` | service | reads + sheet lifecycle, `columnOrThrow`, `columnsOf`, `rowCells`, `updateMeta` (description / purpose) and `setFormOutput` (the form switch) — service only, no procedure |
 | `apps/api/src/modules/spreadsheet/spreadsheet-cells.service.ts` | service | row and cell writes |
 | `apps/api/src/modules/spreadsheet/spreadsheet-columns.service.ts` | service | column writes: create, update, reorder, remove — and the `sortOrder` invariant they share |
 | `apps/api/src/modules/spreadsheet/spreadsheet-import.parse.ts` | pure | CSV/XLSX bytes → a raw grid of strings |

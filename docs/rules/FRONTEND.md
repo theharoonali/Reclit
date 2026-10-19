@@ -165,6 +165,7 @@ that queries, and `<feature>-list.tsx` / `<feature>-form.tsx` that render.
 | `@reclit/ui/label` | `Label` | a plain `<label>` |
 | `@reclit/ui/progress` | `Progress` | `value`, `max`; plain divs |
 | `@reclit/ui/select` | `Select`, `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem`, `SelectGroup`, `SelectLabel`, `SelectSeparator` | Radix; the trigger is `Input`'s twin |
+| `@reclit/ui/switch` | `Switch` | Radix; `checked` / `onCheckedChange`, `role="switch"`; label it with `Label` + `htmlFor`; sized by the `switch*` tokens |
 | `@reclit/ui/spinner` | `Spinner` | `size`: `sm` · `default` · `lg`; decorative — the parent announces loading |
 | `@reclit/ui/table` | `Table`, `TableHeader`, `TableBody`, `TableFooter`, `TableRow`, `TableHead`, `TableCell`, `TableCaption` | plain HTML table; scrolls horizontally inside its wrapper |
 | `@reclit/ui/textarea` | `Textarea` | multi-line field |
@@ -235,9 +236,9 @@ Everything else derives from it:
 | `colors.light` / `colors.dark` | CSS variables `--<token>` on `:root` / `.dark`, emitted by the Tailwind preset, and the colour classes `bg-primary`, `text-muted-foreground`, `border-input`, `bg-overlay/overlay` … |
 | `radius` | `--radius` → the app's one corner, `rounded-sm` |
 | `fontSize` | the type scale, `text-display` … `text-eyebrow` |
-| `sizes` | every named length, usable after any length prefix: `h-control`, `h-control-sm`, `px-control-x`, `size-icon`, `px-field-x`, `size-checkbox`, `size-avatar`, `w-sidebar`, `w-sidebar-rail`, `w-panel`, `h-header`, `h-sheet-header`, `h-chart-sm` · `h-chart-md` · `h-chart-lg` (dashboard chart bodies) … |
+| `sizes` | every named length, usable after any length prefix: `h-control`, `h-control-sm`, `px-control-x`, `size-icon`, `px-field-x`, `size-checkbox`, `size-avatar`, `w-sidebar`, `w-sidebar-rail`, `w-panel`, `h-header`, `h-sheet-header`, `h-chart-sm` · `h-chart-md` · `h-chart-lg` (dashboard chart bodies), `size-orb` · `size-orb-md` · `size-orb-lg` (the AI orb in the island, beside the onboarding checklist, alone on its first screen) … |
 | `opacity.overlay` | the dialog scrim's alpha |
-| `motion` | `duration-smooth`, `ease-smooth` — the one motion setting |
+| `motion` | `duration-smooth`, `ease-smooth` — the one motion setting; the preset also derives the two enter animations from it, `animate-slide-up` (a list rising into place) and `animate-slide-in` (a screen arriving from the right); pair either with `motion-reduce:animate-none` |
 | `SHEET_HEADER_PX` | the canvas header height, shared by the DOM strip and the canvas geometry |
 
 - **Chart colours** are `chart-1` … `chart-5` (blues, a violet, and a quiet
@@ -269,7 +270,7 @@ Everything else derives from it:
 
 ### Radius
 
-`rounded-sm` (`--radius - 4px`) is the app's one corner — divs, cards, buttons,
+`rounded-sm` (`--radius - 4px`, 3px) is the app's one corner — divs, cards, buttons,
 inputs, selects, popovers, dialogs, menus, nav items, avatars, chips.
 `rounded-full` is for pills and `rounded-none` for the rare square; no other
 step exists in the config, so `rounded-md`/`rounded-lg` are bugs. A surface

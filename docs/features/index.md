@@ -11,8 +11,8 @@ the doc is insufficient, then fix the doc.
 | user | [user.md](user.md) | `User` | `user` | `apps/api/src/__tests__/user.api.test.ts` |
 | run-ai | [run-ai.md](run-ai.md) | `RunAi` | `runAi` | `apps/api/src/__tests__/run-ai.api.test.ts` |
 | file | [file.md](file.md) | — | — (REST `POST` / `DELETE /files`) | `apps/api/src/__tests__/file.api.test.ts` |
-| populate | [populate.md](populate.md) | — | `populate` (+ REST `/populate/:id`) | `apps/api/src/__tests__/populate.api.test.ts` |
-| onboarding | [onboarding.md](onboarding.md) | — (writes `User.onboardingCompleted`) | — (REST `POST /onboarding`) | `apps/api/src/__tests__/onboarding.api.test.ts` |
+| populate | [populate.md](populate.md) | — (writes `Spreadsheet.formOutputEnabled`) | `populate` (+ REST `/populate/:id`) | `apps/api/src/__tests__/populate.api.test.ts` |
+| onboarding | [onboarding.md](onboarding.md) | — (writes `User.onboardingCompleted`, `Spreadsheet.description` / `purpose`) | `onboarding` (+ REST `POST /onboarding`, `POST /onboarding/describe`) | `apps/api/src/__tests__/onboarding.api.test.ts` |
 | external-api | [external-api.md](external-api.md) | `ExternalApi` | `externalApi` | `apps/api/src/__tests__/external-api.api.test.ts` |
 | dashboard | [dashboard.md](dashboard.md) | `Dashboard`, `DashboardWidget` | `dashboard` | `apps/api/src/__tests__/dashboard.api.test.ts` |
 | assistant | [assistant.md](assistant.md) | `AssistantRun` | `assistant` (+ REST `POST /assistant/transcribe`) | `apps/api/src/__tests__/assistant.api.test.ts` |

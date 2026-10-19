@@ -9,7 +9,9 @@
  * MODELS
  *   PopulateField      = { name: string; type: ColumnType; columnIndex: number }
  *   PopulateForm       = { spreadsheet: { id: string; name: string };
- *                          fields: PopulateField[] }
+ *                          fields: PopulateField[];
+ *                          outputEnabled: boolean;      // the admin's "Enable output" switch
+ *                          outputs: PopulateField[] }   // the runnable AI columns, display order
  *   PopulateSubmission = { row: SheetRow; runs: RunAi[];
  *                          runError: { code: string; message: string } | null }
  *   CellValue          = string (≤10 000) | number | boolean | object | null
@@ -20,6 +22,7 @@
  * | --------------- | -------- | --------------------------------------------- | ------------------ | ---------------------- |
  * | populate.form   | query    | { id }                                        | PopulateForm       | NOT_FOUND              |
  * | populate.submit | mutation | { id; fields: Record<columnName, CellValue> } | PopulateSubmission | NOT_FOUND, BAD_REQUEST |
+ * | populate.setOutput | mutation | { id; enabled: boolean }                   | PopulateForm       | NOT_FOUND              |
  *
  * REST — the Populate API (same service, same zod inputs)
  * | GET  /populate/:id                     | 200 | form   |
@@ -31,6 +34,12 @@
  * NOTES
  * - A column is fillable when it is not a formula and carries no node; AI
  *   columns are computed, never filled. `form.fields` is in display order.
+ * - `form.outputs` are the columns a submission runs (node `ai` or
+ *   `google_search` with a prompt), in display order, listed whether or not
+ *   `outputEnabled` is set; an AI column without a prompt is in neither list.
+ *   `outputEnabled` is `Spreadsheet.formOutputEnabled`, false by default, set
+ *   only by `populate.setOutput` (tRPC only, no REST twin): when true the
+ *   public form shows the submitted row's outputs filling in live.
  * - Column names are unique per sheet (`spreadsheet.createColumn`), but a sheet
  *   older than that rule may hold duplicates: the first fillable column in
  *   display order owns the name, and a later duplicate is absent from
@@ -148,11 +157,55 @@ describe.skipIf(!dbUp)("populate.form", () => {
 
   it("carries no row data", async () => {
     const form = await caller.populate.form({ id: sheet });
-    expect(Object.keys(form).sort()).toEqual(["fields", "spreadsheet"]);
+    expect(Object.keys(form).sort()).toEqual([
+      "fields",
+      "outputEnabled",
+      "outputs",
+      "spreadsheet",
+    ]);
+  });
+
+  it("lists the runnable AI columns as outputs, off by default", async () => {
+    const form = await caller.populate.form({ id: sheet });
+    expect(form.outputEnabled).toBe(false);
+    // Draft (ai, no prompt) and Calc (formula) are neither fields nor outputs.
+    expect(form.outputs).toEqual([
+      { name: "Summary", type: "string", columnIndex: column.summary },
+    ]);
+    expect((await caller.populate.form({ id: plainSheet })).outputs).toEqual(
+      [],
+    );
   });
 
   it("rejects an unknown sheet", async () => {
     await expectTRPCError(caller.populate.form({ id: "missing" }), "NOT_FOUND");
+  });
+});
+
+describe.skipIf(!dbUp)("populate.setOutput", () => {
+  afterEach(async () => {
+    await caller.populate.setOutput({ id: sheet, enabled: false });
+  });
+
+  it("flips the sheet's flag and answers the form", async () => {
+    const on = await caller.populate.setOutput({ id: sheet, enabled: true });
+    expect(on.outputEnabled).toBe(true);
+    expect(on.outputs.map((output) => output.name)).toEqual(["Summary"]);
+    expect(
+      (await caller.spreadsheet.byId({ id: sheet })).formOutputEnabled,
+    ).toBe(true);
+    expect((await caller.populate.form({ id: sheet })).outputEnabled).toBe(
+      true,
+    );
+    const off = await caller.populate.setOutput({ id: sheet, enabled: false });
+    expect(off.outputEnabled).toBe(false);
+  });
+
+  it("rejects an unknown sheet", async () => {
+    await expectTRPCError(
+      caller.populate.setOutput({ id: "missing", enabled: true }),
+      "NOT_FOUND",
+    );
   });
 });
 
@@ -327,12 +380,18 @@ describe.skipIf(!dbUp)("REST /populate", () => {
   it("GET /populate/:id answers the form", async () => {
     const res = await fetch(`${baseUrl}/populate/${sheet}`);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { fields: { name: string }[] };
+    const body = (await res.json()) as {
+      fields: { name: string }[];
+      outputEnabled: boolean;
+      outputs: { name: string }[];
+    };
     expect(body.fields.map((field) => field.name)).toEqual([
       "Company",
       "Website",
       "Score",
     ]);
+    expect(body.outputEnabled).toBe(false);
+    expect(body.outputs.map((output) => output.name)).toEqual(["Summary"]);
   });
 
   it("POST /populate/:id appends the row and answers 201", async () => {

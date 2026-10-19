@@ -16,7 +16,7 @@ client because the active workspace is client state (localStorage).
 | --- | --- | --- |
 | `apps/dashboard/src/app/(app)/layout.tsx` | RSC | The **one** chrome mount point — renders `<OnboardingGate area="app">` around `<WorkspaceProvider>` around `<AssistantProvider>` around `<AppShell>` (plus `<WorkspaceHeaderTitle>` and `<AssistantIsland>`) for every route in the group |
 | `apps/dashboard/src/components/onboarding/onboarding-gate.tsx` | client | Full-screen loader until `user.me` resolves; sends a user who has not onboarded to `/onboarding` ([onboarding.md](onboarding.md)) |
-| `apps/dashboard/src/app/(app)/page.tsx` | RSC | `<DashboardPanel title subtitle>` with the message-key defaults |
+| `apps/dashboard/src/app/(app)/page.tsx` | RSC | `<DashboardPanel />` |
 | `apps/dashboard/src/components/dashboard/dashboard-panel.tsx` | client | `useWorkspace()` → `dashboard.byWorkspace` → `<PageShell wide>` (title / subtitle from the config when set) around loading / error / `<DashboardEmpty>` / `<DashboardGrid>` (+ `<DashboardRecommendations>` while a set is open); owns `useDashboardRecommendations` and publishes the "AI Recommendations" pill (`useAssistantPageAction`) while the dashboard is empty and no set is open; mounts `<DashboardHeaderActions>` |
 | `apps/dashboard/src/components/dashboard/dashboard-grid.tsx` | pure | `widgets` → `toRows` (engine) → one 12-column grid per row; `renderCard` draws each item (stored or proposed) |
 | `apps/dashboard/src/components/dashboard/widget-card.tsx` | client | `WidgetCard`: the frame every card renders in — a `Card` spanning `column`, spinner / "cannot compute" / the renderer picked by an exhaustive `switch` on `type`, the footer, and an optional trailing `action` |
@@ -27,7 +27,8 @@ client because the active workspace is client state (localStorage).
 | `apps/dashboard/src/components/dashboard/dashboard-recommendation-card.tsx` | client | A proposed card: `useWidgetData` over `{ spreadsheetId, type, variant, query }` + `WidgetCard` with Add in its footer |
 | `apps/dashboard/src/components/assistant/use-page-action.ts` | client hook | `useAssistantPageAction` — publishes a page's action as the capsule's right-hand pill, withdrawn on `null` and unmount (shared with [`/ai-spreadsheet`](ai-spreadsheet.md)) |
 | `apps/dashboard/src/components/dashboard/dashboard-empty.tsx` | client | The empty state with the "Create starter dashboard" button → `dashboard.createStarter` |
-| `apps/dashboard/src/components/dashboard/dashboard-header-actions.tsx` | client | The Refresh button portalled into the header: invalidates the sheet rows and the config |
+| `apps/dashboard/src/components/dashboard/dashboard-header-actions.tsx` | client | "AI is filling N cells…" portalled into the header while runs are working (`fillingCount`); nothing otherwise — there is no Refresh control, the figures refresh on their own |
+| `apps/dashboard/src/components/dashboard/use-dashboard-live-rows.ts` | client hook | `useDashboardLiveRows(sheetId)`: `runAi.listActive` on load; while anything is working, the `runAi.onChange` stream, and every completed run refetches the sheet rows (debounced 1 s) — how the dashboard fills after onboarding's Run AI |
 | `apps/dashboard/src/components/dashboard/widgets/*.tsx` | client / RSC | One renderer per type: `stat` · `area` · `bar` · `line` · `pie` · `radar` · `radial` (client, recharts) · `heatmap` · `table` (RSC) · `widget-footer`. Each takes a `ResolvedWidget` (config + computed `data`) |
 | `apps/dashboard/src/lib/dashboard/widget-state.ts` | pure | `DashboardWidget` / `ResolvedWidget` from `RouterOutputs`, `toWidgetState` (query + engine verdict → one state), `widgetIssueMessageKey` |
 | `apps/dashboard/src/lib/dashboard/sheet-rows-query.ts` | pure | The dashboard's cache key for a sheet's rows |
@@ -79,7 +80,8 @@ and the `pill` `Input` / `island` + `island-outline` + `island-plain` `Button` v
 | `dashboard.createStarter` | mutation | `dashboard-empty.tsx` | `dashboard.byWorkspace` |
 | `assistant.recommendWidgets` | mutation | `use-dashboard-recommendations.ts`, from the capsule's "AI Recommendations" pill | — (the cards stay in component state) |
 | `dashboard.createWidget` | mutation | `use-dashboard-recommendations.ts`, Add / Add all (no `row` / `sort`: the api places the card) | `dashboard.byWorkspace` |
-| Refresh button | — | `dashboard-header-actions.tsx` | `sheetRowsQueryKey` prefix + `dashboard.byWorkspace` |
+| `runAi.listActive` | query | `use-dashboard-live-rows.ts`, on load, on focus and every 15 s while no stream is open (`staleTime: 0`) | — (set to `[]` on `closed`) |
+| `runAi.onChange` | subscription (SSE) | `use-dashboard-live-rows.ts`, while the sheet has working runs | `sheetRowsQueryKey(sheetId)` after each completed run (debounced) and on `closed` |
 
 The assistant island (shared with [`/ai-spreadsheet`](ai-spreadsheet.md);
 plan [030](../plans/030-assistant-island.md); feature
@@ -127,8 +129,9 @@ calls `workspace.create` (invalidating `workspace.list` and
 - The header is empty chrome plus its slots: the `HeaderTitle` outlet on the
   left (the active workspace's name, hidden below `lg`), the `HeaderCenter`
   outlet laid over the bar (the assistant island), and `actions` +
-  `HeaderActions` outlet on the right, where this page puts its Refresh
-  button. There is no search field, no notification bell and no header avatar.
+  `HeaderActions` outlet on the right, where this page puts its "AI is
+  filling…" line while runs work. There is no search field, no notification
+  bell, no header avatar and no Refresh button.
 - **The assistant island** sits centred in the header (`md` and up). At
   rest it is the orb and a short "Reclit AI" label, centred in a
   `w-island-closed` capsule (`w-island-action` with the page's action pill
@@ -174,7 +177,7 @@ calls `workspace.create` (invalidating `workspace.list` and
   `runWidget` in a `select`: `groupBy` becomes the x-axis / slices, each
   series' formula the y-axis / KPI, filters narrow the rows. `staleTime: 0`
   and refetch-on-focus mean every visit and every return to the tab re-reads
-  the sheet; the Refresh button does it on demand.
+  the sheet, and the live stream below re-reads it as AI runs complete.
 - **Per-card states.** A spinner at the chart's height while the sheet loads;
   "the sheet could not be loaded" on a fetch failure; and, when the sheet
   loaded but the widget's query no longer fits it (a referenced column was
@@ -199,12 +202,20 @@ calls `workspace.create` (invalidating `workspace.list` and
   remaining proposals; when the last one is added the set closes. The set is
   component state and does not survive a reload. A sheet the model finds
   nothing meaningful in gets the empty copy and Dismiss.
+- **The figures keep moving while the AI fills the sheet.** When the page
+  opens with runs working (the onboarding wizard's Run AI lands here with a
+  batch in flight), the header shows "AI is filling N cells…" and every
+  completed run refetches the sheet rows, so each card recomputes
+  as the values arrive; the server closes the stream when the last run
+  finishes. A batch started elsewhere (the sheet page, the assistant) is
+  picked up too: the page re-asks `runAi.listActive` on focus and every 15 s
+  while idle.
 - **Every new card fills the grid top-first.** Whatever creates it — the
   recommendations' Add, the capsule's `createWidget` tool, an API caller
   leaving `row` / `sort` out — the api places it in the first row with room
   for its width, after that row's last card, and only otherwise on a new row.
-- **The page title and subtitle** come from `en.json` unless the dashboard
-  config sets `title` / `description`.
+- **The page has no heading of its own.** A title and subtitle show only
+  when the dashboard config sets `title` / `description`.
 - Widget titles, descriptions, series labels and footers are **data** from
   the config, not `en.json` keys (like workspace names). The chart controls
   in the design (period select, ⋯ menus, month pager, table search) are not

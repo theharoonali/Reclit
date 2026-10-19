@@ -58,7 +58,7 @@ which also holds what the Prisma schema cannot express:
 | `apps/api/src/modules/assistant/assistant.feed.ts` | feed | `assistantFeed = new LiveFeed("assistant_run_changed", "assistant")` |
 | `apps/api/src/modules/assistant/assistant.controller.ts` | controller | `POST /assistant/transcribe` (multipart `file`) |
 | `apps/api/src/modules/assistant/assistant.module.ts` | module | the feed's Nest lifecycle + the controller |
-| `apps/api/src/modules/assistant/assistant-context.ts` | reads | `loadAssistantContext({ workspaceId, scope, sheetId })` (workspace name, row count, columns, 10 sample rows; dashboard scope: the first 2,000 rows profiled with the engine's `profileColumns` and the dashboard), `toPromptContext(scope, context)`, `readAllRows(sheetId, maxRows?)` (every stored row, ≤ 20,000, for the rule tools) |
+| `apps/api/src/modules/assistant/assistant-context.ts` | reads | `loadAssistantContext({ workspaceId, scope, sheetId })` (workspace name, the sheet's description and purpose, row count, columns with their prompts, 10 sample rows; dashboard scope: the first 2,000 rows profiled with the engine's `profileColumns`, empty AI columns marked pending by `withPendingAiColumns`, and the dashboard), `toPromptContext(scope, context)`, `readAllRows(sheetId, maxRows?)` (every stored row, ≤ 20,000, for the rule tools) |
 | `apps/api/src/modules/assistant/assistant-tools.ts` | pure | the tool table (`ASSISTANT_TOOLS`: description + flat zod `inputSchema` per tool), `toolsForScope`, the per-call caps, `summariseStepInput`, `defaultWidgetSpan`, `toolWidgetQuerySchema` (the engine's query with `groupBy` optional and `in` as `values`), `recommendationCardSchema` (the strict shape of one proposed card) |
 | `apps/api/src/modules/assistant/assistant-sheet.ts` | pure | `resolveColumn` (trimmed, case-insensitive), `toWidgetFilter`, `selectRowIndexes` (engine `bindSheet` + `applyFilters`), `summariseColumn` (the engine's `profileColumns` of one column, in the tool's shape: fill, distinct count, role, top values, ranges), `coerceToolValue` |
 | `apps/api/src/modules/assistant/assistant-recommend.service.ts` | service | prisma-free: `recommend({ workspaceId }, deps?)` — the sheet through `createSheetResolver`, the dashboard context, one model call (`deps.generate`, injectable), then per card: strict parse → defaults → engine `validateWidget` → dedupe against the dashboard → cap at `MAX_RECOMMENDATIONS` (6); `toRecommendation` |
@@ -66,7 +66,7 @@ which also holds what the Prisma schema cannot express:
 | `apps/api/src/modules/assistant/assistant-sheet-tools.ts` | handlers | the spreadsheet tools over `spreadsheetService` / `spreadsheetColumnsService` / `spreadsheetCellsService` (`updateCells` for the bulk writes); `prepareRemoveColumn` / `prepareRemoveRows` (count first, write after the confirmation) |
 | `apps/api/src/modules/assistant/assistant-dashboard-tools.ts` | handlers | the dashboard tools over `dashboardWidgetsService` / `dashboardService`; a card the model leaves unplaced gets a width for its type here and its slot from the service (the engine's `placeWidget`: the first row with room, else a new one); `toWidgetQueryInput`, `prepareRemoveWidget` |
 | `apps/api/src/modules/assistant/assistant-executor.ts` | executor | `AssistantExecutor.execute(stepIndex, call)`: scope check, zod validation, the confirmation for a destructive tool (`deps.confirm`), `ToolInputError` / `DomainError` → a failed step the model reads; `AssistantConfirmationTimeoutError`; `toolSpecsForScope` |
-| `apps/api/src/ai/assistant-prompt.ts` | pure | `buildAssistantSystemPrompt`: the rules, the tagged untrusted data blocks (`<columns>`, `<column-profile>`, `<sample-rows>`, `<widgets>`), `WIDGET_GRAMMAR` + `CHART_SENSE_RULES` for the dashboard scope; `buildRecommendationPrompt(context, max)` → `{ system, prompt }` (no tool-loop rules); `truncateValue` |
+| `apps/api/src/ai/assistant-prompt.ts` | pure | `buildAssistantSystemPrompt`: the rules, the tagged untrusted data blocks (`<sheet-description>`, `<columns>`, `<column-profile>`, `<sample-rows>`, `<widgets>`), `WIDGET_GRAMMAR` + `CHART_SENSE_RULES` for the dashboard scope, `PENDING_AI_COLUMN_RULE` when a profiled AI column has no values yet; `buildRecommendationPrompt(context, max)` → `{ system, prompt }` (no tool-loop rules); `withPendingAiColumns` / `roleForType` (an empty AI column's role from its type: number → measure, date → time, boolean → flag, string/email/url → category); `describeColumns`, `describeRows`, `describeSheet`, `truncateValue` (shared with the onboarding prompts) |
 | `apps/api/src/ai/assistant-step.ts` | model | `runAssistantStep` — one `generateText` with the scope's tools (no `execute`, no `output`) → text or tool calls; `toToolSet`, `toolResultsMessage`, `toUsage` / `addUsage`, `trimTranscript`, `assistantModelId` (`ASSISTANT_MODEL`, default `gemini-2.5-flash`) |
 | `apps/api/src/ai/assistant-recommend.ts` | model | `generateWidgetRecommendations` — one `generateText` with `Output.object` over a deliberately lenient card schema (`recommendationOutputSchema`) and no tools; `RecommendationGenerator` (the injectable type) |
 | `apps/api/src/trigger/assistant-run.ts` | task | `assistant-run` (`{ runId }`): the loop — see Behaviour |
@@ -162,8 +162,14 @@ which also holds what the Prisma schema cannot express:
   heuristic role — `identifier`, `year`, `time`, `flag`, `category`,
   `measure`, `text`, `other`); the prompt shows it as `<column-profile>` and
   `CHART_SENSE_RULES` say what each role may be (a measure is summed, a year
-  or a date is an axis, an identifier is neither). The spreadsheet scope
-  reads only its 10 sample rows.
+  or a date is an axis, an identifier is neither). An AI column with a
+  prompt and no values yet is shown as `PENDING AI COLUMN` with a role from
+  its type (`withPendingAiColumns`) and `PENDING_AI_COLUMN_RULE` lets the
+  model chart it as if populated — how the onboarding wizard gets cards over
+  columns the AI has not filled yet ([onboarding.md](onboarding.md)). The
+  sheet's description and purpose, when set, open the data as
+  `<sheet-description>`. The spreadsheet scope reads only its 10 sample
+  rows.
 - **Recommendations are one call, filtered by the contract.** `recommend`
   resolves the sheet, refuses without a Gemini key on the api
   (`ASSISTANT_RECOMMENDATIONS_UNAVAILABLE`), builds the no-tool prompt

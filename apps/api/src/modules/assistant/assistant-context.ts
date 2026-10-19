@@ -2,6 +2,7 @@ import { type ColumnProfile, profileColumns } from "@reclit/dashboard-engine";
 import {
   type AssistantPromptContext,
   MAX_SAMPLE_ROWS,
+  withPendingAiColumns,
 } from "../../ai/assistant-prompt";
 import type { DashboardDetail } from "../dashboard/dashboard.schema";
 import { dashboardService } from "../dashboard/dashboard.service";
@@ -34,7 +35,13 @@ export type AssistantContextInput = {
 
 export type AssistantContext = {
   workspaceName: string;
-  sheet: { id: string; name: string; storedRows: number };
+  sheet: {
+    id: string;
+    name: string;
+    storedRows: number;
+    description: string | null;
+    purpose: string | null;
+  };
   columns: SheetColumn[];
   sampleRows: SheetRow[];
   /** Dashboard scope only: the columns profiled over the first `profiledRows` rows. */
@@ -50,8 +57,9 @@ export async function loadAssistantContext({
   sheetId,
 }: AssistantContextInput): Promise<AssistantContext> {
   const forDashboard = scope === "dashboard";
-  const [workspace, storedRows, payload, dashboard] = await Promise.all([
+  const [workspace, meta, storedRows, payload, dashboard] = await Promise.all([
     workspaceService.byId(workspaceId),
+    spreadsheetService.byId(sheetId),
     spreadsheetService.countRows(sheetId),
     readAllRows(sheetId, forDashboard ? MAX_PROFILE_ROWS : MAX_SAMPLE_ROWS),
     forDashboard
@@ -60,7 +68,13 @@ export async function loadAssistantContext({
   ]);
   return {
     workspaceName: workspace.name,
-    sheet: { id: sheetId, name: payload.spreadsheet.name, storedRows },
+    sheet: {
+      id: sheetId,
+      name: payload.spreadsheet.name,
+      storedRows,
+      description: meta.description,
+      purpose: meta.purpose,
+    },
     columns: payload.columns,
     sampleRows: payload.rows.slice(0, MAX_SAMPLE_ROWS),
     profile: forDashboard ? profileColumns(payload) : null,
@@ -77,17 +91,25 @@ export function toPromptContext(
   return {
     scope,
     workspaceName: context.workspaceName,
-    sheet: { name: context.sheet.name, storedRows: context.sheet.storedRows },
-    columns: context.columns.map(({ name, type, node }) => ({
+    sheet: {
+      name: context.sheet.name,
+      storedRows: context.sheet.storedRows,
+      description: context.sheet.description,
+      purpose: context.sheet.purpose,
+    },
+    columns: context.columns.map(({ name, type, node, prompt }) => ({
       name,
       type,
       node,
+      prompt,
     })),
     sampleRows: context.sampleRows.map((row) => ({
       index: row.index,
       cells: row.columns.map(({ name, value }) => ({ name, value })),
     })),
-    profile: context.profile,
+    profile: context.profile
+      ? withPendingAiColumns(context.profile, context.columns)
+      : null,
     profiledRows: context.profiledRows,
     dashboard: context.dashboard
       ? {
