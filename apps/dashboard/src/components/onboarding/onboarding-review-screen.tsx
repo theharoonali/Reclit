@@ -6,7 +6,8 @@ import { Spinner } from "@reclit/ui/spinner";
 import { Textarea } from "@reclit/ui/textarea";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
-import type { FormEvent } from "react";
+import { type FormEvent, useId } from "react";
+import { FormField } from "@/components/common/form-field";
 import type { OnboardingWizardApi } from "./use-onboarding-wizard";
 
 const DESCRIPTION_MAX = 1000;
@@ -14,9 +15,9 @@ const PURPOSE_MAX = 80;
 
 /**
  * The second screen: the name, the label and the description the AI wrote
- * from the file, to review and edit — placeholders name the fields — with
- * Back and Next under them. The fields fill themselves as the description
- * arrives.
+ * from the file, to review and edit — labels sit above the two fields —
+ * with Back and Next under them. The fields fill themselves as the
+ * description arrives.
  */
 export function OnboardingReviewScreen({
   details,
@@ -27,6 +28,8 @@ export function OnboardingReviewScreen({
   isBusy: boolean;
 }) {
   const t = useTranslations("onboarding");
+  const nameId = useId();
+  const purposeId = useId();
   const described = details.described;
 
   const handleSubmit = (event: FormEvent) => {
@@ -47,22 +50,24 @@ export function OnboardingReviewScreen({
 
       <div className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
-          <Input
-            aria-label={t("nameLabel")}
-            disabled={isBusy}
-            maxLength={200}
-            onChange={(event) => details.setName(event.target.value)}
-            placeholder={t("nameLabel")}
-            value={details.name}
-          />
-          <Input
-            aria-label={t("purposeLabel")}
-            disabled={isBusy}
-            maxLength={PURPOSE_MAX}
-            onChange={(event) => details.setPurpose(event.target.value)}
-            placeholder={t("purposePlaceholder")}
-            value={details.purpose}
-          />
+          <FormField htmlFor={nameId} label={t("nameLabel")}>
+            <Input
+              disabled={isBusy}
+              id={nameId}
+              maxLength={200}
+              onChange={(event) => details.setName(event.target.value)}
+              value={details.name}
+            />
+          </FormField>
+          <FormField htmlFor={purposeId} label={t("purposeLabel")}>
+            <Input
+              disabled={isBusy}
+              id={purposeId}
+              maxLength={PURPOSE_MAX}
+              onChange={(event) => details.setPurpose(event.target.value)}
+              value={details.purpose}
+            />
+          </FormField>
         </div>
         <Textarea
           aria-busy={details.isDescribing || undefined}

@@ -47,7 +47,7 @@ which also holds what the Prisma schema cannot express:
 | Path | Layer | Responsibility |
 | --- | --- | --- |
 | `apps/api/prisma/schema.prisma` | model | `AssistantRun`, `AssistantScope`, `AssistantSource` |
-| `apps/api/src/common/live-feed.ts` | common | `LiveFeed(channel, label)` — one `pg` LISTEN per process with reconnect + `resync`; shared with run-ai |
+| `apps/api/src/common/live-feed.ts` | common | `LiveFeed(channel, label)` — one `pg` LISTEN per process with a 10 s ping, reconnect + `resync`; shared with run-ai |
 | `apps/api/src/common/schema.ts` | common | `workspaceIdInput`, shared with the dashboard |
 | `apps/api/src/modules/assistant/assistant.schema.ts` | schema | statuses + terminal rule + wire/db case, scope/source mirrors, the caps, the tool-name lists per scope and `ASSISTANT_DESTRUCTIVE_TOOLS`, `AssistantStep`, `AssistantPendingAction`, `AssistantRun`, `AssistantChange`, every input |
 | `apps/api/src/modules/assistant/assistant.errors.ts` | errors | `AssistantNotFoundError`, `AssistantBusyError`, `AssistantNotAwaitingError`, `AssistantFinishedError`, `AssistantDispatchError`, the three transcription errors |

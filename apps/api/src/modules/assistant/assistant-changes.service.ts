@@ -63,24 +63,29 @@ export class AssistantChangesService {
       [LiveChange]
     >;
     try {
-      const since = parseEventId(input.lastEventId);
-      if (since) {
-        for (const run of await assistantService.listChangedSince(
-          input.workspaceId,
-          since,
-        )) {
-          yield runEvent(run);
-        }
+      // The newest `updatedAt` this stream has told the client about: where a
+      // catch-up starts from.
+      let seen = parseEventId(input.lastEventId);
+      const sent = (event: AssistantEvent) => {
+        const at = parseEventId(event.id);
+        if (at && (!seen || at > seen)) seen = at;
+        return event;
+      };
+      for (const event of await this.catchUp(input.workspaceId, seen)) {
+        yield sent(event);
       }
-      yield await this.snapshot(input.workspaceId);
       for await (const [change] of live) {
         if (change.kind === "resync") {
-          yield await this.snapshot(input.workspaceId);
+          // The feed was down: runs may have moved without a notice. Same as
+          // a client reconnecting with its last event id.
+          for (const event of await this.catchUp(input.workspaceId, seen)) {
+            yield sent(event);
+          }
           continue;
         }
         const run = change.run;
         if (run.workspaceId !== input.workspaceId) continue;
-        yield runEvent(run);
+        yield sent(runEvent(run));
         if (!isTerminalAssistantStatus(run.status)) continue;
         const active = await assistantService.active(input.workspaceId);
         if (active === null) {
@@ -96,6 +101,21 @@ export class AssistantChangesService {
     } finally {
       await live.return?.();
     }
+  }
+
+  /**
+   * What a client that has seen everything up to `since` missed — every run
+   * touched at or after it, oldest first — then the snapshot. `null` (a
+   * first connection) has missed nothing.
+   */
+  private async catchUp(
+    workspaceId: string,
+    since: Date | null,
+  ): Promise<AssistantEvent[]> {
+    const missed = since
+      ? await assistantService.listChangedSince(workspaceId, since)
+      : [];
+    return [...missed.map(runEvent), await this.snapshot(workspaceId)];
   }
 
   /**

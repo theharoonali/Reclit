@@ -1,4 +1,4 @@
-import { AiBrain01Icon } from "@hugeicons/core-free-icons";
+import { StarIcon } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 import type { NodeType } from "./types";
 
@@ -9,7 +9,7 @@ import type { NodeType } from "./types";
  * toolbar.
  */
 export const NODE_ICONS: Partial<Record<NodeType, IconSvgElement>> = {
-  ai: AiBrain01Icon,
+  ai: StarIcon,
 };
 
 /** Hugeicons draw on a 24-unit square. */

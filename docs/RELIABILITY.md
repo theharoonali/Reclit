@@ -17,8 +17,16 @@ via `pingDatabase()` (`apps/api/src/db/prisma.ts`) and returns:
   its `LISTEN` connection when the Nest app boots (`RunAiModule`) and closes
   it on shutdown. The api still boots if that connection fails; the first
   subscription retries it. A dropped connection reconnects with exponential
-  backoff (0.5 s → 30 s) and emits `resync`, so every open stream re-sends its
-  snapshot and no client shows a stale working run.
+  backoff (0.5 s → 30 s) and emits `resync`, so every open stream replays what
+  it missed since its last event, re-sends its snapshot, and no client shows
+  a stale working run.
+- An idle `LISTEN` socket can die without either end being told (a router
+  dropping its NAT entry, a changed IPv6 address, a laptop asleep): the database
+  still lists the session and the streams keep their pings, but no notice ever
+  arrives. `LiveFeed` therefore runs `SELECT 1` on the connection every 10 s;
+  no answer within 5 s replaces the connection and emits `resync`, so a stalled
+  feed costs at most about 15 s instead of lasting until a restart. Keep-alives
+  start after 10 s and a connect gives up after 10 s.
 - The Trigger.dev tasks `run-ai-batch` and `run-ai-cell` have no retries (a
   retry would revive a terminal run or re-run finished cells); their
   `onFailure` marks what is still working `failed` when a task is killed —

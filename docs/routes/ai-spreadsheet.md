@@ -113,7 +113,7 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   API is not a wire node. An existing email column still shows Email as its
   current value and can still be saved. Choosing an unlocked node reveals a
   Prompt textarea, the node's whole configuration.
-  A column whose node has an icon (`ai` → Hugeicons `AiBrain01Icon`,
+  A column whose node has an icon (`ai` → Hugeicons `StarIcon`,
   `NODE_ICONS` in `lib/ai-spreadsheet/node-icons.ts`) shows it on its picker
   capsule and paints the same path data before its name in the header. An `ai` or `google_search`
   column's prompt is what Run executes; a Google Search column searches

@@ -20,6 +20,11 @@ bun test src/__tests__/spreadsheet.api.test.ts   # one file (from apps/api)
 | **Smoke** | `apps/api/src/__tests__/smoke.test.ts` | the app boots, `/health` answers, tRPC is mounted. One file, repo-wide. |
 | **Frontend** | `apps/dashboard/tests/<feature>/<name>.test.ts` | a pure frontend helper with real branching logic. |
 
+One infrastructure test sits outside the three: `apps/api/src/__tests__/live-feed.test.ts`
+puts a TCP proxy between `LiveFeed` and the database and freezes it, to prove a
+silent connection is replaced. It lives apart because the feed is shared by
+two features and no procedure owns it.
+
 No mocking of the database. Contract tests run against a real Postgres through a
 tRPC caller — a mocked test proves nothing about the payload the frontend will
 actually receive.

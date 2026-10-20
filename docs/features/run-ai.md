@@ -47,7 +47,7 @@ The second migration holds what the Prisma schema cannot express (invisible to
 | `apps/api/src/modules/run-ai/run-ai.service.ts` | service | the run lifecycle and the reads: `create`, `createMany`, `markRunning`, `setResult`, `setStatus`, `complete`, `fail`, `failPending`, `find`, `byId`, `listByBatch`, `listActiveBySpreadsheet`, `listChangedSince`, `latestEventId` |
 | `apps/api/src/modules/run-ai/run-ai-batch.service.ts` | service | the batch, prisma-free: `setDispatcher`, `runCells` (plan → busy pre-check → one insert → waves → dispatcher), `runRow` (`runCells` for one row × every runnable column; `[]` when there is none), `prepare` (one cell's input from the database now, plus `previous`); exports `isRunnable` (a node with an executor and a prompt), which onboarding's `finish` filters with |
 | `apps/api/src/modules/run-ai/run-ai-changes.service.ts` | service | the live stream: `changes` (the `onChange` generator), the per-process pump that resolves feed notices into rows, the snapshot |
-| `apps/api/src/common/live-feed.ts` | common | `LiveFeed(channel, label)`: one `pg.Client` per process on `LISTEN <channel>`; reconnects with backoff, emits `resync`; framework-free; shared with the assistant |
+| `apps/api/src/common/live-feed.ts` | common | `LiveFeed(channel, label)`: one `pg.Client` per process on `LISTEN <channel>`; pings it every 10 s and replaces a connection that stops answering; reconnects with backoff, emits `resync`; framework-free; shared with the assistant |
 | `apps/api/src/modules/run-ai/run-ai.feed.ts` | feed | `runAiFeed = new LiveFeed("run_ai_changed", "run-ai")` |
 | `apps/api/src/modules/run-ai/run-ai.module.ts` | module | the feed's Nest lifecycle (start on boot, stop on shutdown); no controller |
 | `apps/api/src/trpc/routers/run-ai.ts` | router | `byId`, `listByBatch`, `listActive`, `runCells`, `onChange` (subscription) |
@@ -180,7 +180,11 @@ There is no REST face.
 - **One read per change per process.** The feed emits row ids; the changes
   service's pump resolves each id once with `RunAiService.find` and re-emits
   the row to every open generator. A reconnected feed emits `resync` and every
-  open stream re-sends its snapshot. The feed starts with the Nest app
+  open stream does what a reconnecting client's `lastEventId` does: replays the
+  runs touched since the last event it sent, then re-sends its snapshot — so a
+  run that finished while the feed was down still delivers its output. A feed
+  whose connection goes silent is detected by a 10 s ping and replaced
+  (`src/__tests__/live-feed.test.ts` stages exactly that). The feed starts with the Nest app
   (`RunAiModule`) and lazily on first use (the tRPC caller in tests boots no
   Nest); the worker imports the service but never opens the feed.
 
