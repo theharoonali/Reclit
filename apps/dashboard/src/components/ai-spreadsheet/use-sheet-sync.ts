@@ -32,10 +32,9 @@ export type SheetSyncApi = {
    * response still in flight. The deliberate opposite of the unmount effect,
    * which flushes.
    *
-   * An import wipes and rebuilds the grid. A debounced flush landing after it
-   * would read a key the new model does not have, send `value: null` into the
-   * freshly imported sheet, and — if that write failed — restore a *pre*-import
-   * snapshot into a *post*-import model.
+   * A row delete needs this: a debounced flush landing after it would
+   * re-create a cell in the deleted row. (An import only adds, so it flushes
+   * instead.)
    */
   discardPending: () => void;
   /**
@@ -63,7 +62,7 @@ export type SheetSyncApi = {
  * never sees a value it would refuse.
  *
  * The one exception to the no-invalidation rule is **import**
- * (`use-sheet-import.ts`), which *replaces* the sheet rather than editing it:
+ * (`use-sheet-import.ts`), which adds rows and columns in bulk on the server:
  * there the server is the truth and the model must be rebuilt, so it
  * invalidates `spreadsheet.rows` on purpose. That is safe because
  * `invalidateQueries` leaves the query `success` — the loader never falls back
@@ -117,8 +116,8 @@ export function useSheetSync(args: {
         .then(
           () => undefined,
           () => {
-            // An import replaced the model out from under this write; its
-            // snapshot belongs to a sheet that no longer exists.
+            // A delete discarded this write after it was sent; its
+            // snapshot belongs to cells that no longer exist.
             if (generationRef.current !== generation) return;
             // Snap the cell back to what the server last accepted.
             setCellLocal(row, columnId, dirty.snapshot);

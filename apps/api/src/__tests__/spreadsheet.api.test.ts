@@ -86,15 +86,23 @@
  * | GET    /spreadsheets/:id/cells/:r/:c               | 200 | cell         |
  * | PATCH  /spreadsheets/:id/cells/:r/:c  body {value} | 200 | setCell      |
  * | POST   /spreadsheets/:id/import  multipart "file" | 200 | import       |
+ * | POST   /spreadsheets/:id/import/preview  multipart "file" | 200 | preview |
  * Statuses: not_found 404 · bad_request/validation 400 · conflict 409.
  *
- * IMPORT  POST /spreadsheets/:id/import — multipart, field "file", .csv or
- * .xlsx, <= 25 MB. REST only, no tRPC procedure: multipart does not belong on
+ * IMPORT  POST /spreadsheets/:id/import — multipart, field "file", .csv,
+ * .xlsx or .docx, <= 25 MB. REST only, no tRPC procedure: multipart does not belong on
  * the tRPC link, and a procedure would pull the parsers into src/trpc/**, the
  * graph the dashboard transpiles. Returns 200, not 201 — it creates no new
  * resource.
  *   SheetImportResult = { id; name; totalRows; totalColumns; rowCount;
- *                         cellCount; columns: SheetColumn[] }
+ *                         cellCount; columnsMatched; columnsCreated;
+ *                         columns: SheetColumn[] }   // every column, after
+ * PREVIEW POST /spreadsheets/:id/import/preview — same upload, writes nothing.
+ *   SheetImportPreview = { format: "csv"|"xlsx"|"docx"; tableCount; rowCount;
+ *     columns: { source; skippedValues;
+ *       target: { kind: "existing"; id; name; type }
+ *             | { kind: "new"; name; type } }[];
+ *     sampleRows: CellValue[][] }  // first 10 rows, one value per column
  *
  * NOTES
  * - Rows are sparse; row indexes are absolute grid positions. removeRow clears
@@ -108,7 +116,7 @@
  *   Deleting an index with no column is NOT_FOUND.
  * - `sortOrder` is POSITION, and it is always dense 0..n-1 per sheet: create
  *   appends at max+1, remove closes the gap it leaves (unlike its index),
- *   import mints it in file order, and reorderColumn shifts the columns
+ *   import appends new columns after the existing ones in file order, and reorderColumn shifts the columns
  *   between the old and new position by ±1 — left moves shift them +1, right
  *   moves shift them -1. Every list orders by sortOrder.
  * - reorderColumn writes ONLY sortOrder. No id, no index and no
@@ -151,10 +159,29 @@
  * - Every procedure is public; there is no auth yet.
  *
  * IMPORT NOTES
- * - Import is a **full replace**: every Column, Row and Cell of the sheet is
- *   deleted and rebuilt from the file in one transaction, so a failure leaves
- *   the sheet exactly as it was and a re-import of the same file is a no-op.
- *   It is the only operation that rebuilds the grid wholesale.
+ * - Import **merges**, in one transaction (a failure leaves the sheet exactly
+ *   as it was). A file column whose name matches an existing column fills it;
+ *   any other file column becomes a new column after the existing ones. The
+ *   file's rows are appended from one past the highest stored row. Nothing
+ *   already stored is changed, so importing the same file twice appends twice.
+ * - Names match heuristically, never by a model: equal after lowercasing and
+ *   dropping punctuation/spaces/plural "s" ("E-mail" = "email"), a built-in
+ *   synonym group ("Phone" = "Mobile No"), or near-equal words/spelling (score
+ *   >= 0.85). Names differing in a digit ("Address 1"/"Address 2") never match.
+ *   Matching is one-to-one, best score first.
+ * - A matched column keeps its type: each file value is re-typed to it, and a
+ *   value that does not fit is left blank and counted in the preview's
+ *   `skippedValues` — never stored as the wrong type. New columns get the
+ *   inferred type, renamed "Name (2)" if the sheet already uses the name.
+ * - Existing + new columns may not exceed 256 (_TOO_LARGE).
+ * - DOCX reads every table in document order. Tables with one row or a blank
+ *   header are layout and skipped. The first table's header sets the columns;
+ *   each later table's columns land on the most similar one or are appended.
+ *   A row repeating its table's header is dropped. A table that only adds
+ *   columns its group has not filled, with as many rows, continues those rows
+ *   (a "Name, Age" + "Phone, City" pair per person is one row per person);
+ *   otherwise its rows are appended. Merged cells repeat their value. A
+ *   document with no data table is _EMPTY; `.doc` is rejected.
  * - `totalRows` is the sheet's virtual grid height and is NOT changed by an
  *   import. `rowCount` is the data rows the file held (header excluded);
  *   `cellCount` the non-empty cells written.
@@ -177,7 +204,7 @@
  * - Errors, all 400 except the last: SPREADSHEET_IMPORT_UNSUPPORTED_TYPE ·
  *   _EMPTY · _NO_HEADER · _UNREADABLE · _TOO_LARGE · a 400 with no `code` when
  *   the "file" field is missing · SPREADSHEET_NOT_FOUND (404). No import error
- *   is a 409 — import overwrites state, so nothing about it can conflict.
+ *   is a 409 — an import only adds, so nothing about it can conflict.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -187,7 +214,7 @@ import { makeWorkspace, removeWorkspace } from "./support/fixtures";
 import type { TestServer } from "./support/http";
 import { jsonInit, startTestServer } from "./support/http";
 import { caller, expectDate, expectTRPCError } from "./support/trpc";
-import { csvBody, xlsxBody } from "./support/upload";
+import { csvBody, docxBody, xlsxBody } from "./support/upload";
 
 // Skips (rather than fails) when DATABASE_URL points nowhere, so a checkout
 // without a reachable database still passes CI.
@@ -1579,12 +1606,12 @@ describe.skipIf(!dbUp)("REST surface", () => {
     expect(value("col.9")).toBe("007");
   });
 
-  it("replaces the whole grid, dropping columns the file does not have", async () => {
-    const sheet = await makeSheet("import replaces");
-    for (const name of ["one", "two", "three"]) {
+  it("keeps existing columns and rows, fills matching columns and appends the file's rows", async () => {
+    const sheet = await makeSheet("import merges");
+    for (const name of ["Name", "Email", "Notes"]) {
       await caller.spreadsheet.createColumn({ id: sheet.id, name });
     }
-    for (const rowIndex of [0, 1, 2]) {
+    for (const rowIndex of [0, 1]) {
       await caller.spreadsheet.setCell({
         id: sheet.id,
         rowIndex,
@@ -1593,32 +1620,239 @@ describe.skipIf(!dbUp)("REST surface", () => {
       });
     }
 
-    const res = await importInto(sheet.id, csvBody("A,B\nx,y\n"));
-    expect(res.status).toBe(200);
-
-    // col.2 is gone even though it was not the last column when the import
-    // started — the only operation allowed to do that.
-    const meta = await caller.spreadsheet.byId({ id: sheet.id });
-    expect(meta.totalColumns).toBe(2);
-    await expectTRPCError(
-      caller.spreadsheet.column({ id: sheet.id, columnIndex: 2 }),
-      "NOT_FOUND",
+    // "e-mail" matches "Email"; "City" is new.
+    const res = await importInto(
+      sheet.id,
+      csvBody("name,e-mail,City\nAda,ada@x.test,London\n"),
     );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      rowCount: number;
+      cellCount: number;
+      columnsMatched: number;
+      columnsCreated: number;
+      columns: { id: string; name: string; sortOrder: number }[];
+    };
+    expect(body).toMatchObject({
+      rowCount: 1,
+      cellCount: 3,
+      columnsMatched: 2,
+      columnsCreated: 1,
+    });
+    expect(body.columns.map((column) => [column.id, column.name])).toEqual([
+      ["col.0", "Name"],
+      ["col.1", "Email"],
+      ["col.2", "Notes"],
+      ["col.3", "City"],
+    ]);
+    expect(body.columns[3]?.sortOrder).toBe(3);
+
     const payload = await caller.spreadsheet.rows({ id: sheet.id });
-    expect(payload.rows).toHaveLength(1);
+    expect(payload.rows.map((row) => row.index)).toEqual([0, 1, 2]);
     expect(payload.rows[0]?.columns).toEqual([
-      { id: "col.0", name: "A", value: "x" },
-      { id: "col.1", name: "B", value: "y" },
+      { id: "col.2", name: "Notes", value: "old" },
+    ]);
+    expect(payload.rows[2]?.columns).toEqual([
+      { id: "col.0", name: "Name", value: "Ada" },
+      { id: "col.1", name: "Email", value: "ada@x.test" },
+      { id: "col.3", name: "City", value: "London" },
     ]);
   });
 
-  it("is idempotent — the same file twice gives the same result", async () => {
+  it("appends again when the same file is imported twice", async () => {
     const sheet = await makeSheet("import twice");
     const first = await importInto(sheet.id, csvBody(EVERY_TYPE_CSV));
     const second = await importInto(sheet.id, csvBody(EVERY_TYPE_CSV));
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(await second.json()).toEqual(await first.json());
+    expect(await second.json()).toMatchObject({
+      totalColumns: 10,
+      rowCount: 2,
+      columnsMatched: 10,
+      columnsCreated: 0,
+    });
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(payload.rows.map((row) => row.index)).toEqual([0, 1, 2, 3]);
+    expect(payload.rows[2]?.columns).toEqual(payload.rows[0]?.columns);
+  });
+
+  it("leaves a value blank, and counts it, when it does not fit a matched column's type", async () => {
+    const sheet = await makeSheet("import type mismatch");
+    await caller.spreadsheet.createColumn({
+      id: sheet.id,
+      name: "Age",
+      type: "number",
+    });
+    const csv = "Age\n41\nunknown\n";
+
+    const preview = await fetch(
+      `${baseUrl}/spreadsheets/${sheet.id}/import/preview`,
+      { method: "POST", body: csvBody(csv) },
+    );
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toMatchObject({
+      columns: [
+        {
+          source: "Age",
+          target: { kind: "existing", id: "col.0", type: "number" },
+          skippedValues: 1,
+        },
+      ],
+      sampleRows: [[41], [null]],
+    });
+
+    const res = await importInto(sheet.id, csvBody(csv));
+    expect(res.status).toBe(200);
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(payload.rows.map((row) => row.columns[0]?.value ?? null)).toEqual([
+      41,
+      null,
+    ]);
+  });
+
+  it("previews an import without writing anything", async () => {
+    const sheet = await makeSheet("import preview");
+    await caller.spreadsheet.createColumn({ id: sheet.id, name: "Phone" });
+    const res = await fetch(
+      `${baseUrl}/spreadsheets/${sheet.id}/import/preview`,
+      {
+        method: "POST",
+        body: csvBody("Mobile No,Score\n555-0100,7\n555-0101,9\n"),
+      },
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      format: "csv",
+      tableCount: 1,
+      rowCount: 2,
+      columns: [
+        {
+          source: "Mobile No",
+          target: {
+            kind: "existing",
+            id: "col.0",
+            name: "Phone",
+            type: "string",
+          },
+          skippedValues: 0,
+        },
+        {
+          source: "Score",
+          target: { kind: "new", name: "Score", type: "number" },
+          skippedValues: 0,
+        },
+      ],
+      sampleRows: [
+        ["555-0100", 7],
+        ["555-0101", 9],
+      ],
+    });
+    const meta = await caller.spreadsheet.byId({ id: sheet.id });
+    expect(meta.totalColumns).toBe(1);
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(payload.rows).toEqual([]);
+  });
+
+  it("merges a Word document's tables into common columns, in document order", async () => {
+    const sheet = await makeSheet("import docx");
+    const res = await importInto(
+      sheet.id,
+      await docxBody([
+        [
+          ["Name", "Email"],
+          ["Ada", "ada@x.test"],
+          ["Name", "Email"], // header repeated after a page break
+          ["Alan", "alan@x.test"],
+        ],
+        [
+          ["Full Name", "City"],
+          ["Grace", "Arlington"],
+        ],
+        [["Signature"]], // one row: layout, not data
+      ]),
+    );
+    expect(res.status).toBe(200);
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(payload.columns.map((column) => column.name)).toEqual([
+      "Name",
+      "Email",
+      "City",
+    ]);
+    expect(
+      payload.rows.map((row) => row.columns.map((entry) => entry.value)),
+    ).toEqual([
+      ["Ada", "ada@x.test"],
+      ["Alan", "alan@x.test"],
+      ["Grace", "Arlington"],
+    ]);
+    expect(payload.columns[1]?.type).toBe("email");
+
+    const preview = await fetch(
+      `${baseUrl}/spreadsheets/${sheet.id}/import/preview`,
+      {
+        method: "POST",
+        body: await docxBody([
+          [["Name"], ["Linus"]],
+          [["Town"], ["Turku"]],
+        ]),
+      },
+    );
+    expect(await preview.json()).toMatchObject({
+      format: "docx",
+      tableCount: 2,
+      // "Town" is a column the first table did not fill: same row, not a new one.
+      rowCount: 1,
+      sampleRows: [["Linus", "Turku"]],
+    });
+  });
+
+  it("joins a document's repeating table groups into one row per group", async () => {
+    const sheet = await makeSheet("import docx groups");
+    const person = (name: string, age: string, phone: string) => [
+      [
+        ["Name", "Age"],
+        [name, age],
+      ],
+      [
+        ["Phone", "City"],
+        [phone, "London"],
+      ],
+    ];
+    const res = await importInto(
+      sheet.id,
+      await docxBody([
+        ...person("Ada", "36", "555-0001"),
+        ...person("Alan", "41", "555-0002"),
+      ]),
+    );
+    expect(res.status).toBe(200);
+    const payload = await caller.spreadsheet.rows({ id: sheet.id });
+    expect(payload.columns.map((column) => column.name)).toEqual([
+      "Name",
+      "Age",
+      "Phone",
+      "City",
+    ]);
+    expect(
+      payload.rows.map((row) => row.columns.map((entry) => entry.value)),
+    ).toEqual([
+      ["Ada", 36, "555-0001", "London"],
+      ["Alan", 41, "555-0002", "London"],
+    ]);
+  });
+
+  it("refuses an import that would take the sheet past the column cap", async () => {
+    const sheet = await makeSheet("import column cap");
+    await caller.spreadsheet.createColumn({ id: sheet.id, name: "existing" });
+    const header = Array.from({ length: 256 }, (_, i) => `c${i}`).join(",");
+    const res = await importInto(sheet.id, csvBody(`${header}\n`));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      code: "SPREADSHEET_IMPORT_TOO_LARGE",
+    });
+    expect((await caller.spreadsheet.byId({ id: sheet.id })).totalColumns).toBe(
+      1,
+    );
   });
 
   it("writes no cell record for a blank cell", async () => {
@@ -1728,6 +1962,9 @@ describe.skipIf(!dbUp)("REST surface", () => {
     const cases: [FormData, string][] = [
       [csvBody("x", "notes.txt"), "SPREADSHEET_IMPORT_UNSUPPORTED_TYPE"],
       [csvBody("legacy", "book.xls"), "SPREADSHEET_IMPORT_UNSUPPORTED_TYPE"],
+      [csvBody("legacy", "notes.doc"), "SPREADSHEET_IMPORT_UNSUPPORTED_TYPE"],
+      [csvBody("not a zip", "notes.docx"), "SPREADSHEET_IMPORT_UNREADABLE"],
+      [await docxBody([[["only a header"]]]), "SPREADSHEET_IMPORT_EMPTY"],
       [csvBody(""), "SPREADSHEET_IMPORT_EMPTY"],
       [csvBody(",,\na,b,c\n"), "SPREADSHEET_IMPORT_NO_HEADER"],
       [

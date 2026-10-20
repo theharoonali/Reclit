@@ -27,7 +27,8 @@ change.
 | `…/ai-spreadsheet-date-editor.tsx` | client | UTC calendar behind a date cell |
 | `…/ai-spreadsheet-upload-editor.tsx` | client | upload panel behind file and audio cells (`POST /files`) |
 | `…/ai-spreadsheet-header-action.tsx` | client | one header control (`HeaderActions` + error + `Button`, Hugeicons glyph); `iconOnly` moves the label to `aria-label` + a tooltip; every toolbar control is an instance of it (Run is the assistant capsule's) |
-| `…/ai-spreadsheet-import-button.tsx` | client | Import: the header action with a hidden file input (`useFilePicker`) |
+| `…/ai-spreadsheet-import-button.tsx` | client | Import: the header action with a hidden file input (`useFilePicker`), and the preview dialog a picked file opens |
+| `…/ai-spreadsheet-import-dialog.tsx` · `ai-spreadsheet-import-sample.tsx` | client | the read-only import preview: file column → existing / new column, values left blank, the first rows as stored; Cancel / Import N rows |
 | `apps/dashboard/src/components/assistant/use-page-action.ts` | hook | `useAssistantPageAction` — publishes Run to the header's assistant capsule as its right-hand pill while the selection holds an AI cell with a prompt ("Run N cells" for more than one; "Working…" and disabled while any of them is working) — label, busy state and the refusal copy; withdrawn otherwise. Shared with the dashboard's AI Recommendations pill ([root.md](root.md)) |
 | `…/ai-spreadsheet-selection-bar.tsx` | client | "N rows selected" + Delete rows; renders nothing without a whole-row selection |
 | `…/ai-spreadsheet-drag-chip.tsx` | client | the card that rides the pointer during a column drag |
@@ -40,7 +41,7 @@ change.
 | `…/use-sheet-selection.ts` | hook | the whole-row selection read off the editor's rectangle (`row-selection.ts`), the batch delete mutation |
 | `…/use-sheet-drag-select.ts` | hook | the press-and-drag selection: pointer capture, cells / rows mode, edge autoscroll |
 | `…/use-column-remove.ts` · `use-column-reorder.ts` · `use-column-drag.ts` | hook | per-column delete · the (optimistic) reorder mutation · the drag: capture, threshold, drop slot, autoscroll |
-| `…/use-sheet-import.ts` | hook | uploads a CSV/XLSX, then refreshes the grid without remounting it |
+| `…/use-sheet-import.ts` | hook | `pick` previews a CSV/XLSX/DOCX, `confirm` flushes pending writes, merges it and refreshes the grid without remounting it, `cancel` drops the preview |
 | `…/use-sheet-audio.ts` | hook | one shared `Audio` element and which audio cell is playing |
 | `…/use-run-cells.ts` · `use-run-listening.ts` · `use-sheet-runs.ts` | hook | Run: what the selection would run (`planRunBatches`) + one `runAi.runCells` call per batch · whether the sheet streams · the `runAi.onChange` subscription and the per-cell working-run map (`seed` takes the whole batch) |
 | `apps/dashboard/src/lib/ai-spreadsheet/*.ts` | pure | types, geometry (`HEADER_HEIGHT` from `@reclit/ui/tokens`), palette (`theme-colors.ts`, read from the CSS variables with a fallback built from `colors.light`), formatting, text metrics, five painters, `run-state.ts`, `run-status.ts`, `run-targets.ts` (`selectionRect`, `selectionRects`, `planRunBatches`, the run caps in lockstep with the contract), `row-selection.ts` (`rowRangeAddresses`, `selectedRowRange`, `storedRowBounds`, `storedRowsIn`, `selectAllState` — a row selection is the rectangle spanning every column), `short-ids.ts`, `export-csv.ts`, `import-file.ts` (`fetchAllRows` lives in the shared `lib/spreadsheet/fetch-all-rows.ts`) (`uploadFile` lives in the shared `lib/upload-file.ts`) |
@@ -72,7 +73,8 @@ Feature: [spreadsheet](../features/spreadsheet.md) ·
 | `runAi.runCells` | Run; pending writes are flushed and awaited first, the stream is opened, the returned `pending` runs are seeded into their cells in one paint | — |
 | `runAi.listActive` · `runAi.onChange` (SSE) | `listActive` on load resumes a sheet mid-run; `onChange` streams while any run is working and ends with `closed` | — (a completed run's output is written into the model) |
 | `POST /files` (REST, multipart) | file / audio cell upload; the cell stores the returned URL | — |
-| `POST /spreadsheets/:id/import` (REST, multipart) | Import; replaces the whole grid | `spreadsheet.rows` — the one invalidation |
+| `POST /spreadsheets/:id/import/preview` (REST, multipart) | a picked file; opens the preview, writes nothing | — |
+| `POST /spreadsheets/:id/import` (REST, multipart) | Import confirmed; merges the file into the sheet | `spreadsheet.rows` — the one invalidation |
 | Export | no API — CSV serialised from the in-memory model (`export-csv.ts`) | — |
 
 The assistant island's calls (`assistant.start` / `active` / `onChange` /
@@ -90,8 +92,8 @@ the optimistic `addColumn` id needs no reconciliation.
 **Mutations do not invalidate `spreadsheet.rows`** (a recorded deviation from
 the mutations-invalidate rule): a refetch would hand the grid a new payload and
 remount — blank — the canvas. After an edit the mutated model ref is already
-the truth. Import is the exception: it replaces the sheet, so it invalidates on
-purpose, having discarded every pending write first; that is safe because
+the truth. Import is the exception: it adds rows and columns server-side, so it
+invalidates on purpose, having flushed every pending write first; that is safe because
 `invalidateQueries` leaves the query `success`, so the grid re-renders instead
 of remounting. Never `resetQueries`/`removeQueries` here.
 
@@ -216,8 +218,11 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   create, rename, retype, reorder columns, write cells and append rows;
   removing a column or rows asks inside the capsule first. Behaviour and
   states: [root.md](root.md).
-- **Import / Export.** Both are header actions. Import replaces the grid
-  ("Importing…" while it runs, failure inline with the sheet untouched).
+- **Import / Export.** Both are header actions. Import ("Reading…" while
+  the file is read) opens a preview dialog; Import N rows merges — matching
+  columns are filled, other columns added, rows appended below — and Cancel
+  writes nothing ("Importing…" while it runs, failure inline with the sheet
+  untouched). .csv, .xlsx and .docx (every table, combined) are accepted.
   Export downloads CSV (RFC 4180 quoting, UTF-8 BOM, filename from the sheet
   name) with raw values so the file re-imports cleanly.
 - **The panel** slides in over the sheet inside the row below the header, so

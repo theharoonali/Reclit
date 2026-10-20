@@ -76,13 +76,15 @@ export class SpreadsheetRowExistsError extends DomainError {
 
 // Import failures. All `bad_request`: `conflict` in this repo means the sheet's
 // state forbids the operation, and an import is state-indifferent by design —
-// it overwrites whatever is there. Every import failure is a bad payload.
+// it merges into whatever is there. Every import failure is a bad payload.
 
 export class SpreadsheetImportUnsupportedTypeError extends DomainError {
   readonly kind = "bad_request";
   readonly code = "SPREADSHEET_IMPORT_UNSUPPORTED_TYPE";
   constructor(filename: string) {
-    super(`Cannot import "${filename}": only .csv and .xlsx are supported`);
+    super(
+      `Cannot import "${filename}": only .csv, .xlsx and .docx are supported`,
+    );
     this.name = "SpreadsheetImportUnsupportedTypeError";
   }
 }
@@ -91,7 +93,7 @@ export class SpreadsheetImportEmptyError extends DomainError {
   readonly kind = "bad_request";
   readonly code = "SPREADSHEET_IMPORT_EMPTY";
   constructor() {
-    super("The uploaded file has no rows");
+    super("The uploaded file has no rows (or, for a document, no tables)");
     this.name = "SpreadsheetImportEmptyError";
   }
 }

@@ -281,7 +281,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
 
   const importer = useSheetImport({
     sheetId: payload.spreadsheet.id,
-    discardPending: sync.discardPending,
+    flushPending: sync.flushPending,
     onBeforeRefresh: resetEditor,
   });
 
@@ -416,9 +416,12 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
       <AiSpreadsheetImportButton
         errorMessage={importError}
-        labels={{ import: t("import.label"), importing: t("import.importing") }}
-        onPick={importer.run}
-        status={importer.status}
+        importer={importer}
+        labels={{
+          import: t("import.label"),
+          reading: t("import.reading"),
+          importing: t("import.importing"),
+        }}
       />
 
       <AiSpreadsheetHeaderAction

@@ -59,9 +59,13 @@ database one — tightening the index would break the reorder.
 | `apps/api/src/modules/spreadsheet/spreadsheet.service.ts` | service | reads + sheet lifecycle, `columnOrThrow`, `columnsOf`, `rowCells`, `updateMeta` (description / purpose) and `setFormOutput` (the form switch) — service only, no procedure |
 | `apps/api/src/modules/spreadsheet/spreadsheet-cells.service.ts` | service | row and cell writes |
 | `apps/api/src/modules/spreadsheet/spreadsheet-columns.service.ts` | service | column writes: create, update, reorder, remove — and the `sortOrder` invariant they share |
-| `apps/api/src/modules/spreadsheet/spreadsheet-import.parse.ts` | pure | CSV/XLSX bytes → a raw grid of strings |
-| `apps/api/src/modules/spreadsheet/spreadsheet-import.infer.ts` | pure | grid → columns with inferred types and coerced values |
-| `apps/api/src/modules/spreadsheet/spreadsheet-import.service.ts` | service | parses an upload and replaces the whole grid in one transaction |
+| `apps/api/src/modules/spreadsheet/spreadsheet-import.parse.ts` | pure | CSV/XLSX/DOCX bytes → raw grids of strings (one per Word table) |
+| `apps/api/src/modules/spreadsheet/spreadsheet-import.docx.ts` | pure | every table in `word/document.xml`; merged cells repeated |
+| `apps/api/src/modules/spreadsheet/spreadsheet-import.match.ts` | pure | heuristic column-name similarity, one-to-one `matchColumns`, `unionTables` |
+| `apps/api/src/modules/spreadsheet/spreadsheet-import.infer.ts` | pure | grid → columns with inferred types and coerced values; `coerceTo` |
+| `apps/api/src/modules/spreadsheet/spreadsheet-import.plan.ts` | pure | `planMerge`: where each file column lands and the values it writes |
+| `apps/api/src/modules/spreadsheet/spreadsheet-import.records.ts` | pure | the `createMany` payloads for a merge and for `replaceAll` |
+| `apps/api/src/modules/spreadsheet/spreadsheet-import.service.ts` | service | previews an upload, merges it into the sheet in one transaction; `replaceAll` for onboarding |
 | `apps/api/src/modules/spreadsheet/spreadsheet.controller.ts` | controller | the REST routes (table in the contract header) |
 | `apps/api/src/trpc/routers/spreadsheet.ts` | router | one procedure per row of the table below |
 | `apps/api/prisma/seed.ts` | — | seeds the default user + "Customers" workspace/sheet via the services |
@@ -89,6 +93,7 @@ database one — tightening the index would break the reorder.
 | `spreadsheet.reorderColumn` | mutation | `SpreadsheetColumnsService.reorderColumn` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.removeColumn` | mutation | `SpreadsheetColumnsService.removeColumn` | NOT_FOUND |
 | `POST /spreadsheets/:id/import` | REST only | `SpreadsheetImportService.import` | NOT_FOUND, BAD_REQUEST |
+| `POST /spreadsheets/:id/import/preview` | REST only | `SpreadsheetImportService.preview` | NOT_FOUND, BAD_REQUEST |
 
 Every procedure also exists as a REST route under `/spreadsheets` (same
 services, same zod inputs — the controller parses `{ ...body, ...params }`).
@@ -131,10 +136,19 @@ transpiles.
   prompt-requires-a-node on the effective pair (stored + incoming),
   `createColumn` gets it from the zod `.refine`, and clearing `node` clears
   the prompt. Neither mutation converts stored cells on a type change.
-- **Import is the only full-grid rebuild.** `replaceAll` deletes every Cell,
-  Row and Column and `createMany`s the new grid (chunked for the 65535
-  bind-parameter cap) inside one transaction, so a failure leaves the sheet
-  untouched. Type inference (`spreadsheet-import.infer.ts`) accepts a type
+- **Import merges; only onboarding rebuilds.** An import maps each file
+  column onto the most similar existing column (heuristic, one-to-one —
+  `spreadsheet-import.match.ts`) or adds it as a new column, then appends the
+  file's rows from one past the highest stored row: pure `createMany`s
+  (chunked for the 65535 bind-parameter cap) in one transaction, retried on a
+  unique violation from a concurrent append. A matched column keeps its type;
+  a value that does not fit is left blank and counted in the preview. The
+  preview runs the same `planMerge` and writes nothing. `replaceAll` (used by
+  onboarding on a fresh sheet) is the only wipe-and-rebuild. A Word
+  document's tables are combined by `unionTables` before inference: a table
+  that only adds columns its group has not filled, with as many rows,
+  continues those rows (one row per repeated "Name, Age" + "Phone, City"
+  pair), anything else is appended in document order. Type inference (`spreadsheet-import.infer.ts`) accepts a type
   only when every coerced value passes the same `cellValueMatchesType` the
   cells service applies, so an imported value can never be one `setCell`
   would refuse.
@@ -153,6 +167,8 @@ transpiles.
 - `toSheetCell` / `toSheetColumn` / `buildRow` (`spreadsheet.shape.ts`) for
   any other producer of the wire shapes.
 - `SpreadsheetImportService.replaceAll` — the only wipe-and-rebuild.
+- `matchColumns` / `similarity` (`spreadsheet-import.match.ts`) for anything
+  that maps user-supplied column names onto a sheet's columns.
 - `isPlainObject` and `cellValueMatchesType` (`spreadsheet.schema.ts`) for
   anything that produces or checks cell values; `parseCellId`
   (`spreadsheet.ids.ts`) for anything holding a scoped cell id.
@@ -163,7 +179,7 @@ transpiles.
 - `/ai-spreadsheet` ([route doc](../routes/ai-spreadsheet.md)) — `rows` for the
   active workspace's sheet on load; `setCell`, `createColumn`, `updateColumn`,
   `reorderColumn`, `removeColumn`, `removeRows` from the grid; `POST
-  /spreadsheets/:id/import`.
+  /spreadsheets/:id/import/preview` then `POST /spreadsheets/:id/import`.
 - [`run-ai`](run-ai.md) — `columnOrThrow` + `rowCells` to build a run's
   input; `setCell` (through `complete`) to write its output.
 - `workspace.create`/`rename` write sheets directly inside their transactions

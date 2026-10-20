@@ -4,15 +4,19 @@ import {
   SpreadsheetImportEmptyError,
   SpreadsheetImportUnreadableError,
 } from "./spreadsheet.errors";
+import { readDocx } from "./spreadsheet-import.docx";
 
-// Bytes in, a ragged grid of strings out, header included as row 0. Both
-// readers converge on that one shape so `spreadsheet-import.infer.ts` has
-// exactly one input to reason about. Pure: no prisma, no NestJS.
+// Bytes in, ragged grids of strings out, header included as row 0 of each.
+// A CSV or workbook is one grid; a Word document is one per table, merged by
+// `unionTables` before `spreadsheet-import.infer.ts` ever sees them. Pure: no
+// prisma, no NestJS.
 
-export type ImportFormat = "csv" | "xlsx";
+export type ImportFormat = "csv" | "xlsx" | "docx";
 
 const XLSX_MIME =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const DOCX_MIME =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 /**
  * The extension decides, because it is what the user actually chose; browsers
@@ -20,7 +24,8 @@ const XLSX_MIME =
  * .csv). The mime type is consulted only for a file with no extension at all,
  * so a `notes.txt` is rejected however it was labelled.
  *
- * `.xls` (legacy BIFF) is deliberately unsupported: exceljs cannot read it.
+ * `.xls` (legacy BIFF) and `.doc` (legacy Word) are deliberately unsupported:
+ * neither is a zip of XML, and nothing here can read them.
  */
 export function detectFormat(
   filename: string,
@@ -29,17 +34,21 @@ export function detectFormat(
   const lower = filename.toLowerCase();
   if (lower.endsWith(".csv")) return "csv";
   if (lower.endsWith(".xlsx")) return "xlsx";
+  if (lower.endsWith(".docx")) return "docx";
   if (lower.includes(".")) return null;
   if (mimeType === "text/csv") return "csv";
   if (mimeType === XLSX_MIME) return "xlsx";
+  if (mimeType === DOCX_MIME) return "docx";
   return null;
 }
 
-export async function readTable(
+/** Every table in the file, in file order. Never empty. */
+export async function readTables(
   bytes: Uint8Array,
   format: ImportFormat,
-): Promise<string[][]> {
-  return format === "csv" ? readCsv(bytes) : readXlsx(bytes);
+): Promise<string[][][]> {
+  if (format === "docx") return readDocx(bytes);
+  return [format === "csv" ? readCsv(bytes) : await readXlsx(bytes)];
 }
 
 function readCsv(bytes: Uint8Array): string[][] {

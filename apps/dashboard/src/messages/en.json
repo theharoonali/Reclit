@@ -222,11 +222,26 @@
     },
     "import": {
       "label": "Import",
+      "reading": "Reading...",
       "importing": "Importing...",
       "error": "The import failed. Try again.",
-      "errorType": "Only .csv and .xlsx files can be imported.",
-      "errorEmpty": "That file has no rows.",
-      "errorTooLarge": "That file has too many rows or columns to import."
+      "errorType": "Only .csv, .xlsx and .docx files can be imported.",
+      "errorEmpty": "That file has no rows or tables.",
+      "errorTooLarge": "That file has too many rows or columns to import.",
+      "preview": {
+        "title": "Import {name}",
+        "summary": "{rows, plural, =0 {No rows} one {# row} other {# rows}} will be added below the existing rows.",
+        "summaryTables": "{rows, plural, =0 {No rows} one {# row} other {# rows}} from {tables} tables will be added below the existing rows.",
+        "columnsTitle": "Columns",
+        "fileColumn": "In the file",
+        "target": "In the sheet",
+        "existing": "Fills {name}",
+        "new": "New column · {type}",
+        "skipped": "{count, plural, one {# value doesn't} other {# values don't}} fit this column and will be left blank",
+        "sampleTitle": "First {count, plural, one {row} other {# rows}}",
+        "cancel": "Cancel",
+        "confirm": "{rows, plural, =0 {Import} one {Import # row} other {Import # rows}}"
+      }
     },
     "loading": "Loading spreadsheet...",
     "loadError": "The spreadsheet could not be loaded.",
@@ -332,7 +347,7 @@
     "loadError": "Your account could not be loaded. Refresh the page to try again.",
     "upload": {
       "label": "Spreadsheet file",
-      "placeholder": "Choose a .csv or .xlsx…"
+      "placeholder": "Choose a .csv, .xlsx or .docx…"
     },
     "examples": "A finance sheet, a hiring pipeline, a customer list…",
     "orbCaption": "Reclit AI",
@@ -451,7 +466,7 @@
       }
     },
     "error": "Something went wrong. Try again.",
-    "errorType": "Only .csv and .xlsx files can be imported.",
+    "errorType": "Only .csv, .xlsx and .docx files can be imported.",
     "errorEmpty": "That file has no header row or no data.",
     "errorTooLarge": "That file has too many rows or columns.",
     "errorName": "A field is too long.",

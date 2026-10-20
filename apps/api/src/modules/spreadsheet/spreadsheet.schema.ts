@@ -327,10 +327,13 @@ export const MAX_IMPORT_COLUMNS = 256;
 export const MAX_IMPORT_ROWS = 20_000;
 
 /**
- * What POST /spreadsheets/:id/import returns.
+ * What POST /spreadsheets/:id/import returns. An import merges: existing
+ * columns and rows are kept, the file's rows are appended below them.
  *
  * `totalRows` is the sheet's virtual grid height and is NOT changed by an
- * import; `rowCount` is how many data rows the file held (header excluded).
+ * import; `rowCount` is how many data rows the file held (header excluded) and
+ * so how many rows were appended. `columns` is every column of the sheet
+ * afterwards, in display order.
  */
 export const sheetImportResultSchema = z.object({
   id: z.string(),
@@ -339,7 +342,43 @@ export const sheetImportResultSchema = z.object({
   totalColumns: z.number().int(),
   rowCount: z.number().int(),
   cellCount: z.number().int(),
+  columnsMatched: z.number().int(),
+  columnsCreated: z.number().int(),
   columns: z.array(sheetColumnSchema),
 });
 
 export type SheetImportResult = z.infer<typeof sheetImportResultSchema>;
+
+export const IMPORT_PREVIEW_ROWS = 10;
+
+/** Where one file column will go: an existing column, or a new one. */
+export const importTargetSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("existing"),
+    id: z.string(), // "col.<index>"
+    name: z.string(),
+    type: columnTypeWire,
+  }),
+  z.object({ kind: z.literal("new"), name: z.string(), type: columnTypeWire }),
+]);
+
+/**
+ * What POST /spreadsheets/:id/import/preview returns. Writes nothing.
+ * `sampleRows` holds the first rows to be appended, one value per entry of
+ * `columns` (null = blank), already typed for their target column.
+ */
+export const sheetImportPreviewSchema = z.object({
+  format: z.enum(["csv", "xlsx", "docx"]),
+  tableCount: z.number().int(),
+  rowCount: z.number().int(),
+  columns: z.array(
+    z.object({
+      source: z.string(),
+      target: importTargetSchema,
+      skippedValues: z.number().int(),
+    }),
+  ),
+  sampleRows: z.array(z.array(cellValueSchema)),
+});
+
+export type SheetImportPreview = z.infer<typeof sheetImportPreviewSchema>;

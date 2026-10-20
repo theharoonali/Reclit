@@ -211,6 +211,11 @@ export const sizes = {
   "chat-bubble": "36rem",
   "chat-composer": "12rem",
 
+  // The sheet import preview — the dialog's width, and the tallest the column
+  // mapping and the sample rows each grow before they scroll.
+  "import-dialog": "48rem",
+  "import-section": "14rem",
+
   // Dashboard widgets — the body height of a chart card (`height` in the
   // dashboard JSON: sm | md | lg).
   "chart-sm": "10rem",
