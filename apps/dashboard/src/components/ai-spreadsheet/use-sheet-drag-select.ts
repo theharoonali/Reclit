@@ -4,11 +4,10 @@ import type { PointerEvent } from "react";
 import {
   AUTOSCROLL_EDGE,
   AUTOSCROLL_STEP,
-  COL_WIDTH,
   clamp,
   GUTTER_WIDTH,
-  ROW_HEIGHT,
 } from "@/lib/ai-spreadsheet/geometry";
+import { colAt, rowAt } from "@/lib/ai-spreadsheet/layout";
 import { rowRangeAddresses } from "@/lib/ai-spreadsheet/row-selection";
 import type { RangeDragState, Viewport } from "@/lib/ai-spreadsheet/types";
 import type { CellEditorApi } from "./use-cell-editor";
@@ -69,12 +68,12 @@ export function createRangeDragHandlers(args: RangeDragArgs) {
     const viewport = viewportRef.current;
     if (!drag || viewport.columnCount === 0) return;
     const row = clamp(
-      Math.floor((drag.y + viewport.scrollY) / ROW_HEIGHT),
+      rowAt(viewport.layout, drag.y + viewport.scrollY),
       0,
       viewport.rowExtent - 1,
     );
     const col = clamp(
-      Math.floor((drag.x - GUTTER_WIDTH + viewport.scrollX) / COL_WIDTH),
+      colAt(viewport.layout, drag.x - GUTTER_WIDTH + viewport.scrollX),
       0,
       viewport.columnCount - 1,
     );

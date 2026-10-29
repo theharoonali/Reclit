@@ -14,6 +14,12 @@ import {
   scrollScale,
   spacerHeight,
 } from "@/lib/ai-spreadsheet/geometry";
+import {
+  colLeft,
+  colWidth,
+  rowHeight,
+  rowTop,
+} from "@/lib/ai-spreadsheet/layout";
 import type { Viewport } from "@/lib/ai-spreadsheet/types";
 
 export type SheetScrollApi = {
@@ -44,11 +50,18 @@ export function useSheetScroll(args: {
   requestPaint: () => void;
   /** The user scrolled (wheel, thumb, keys): anything anchored to a cell is stale. */
   onScrolled?: () => void;
+  /**
+   * First look at a wheel: true consumes it (the selected cell's in-place
+   * scroller took the delta), false scrolls the sheet. Canvas-space x/y.
+   */
+  interceptWheel?: (x: number, y: number, deltaY: number) => boolean;
 }): SheetScrollApi {
   const { scrollerRef, spacerRef, viewportRef, requestPaint } = args;
   // Read through a ref so a new callback never re-binds the listeners.
   const onScrolledRef = useRef(args.onScrolled);
   onScrolledRef.current = args.onScrolled;
+  const interceptWheelRef = useRef(args.interceptWheel);
+  interceptWheelRef.current = args.interceptWheel;
   const scaleRef = useRef(1);
   const syncingRef = useRef(false);
 
@@ -70,19 +83,23 @@ export function useSheetScroll(args: {
     if (!spacer || !viewport) return;
 
     // Geometry, not styling: no utility class expresses 8,000,000px.
-    spacer.style.height = `${spacerHeight(viewport.rowExtent)}px`;
-    spacer.style.width = `${contentWidth(viewport.columnCount)}px`;
+    spacer.style.height = `${spacerHeight(viewport.rowExtent, viewport.layout)}px`;
+    spacer.style.width = `${contentWidth(viewport.layout)}px`;
 
-    scaleRef.current = scrollScale(viewport.rowExtent, viewport.height);
+    scaleRef.current = scrollScale(
+      viewport.rowExtent,
+      viewport.height,
+      viewport.layout,
+    );
     viewport.scrollY = clamp(
       viewport.scrollY,
       0,
-      maxScrollY(viewport.rowExtent, viewport.height),
+      maxScrollY(viewport.rowExtent, viewport.height, viewport.layout),
     );
     viewport.scrollX = clamp(
       viewport.scrollX,
       0,
-      maxScrollX(viewport.columnCount, viewport.width),
+      maxScrollX(viewport.layout, viewport.width),
     );
     applyNative();
   }, [applyNative, spacerRef, viewportRef]);
@@ -115,15 +132,28 @@ export function useSheetScroll(args: {
             : 1;
       const unitX = event.deltaMode === 1 ? COL_WIDTH : unitY;
 
+      // The selected cell's own scroller gets the wheel first; at its ends
+      // the delta falls through and the sheet scrolls as usual.
+      const bounds = scroller.getBoundingClientRect();
+      if (
+        interceptWheelRef.current?.(
+          event.clientX - bounds.left,
+          event.clientY - bounds.top,
+          event.deltaY * unitY,
+        )
+      ) {
+        return;
+      }
+
       viewport.scrollY = clamp(
         viewport.scrollY + event.deltaY * unitY,
         0,
-        maxScrollY(viewport.rowExtent, viewport.height),
+        maxScrollY(viewport.rowExtent, viewport.height, viewport.layout),
       );
       viewport.scrollX = clamp(
         viewport.scrollX + event.deltaX * unitX,
         0,
-        maxScrollX(viewport.columnCount, viewport.width),
+        maxScrollX(viewport.layout, viewport.width),
       );
 
       if (!extendTail()) applyNative();
@@ -139,7 +169,7 @@ export function useSheetScroll(args: {
       viewport.scrollY = clamp(
         scroller.scrollTop * scaleRef.current,
         0,
-        maxScrollY(viewport.rowExtent, viewport.height),
+        maxScrollY(viewport.rowExtent, viewport.height, viewport.layout),
       );
       viewport.scrollX = scroller.scrollLeft;
       extendTail();
@@ -169,12 +199,12 @@ export function useSheetScroll(args: {
       viewport.scrollX = clamp(
         viewport.scrollX + dx,
         0,
-        maxScrollX(viewport.columnCount, viewport.width),
+        maxScrollX(viewport.layout, viewport.width),
       );
       viewport.scrollY = clamp(
         viewport.scrollY + dy,
         0,
-        maxScrollY(viewport.rowExtent, viewport.height),
+        maxScrollY(viewport.rowExtent, viewport.height, viewport.layout),
       );
       if (!extendTail()) applyNative();
       requestPaint();
@@ -187,17 +217,20 @@ export function useSheetScroll(args: {
       const viewport = viewportRef.current;
       if (!viewport) return;
 
-      const top = row * ROW_HEIGHT;
+      const { layout } = viewport;
+      const top = rowTop(layout, row);
+      const rowH = rowHeight(layout, row);
       if (top < viewport.scrollY) viewport.scrollY = top;
-      else if (top + ROW_HEIGHT > viewport.scrollY + viewport.height) {
-        viewport.scrollY = top + ROW_HEIGHT - viewport.height;
+      else if (top + rowH > viewport.scrollY + viewport.height) {
+        viewport.scrollY = top + rowH - viewport.height;
       }
 
       const bodyWidth = Math.max(0, viewport.width - GUTTER_WIDTH);
-      const left = col * COL_WIDTH;
+      const left = colLeft(layout, col);
+      const colW = colWidth(layout, col);
       if (left < viewport.scrollX) viewport.scrollX = left;
-      else if (left + COL_WIDTH > viewport.scrollX + bodyWidth) {
-        viewport.scrollX = left + COL_WIDTH - bodyWidth;
+      else if (left + colW > viewport.scrollX + bodyWidth) {
+        viewport.scrollX = left + colW - bodyWidth;
       }
 
       if (!extendTail()) applyNative();

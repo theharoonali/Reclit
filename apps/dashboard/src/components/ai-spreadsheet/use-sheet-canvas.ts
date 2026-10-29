@@ -2,19 +2,24 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useCanvasSurface } from "@/hooks/use-canvas-surface";
-import {
-  CELL_TOOLTIP_DELAY_MS,
-  CELL_TOOLTIP_GRACE_MS,
-  cellTooltipContent,
-} from "@/lib/ai-spreadsheet/cell-tooltip";
 import { dropTarget, previewOrder } from "@/lib/ai-spreadsheet/column-order";
 import {
-  COL_WIDTH,
+  CELL_PAD_X,
   clamp,
   GUTTER_WIDTH,
   headerGripRect,
-  ROW_HEIGHT,
+  hitTest,
 } from "@/lib/ai-spreadsheet/geometry";
+import {
+  buildLayout,
+  CELL_PAD_Y,
+  colLeft,
+  colWidth,
+  LINE_HEIGHT,
+  rowHeight,
+  rowTop,
+  wrapLines,
+} from "@/lib/ai-spreadsheet/layout";
 import { paintBody } from "@/lib/ai-spreadsheet/paint-body";
 import { paintEditor } from "@/lib/ai-spreadsheet/paint-editor";
 import { paintHeader } from "@/lib/ai-spreadsheet/paint-header";
@@ -33,6 +38,7 @@ import {
 import { useCellEditor } from "./use-cell-editor";
 import { createColumnDragHandlers } from "./use-column-drag";
 import { useSheetAudio } from "./use-sheet-audio";
+import { createClipboardHandlers } from "./use-sheet-clipboard";
 import { createRangeDragHandlers } from "./use-sheet-drag-select";
 import { createSheetPointerHandlers } from "./use-sheet-pointer";
 import { useSheetRuns } from "./use-sheet-runs";
@@ -47,6 +53,10 @@ export type SheetCanvasArgs = {
   formatters: SheetFormatters;
   getCell: (row: number, columnId: string) => CellValue;
   setCell: (row: number, columnId: string, value: CellValue) => void;
+  /** A paste's bulk write — one batched request (use-sheet-sync `setCells`). */
+  setCells: (
+    entries: { row: number; columnId: string; value: CellValue }[],
+  ) => void;
   /** Model-only write, for values the server already holds (a finished AI run). */
   setCellLocal: (row: number, columnId: string, value: CellValue) => void;
   /** Whether the run stream should be open; its capsules exist only while it is. */
@@ -84,7 +94,7 @@ export type SheetCanvasArgs = {
  */
 export function useSheetCanvas(args: SheetCanvasArgs) {
   const { modelRef, columnsVersion, rowCount, labels, formatters } = args;
-  const { getCell, setCell, setCellLocal } = args;
+  const { getCell } = args;
   const { runListening, onRunEnded, onRunsChange, onSelectionChange } = args;
   const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile, onOpenColumn } =
     args;
@@ -104,112 +114,35 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   // crosses onto or off a grip — not on the paint path — because a tooltip
   // needs a real DOM anchor and a real `open` prop.
   const [gripCol, setGripCol] = useState<number | null>(null);
-  // The cell whose full-content tooltip is open. Same rule as `gripCol`: it
-  // changes when the pointer settles on another cell, never per move. The
-  // refs hold what the pointer is over now (`hoverTargetRef`, maybe still
-  // waiting out the delay) and what the state last became (`hoverShownRef`),
-  // so a scroll or a drag can close it without a render when nothing is open.
-  // The tooltip is itself hoverable — a long value scrolls inside it — so
-  // leaving the cell does not close it at once: the change waits
-  // `CELL_TOOLTIP_GRACE_MS`, and reaching the tooltip in that time keeps it
-  // open (`hoverPinnedRef`) until the pointer leaves the tooltip.
-  const [hoverCell, setHoverCell] = useState<CellAddress | null>(null);
-  const hoverTargetRef = useRef<CellAddress | null>(null);
-  const hoverShownRef = useRef<CellAddress | null>(null);
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hoverPinnedRef = useRef(false);
-
-  const cancelHoverTimer = useCallback(() => {
-    if (hoverTimerRef.current !== null) {
-      clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-  }, []);
-
-  /** Closes the tooltip now: a press, a scroll, a drag, the pointer leaving it. */
-  const clearHover = useCallback(() => {
-    hoverTargetRef.current = null;
-    hoverPinnedRef.current = false;
-    cancelHoverTimer();
-    if (hoverShownRef.current !== null) {
-      hoverShownRef.current = null;
-      setHoverCell(null);
-    }
-  }, [cancelHoverTimer]);
-
-  /**
-   * The body pointer is over `hit`. A new cell opens its tooltip after
-   * `CELL_TOOLTIP_DELAY_MS`; while one is open, moving to another cell or
-   * off the cells waits `CELL_TOOLTIP_GRACE_MS`, so the pointer can cross
-   * onto the tooltip to scroll it.
-   */
-  const onCellHover = useCallback(
-    (hit: SheetHit) => {
-      if (hoverPinnedRef.current) return;
-      const open = hoverShownRef.current !== null;
-      if (hit.kind !== "cell") {
-        if (!open) {
-          clearHover();
-          return;
-        }
-        if (hoverTargetRef.current === null) return;
-        hoverTargetRef.current = null;
-        cancelHoverTimer();
-        hoverTimerRef.current = setTimeout(clearHover, CELL_TOOLTIP_GRACE_MS);
-        return;
-      }
-      const current = hoverTargetRef.current;
-      if (current && current.row === hit.row && current.col === hit.col) {
-        return;
-      }
-      const target = { row: hit.row, col: hit.col };
-      hoverTargetRef.current = target;
-      cancelHoverTimer();
-      const shown = hoverShownRef.current;
-      if (shown && shown.row === target.row && shown.col === target.col) {
-        return; // back on the open cell before the grace ran out
-      }
-      const show = () => {
-        hoverTimerRef.current = null;
-        hoverShownRef.current = target;
-        setHoverCell(target);
-      };
-      hoverTimerRef.current = setTimeout(
-        show,
-        open ? CELL_TOOLTIP_GRACE_MS : CELL_TOOLTIP_DELAY_MS,
-      );
-    },
-    [cancelHoverTimer, clearHover],
-  );
-
-  /** The pointer reached the open tooltip: keep it until the pointer leaves. */
-  const holdHover = useCallback(() => {
-    if (hoverShownRef.current === null) return;
-    cancelHoverTimer();
-    hoverPinnedRef.current = true;
-    hoverTargetRef.current = hoverShownRef.current;
-  }, [cancelHoverTimer]);
-
-  useEffect(
-    () => () => {
-      if (hoverTimerRef.current !== null) clearTimeout(hoverTimerRef.current);
-    },
-    [],
-  );
 
   const view = useSheetViewport(
     rowCount,
     modelRef.current?.columns.length ?? 0,
   );
-  const { viewportRef, paletteRef, fontsRef, paintRef, requestPaint } = view;
+  const {
+    viewportRef,
+    paletteRef,
+    fontsRef,
+    paintRef,
+    requestPaint,
+    layoutDirtyRef,
+    invalidateLayout,
+  } = view;
+
+  // The selected cell's in-place scroller: wheel-driven, reset when the
+  // active cell changes. A ref-of-ref so the wheel listener never re-binds
+  // while the real implementation (below, needing the editor) swaps in.
+  const activeCellScrollRef = useRef({ key: "", y: 0 });
+  const cellWheelRef = useRef<(x: number, y: number, dy: number) => boolean>(
+    () => false,
+  );
 
   const { syncGeometry, scrollCellIntoView, scrollBy } = useSheetScroll({
     scrollerRef,
     spacerRef,
     viewportRef,
     requestPaint,
-    // The tooltip's anchor was placed for the old scroll position.
-    onScrolled: clearHover,
+    interceptWheel: (x, y, dy) => cellWheelRef.current(x, y, dy),
   });
 
   // Measured against the scroller's client box, not its own parent — the
@@ -228,6 +161,24 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   const bodySizeRef = body.sizeRef;
   const headerCtxRef = header.ctxRef;
   const headerSizeRef = header.sizeRef;
+
+  // Any cell write can change a fitted width or a grown row height, so both
+  // write paths carry the layout invalidation with them.
+  const lastCellCountRef = useRef(-1);
+  const setCell = useCallback<SheetCanvasArgs["setCell"]>(
+    (row, columnId, value) => {
+      args.setCell(row, columnId, value);
+      invalidateLayout();
+    },
+    [args.setCell, invalidateLayout],
+  );
+  const setCellLocal = useCallback<SheetCanvasArgs["setCellLocal"]>(
+    (row, columnId, value) => {
+      args.setCellLocal(row, columnId, value);
+      invalidateLayout();
+    },
+    [args.setCellLocal, invalidateLayout],
+  );
 
   const audio = useSheetAudio(requestPaint);
   const runs = useSheetRuns({
@@ -256,6 +207,65 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     onSelectionChange,
   });
   const { editorRef, proxyRef } = editor;
+
+  const clipboard = createClipboardHandlers({
+    modelRef,
+    editor,
+    setCells: args.setCells,
+    invalidateLayout,
+    requestPaint,
+  });
+
+  /** True when the selected idle cell can scroll its own content. */
+  const activeScrollable = useCallback((): {
+    row: number;
+    col: number;
+    max: number;
+  } | null => {
+    const model = modelRef.current;
+    const state = editorRef.current;
+    const ctx = bodyCtxRef.current;
+    const active = state.active;
+    if (!model || !ctx || !active || state.mode !== "idle") return null;
+    const column = model.columns[active.col];
+    if (!column || column.type !== "string" || column.node === "email") {
+      return null;
+    }
+    const value = model.cells.get(cellKey(active.row, column.id));
+    if (typeof value !== "string") return null;
+    const { layout } = viewportRef.current;
+    ctx.font = fontsRef.current.cell;
+    const inner = colWidth(layout, active.col) - CELL_PAD_X * 2;
+    const lines = wrapLines(ctx, value, inner, 1_000).length;
+    const contentH = lines * LINE_HEIGHT + CELL_PAD_Y * 2;
+    const max = contentH - rowHeight(layout, active.row);
+    return max > 0 ? { row: active.row, col: active.col, max } : null;
+  }, [bodyCtxRef, editorRef, fontsRef, modelRef, viewportRef]);
+
+  cellWheelRef.current = (x, y, dy) => {
+    const scrollable = activeScrollable();
+    if (!scrollable) return false;
+    const hit = hitTest(x, y, viewportRef.current);
+    if (
+      hit.kind !== "cell" ||
+      hit.row !== scrollable.row ||
+      hit.col !== scrollable.col
+    ) {
+      return false;
+    }
+    const state = activeCellScrollRef.current;
+    const key = `${scrollable.row}:${scrollable.col}`;
+    if (state.key !== key) {
+      state.key = key;
+      state.y = 0;
+    }
+    const next = clamp(state.y + dy, 0, scrollable.max);
+    // At either end the wheel falls through, so the sheet keeps scrolling.
+    if (next === state.y) return false;
+    state.y = next;
+    requestPaint();
+    return true;
+  };
 
   /**
    * Moves the drag chip. Written straight onto the node: this runs on every
@@ -305,9 +315,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   /** For post-delete cleanup: a stale hover would paint a ghost affordance. */
   const resetHover = useCallback(() => {
     hoverRef.current = { kind: "empty" };
-    // A column was removed or moved: the hovered cell names another column.
-    clearHover();
-  }, [clearHover]);
+  }, []);
 
   /** Parks the hidden textarea over the active cell — see the proxy's docs. */
   const positionProxy = useCallback(() => {
@@ -315,8 +323,9 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     const active = editorRef.current.active;
     const viewport = viewportRef.current;
     if (!proxy || !active) return;
-    const x = GUTTER_WIDTH + active.col * COL_WIDTH - viewport.scrollX;
-    const y = active.row * ROW_HEIGHT - viewport.scrollY;
+    const { layout } = viewport;
+    const x = GUTTER_WIDTH + colLeft(layout, active.col) - viewport.scrollX;
+    const y = rowTop(layout, active.row) - viewport.scrollY;
     proxy.style.left = `${clamp(x, 0, Math.max(0, viewport.width - 1))}px`;
     proxy.style.top = `${clamp(y, 0, Math.max(0, viewport.height - 1))}px`;
   }, [editorRef, proxyRef, viewportRef]);
@@ -326,6 +335,35 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     const viewport = viewportRef.current;
     if (!model) return;
     viewport.columnCount = model.columns.length;
+
+    // The layout is rebuilt here, never per frame: only when something
+    // marked it dirty (a cell write, a column change, a font load) or the
+    // sparse cell count moved under us (a removal path without its own
+    // invalidate). Everything below this line paints from one layout.
+    const layoutCtx = bodyCtxRef.current;
+    if (
+      layoutCtx &&
+      (layoutDirtyRef.current ||
+        viewport.layout.colLefts.length - 1 !== model.columns.length ||
+        lastCellCountRef.current !== model.cells.size)
+    ) {
+      viewport.layout = buildLayout({
+        ctx: layoutCtx,
+        columns: model.columns,
+        cells: model.cells,
+        labels,
+        formatters,
+        fonts: {
+          cell: fontsRef.current.cell,
+          header: fontsRef.current.header,
+        },
+      });
+      layoutDirtyRef.current = false;
+      lastCellCountRef.current = model.cells.size;
+      // The content size changed with the layout, so the spacer and the
+      // scroll clamps must follow before anything paints.
+      syncGeometry();
+    }
 
     // Nothing previews until the press has passed the threshold — a click on
     // the grip must not shuffle the grid.
@@ -348,6 +386,20 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         palette: paletteRef.current,
         fonts: fontsRef.current,
       };
+      // The selected cell's scroller: visible (thumb at rest) as soon as a
+      // scrollable cell is selected, offset by whatever the wheel has done.
+      const scrollable = activeScrollable();
+      let activeCellScrollY: number | undefined;
+      if (scrollable) {
+        const state = activeCellScrollRef.current;
+        const key = `${scrollable.row}:${scrollable.col}`;
+        if (state.key !== key) {
+          state.key = key;
+          state.y = 0;
+        }
+        state.y = Math.min(state.y, scrollable.max);
+        activeCellScrollY = state.y;
+      }
       paintBody({
         ...shared,
         model,
@@ -359,6 +411,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         runPhase: runs.phaseRef.current,
         columns,
         draggingCol,
+        activeCellScrollY,
       });
       paintEditor({ ...shared, editor: editorRef.current });
       positionProxy();
@@ -407,13 +460,22 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     requestPaint();
   }, [paint, paintRef, requestPaint]);
 
-  // Adding a column widens the content, so the spacer has to grow with it.
+  // Adding a column widens the content, so the spacer has to grow with it —
+  // and any column change (name, type, order) re-fits the layout.
   useEffect(() => {
     const model = modelRef.current;
     if (model) viewportRef.current.columnCount = model.columns.length;
+    invalidateLayout();
     syncGeometry();
     requestPaint();
-  }, [columnsVersion, modelRef, requestPaint, syncGeometry, viewportRef]);
+  }, [
+    columnsVersion,
+    invalidateLayout,
+    modelRef,
+    requestPaint,
+    syncGeometry,
+    viewportRef,
+  ]);
 
   const pointer = createSheetPointerHandlers({
     modelRef,
@@ -425,8 +487,6 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     editor,
     drag: columnDrag,
     onGripHover: setGripCol,
-    onCellHover,
-    onCellHoverEnd: clearHover,
     getCell,
     requestPaint,
     onOpenJson,
@@ -445,45 +505,10 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
       : {
           x:
             GUTTER_WIDTH +
-            headerGripRect(gripCol).x -
+            headerGripRect(viewportRef.current.layout, gripCol).x -
             viewportRef.current.scrollX,
-          y: headerGripRect(gripCol).y,
+          y: headerGripRect(viewportRef.current.layout, gripCol).y,
         };
-
-  // The hovered cell's box in body-canvas space and what its tooltip says,
-  // read at render like `gripAnchor`. Nothing while that cell is being
-  // edited: the editor already shows the whole value.
-  const hoverColumn =
-    hoverCell === null ? undefined : modelRef.current?.columns[hoverCell.col];
-  const editorState = editorRef.current;
-  const editingHovered =
-    hoverCell !== null &&
-    editorState.mode === "editing" &&
-    editorState.active?.row === hoverCell.row &&
-    editorState.active?.col === hoverCell.col;
-  const cellTooltip =
-    hoverCell === null || hoverColumn === undefined || editingHovered
-      ? null
-      : (() => {
-          const content = cellTooltipContent(
-            getCell(hoverCell.row, hoverColumn.id),
-            hoverColumn.type,
-            runs.runsRef.current.get(cellKey(hoverCell.row, hoverColumn.id)),
-            labels,
-            formatters,
-          );
-          if (content === null) return null;
-          const viewport = viewportRef.current;
-          return {
-            content,
-            anchor: {
-              x: GUTTER_WIDTH + hoverCell.col * COL_WIDTH - viewport.scrollX,
-              y: hoverCell.row * ROW_HEIGHT - viewport.scrollY,
-              width: COL_WIDTH,
-              height: ROW_HEIGHT,
-            },
-          };
-        })();
 
   return {
     bodyCanvasRef: body.canvasRef,
@@ -492,12 +517,11 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     spacerRef,
     editor,
     runs,
+    clipboard,
     requestPaint,
+    invalidateLayout,
     resetHover,
     gripAnchor,
-    cellTooltip,
-    clearHover,
-    holdHover,
     ...pointer,
   };
 }

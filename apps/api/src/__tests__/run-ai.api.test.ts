@@ -158,9 +158,9 @@
  *   prompt, and a `json` type — the create/update path refuses any other
  *   type for a Mail column (`SPREADSHEET_EMAIL_COLUMN_TYPE`, spreadsheet
  *   contract), and a legacy non-json one is skipped like a promptless
- *   column. Its cells are READ-ONLY: every manual write path answers
- *   `SPREADSHEET_COLUMN_READ_ONLY` (spreadsheet contract); only the run
- *   worker writes them. `prepare` gives it the same input as every node.
+ *   column. Its cells are machine-written by the run worker; the dashboard
+ *   blocks accidental inline edits and edits them deliberately through its
+ *   cell dialog. `prepare` gives it the same input as every node.
  *   The allowed recipients are every address found in the column's PROMPT,
  *   then in ANY cell's content (objects stringified), in row order — deduped
  *   case-insensitively keeping the first spelling, capped at 10, the target

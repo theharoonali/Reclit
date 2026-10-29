@@ -56,10 +56,11 @@
  * | spreadsheet.row          | query    | { id; rowIndex }                                | SheetRow          | NOT_FOUND (sheet)             |
  * | spreadsheet.column       | query    | { id; columnIndex }                             | SheetColumn       | NOT_FOUND                     |
  * | spreadsheet.cell         | query    | { id; rowIndex; columnIndex }                   | SheetCell         | NOT_FOUND (column)            |
- * | spreadsheet.setCell      | mutation | { id; rowIndex; columnIndex; value }            | SheetCell         | NOT_FOUND, BAD_REQUEST (type, read-only Mail column) |
- * | spreadsheet.updateRow    | mutation | { id; rowIndex; cells: {columnIndex; value}[] } | SheetRow          | NOT_FOUND, BAD_REQUEST (type, read-only Mail column) |
+ * | spreadsheet.setCell      | mutation | { id; rowIndex; columnIndex; value }            | SheetCell         | NOT_FOUND, BAD_REQUEST (type) |
+ * | spreadsheet.updateRow    | mutation | { id; rowIndex; cells: {columnIndex; value}[] } | SheetRow          | NOT_FOUND, BAD_REQUEST (type) |
+ * | spreadsheet.updateCells  | mutation | { id; cells: {rowIndex; columnIndex; value}[] (min 1, max 5000) } | { count: number } | NOT_FOUND, BAD_REQUEST (type, over the cap) |
  * | spreadsheet.createRow    | mutation | { id; index?: >=0 } (default: max stored + 1)   | SheetRow          | NOT_FOUND, CONFLICT (exists)  |
- * | spreadsheet.appendRow    | mutation | { id; cells: {columnIndex; value}[] (min 1) }   | SheetRow          | NOT_FOUND, BAD_REQUEST (type, read-only Mail column), CONFLICT (retries exhausted) |
+ * | spreadsheet.appendRow    | mutation | { id; cells: {columnIndex; value}[] (min 1) }   | SheetRow          | NOT_FOUND, BAD_REQUEST (type), CONFLICT (retries exhausted) |
  * | spreadsheet.removeRow    | mutation | { id; rowIndex }                                | { id: "row.N" }   | NOT_FOUND (sheet)             |
  * | spreadsheet.removeRows   | mutation | { id; rowIndexes: number[] (1..10_000) }        | { ids: string[] } | NOT_FOUND (sheet), BAD_REQUEST|
  * | spreadsheet.createColumn | mutation | { id; name; type? (default "string"); node?; prompt? } | SheetColumn | NOT_FOUND, BAD_REQUEST (incl. non-json Mail column), CONFLICT (name taken) |
@@ -153,9 +154,9 @@
  * - A Mail (`node: "email"`) column must be a `json` column — its cells hold
  *   `{address: sent email | "FAILED"}` — so create and update refuse any
  *   other effective type (BAD_REQUEST, `SPREADSHEET_EMAIL_COLUMN_TYPE`).
- *   Its cells are READ-ONLY: `setCell`, `updateRow` and `appendRow` refuse
- *   them (BAD_REQUEST, `SPREADSHEET_COLUMN_READ_ONLY`); only the run worker
- *   writes them (run-ai contract).
+ *   Its cells are machine-written by runs but accept ordinary writes too:
+ *   the dashboard blocks accidental inline edits and edits them through its
+ *   cell dialog (run-ai contract has the sends).
  * - FORMULA is storage-only; nothing evaluates formulas.
  * - `rows` pagination counts *stored* rows: take limit+1, hasMore when the
  *   extra record exists, nextCursor is its short row id.
@@ -216,6 +217,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { pingDatabase } from "../db/prisma";
+import { MAX_UPDATE_CELLS } from "../modules/spreadsheet/spreadsheet.schema";
 import { spreadsheetService } from "../modules/spreadsheet/spreadsheet.service";
 import { makeWorkspace, removeWorkspace } from "./support/fixtures";
 import type { TestServer } from "./support/http";
@@ -1037,7 +1039,7 @@ describe.skipIf(!dbUp)("spreadsheet.setCell", () => {
     );
   });
 
-  it("rejects a write to a read-only Mail column", async () => {
+  it("accepts a write to a Mail column (the dashboard's cell dialog edits them)", async () => {
     const sheet = await makeSheet("mail cell write");
     await caller.spreadsheet.createColumn({
       id: sheet.id,
@@ -1046,25 +1048,13 @@ describe.skipIf(!dbUp)("spreadsheet.setCell", () => {
       node: "email",
       prompt: "Say hi",
     });
-    await expectTRPCError(
-      caller.spreadsheet.setCell({
-        id: sheet.id,
-        rowIndex: 0,
-        columnIndex: 0,
-        value: { "a@b.test": "Subject: x\n\ny" },
-      }),
-      "BAD_REQUEST",
-    );
-    // Clearing is a write too.
-    await expectTRPCError(
-      caller.spreadsheet.setCell({
-        id: sheet.id,
-        rowIndex: 0,
-        columnIndex: 0,
-        value: null,
-      }),
-      "BAD_REQUEST",
-    );
+    const written = await caller.spreadsheet.setCell({
+      id: sheet.id,
+      rowIndex: 0,
+      columnIndex: 0,
+      value: { "a@b.test": "Subject: x\n\ny" },
+    });
+    expect(written.value).toEqual({ "a@b.test": "Subject: x\n\ny" });
   });
 });
 
@@ -1224,6 +1214,68 @@ describe.skipIf(!dbUp)("spreadsheet.updateRow", () => {
     const row = await caller.spreadsheet.row({ id: sheet.id, rowIndex: 0 });
     expect(row.columns).toEqual([]); // nothing was written
   });
+});
+
+describe.skipIf(!dbUp)("spreadsheet.updateCells", () => {
+  it("writes cells across many rows in one call and answers the count", async () => {
+    const sheet = await makeTypedSheet();
+    const result = await caller.spreadsheet.updateCells({
+      id: sheet.id,
+      cells: [
+        { rowIndex: 0, columnIndex: 0, value: "a" },
+        { rowIndex: 0, columnIndex: 1, value: 1 },
+        { rowIndex: 2, columnIndex: 0, value: "c" },
+        // null clears, and a row of only clears creates no row record.
+        { rowIndex: 3, columnIndex: 0, value: null },
+      ],
+    });
+    expect(result).toEqual({ count: 4 });
+    const first = await caller.spreadsheet.row({ id: sheet.id, rowIndex: 0 });
+    expect(first.columns).toEqual([
+      { id: "col.0", name: "text", value: "a" },
+      { id: "col.1", name: "num", value: 1 },
+    ]);
+    const third = await caller.spreadsheet.row({ id: sheet.id, rowIndex: 2 });
+    expect(third.columns).toEqual([{ id: "col.0", name: "text", value: "c" }]);
+  });
+
+  it("rejects the whole batch when one value mismatches, writing nothing", async () => {
+    const sheet = await makeTypedSheet();
+    await expectTRPCError(
+      caller.spreadsheet.updateCells({
+        id: sheet.id,
+        cells: [
+          { rowIndex: 0, columnIndex: 0, value: "fine" },
+          { rowIndex: 1, columnIndex: 1, value: "not a number" },
+        ],
+      }),
+      "BAD_REQUEST",
+    );
+    const row = await caller.spreadsheet.row({ id: sheet.id, rowIndex: 0 });
+    expect(row.columns).toEqual([]);
+  });
+
+  it("rejects a batch over the cap and an unknown column", async () => {
+    const sheet = await makeTypedSheet();
+    await expectTRPCError(
+      caller.spreadsheet.updateCells({
+        id: sheet.id,
+        cells: Array.from({ length: MAX_UPDATE_CELLS + 1 }, (_, i) => ({
+          rowIndex: i,
+          columnIndex: 0,
+          value: "x",
+        })),
+      }),
+      "BAD_REQUEST",
+    );
+    await expectTRPCError(
+      caller.spreadsheet.updateCells({
+        id: sheet.id,
+        cells: [{ rowIndex: 0, columnIndex: 9, value: "x" }],
+      }),
+      "NOT_FOUND",
+    );
+  });
 
   it("returns NOT_FOUND for an unknown column index", async () => {
     const sheet = await makeTypedSheet();
@@ -1235,31 +1287,6 @@ describe.skipIf(!dbUp)("spreadsheet.updateRow", () => {
       }),
       "NOT_FOUND",
     );
-  });
-
-  it("rejects the whole batch when it touches a read-only Mail column", async () => {
-    const sheet = await makeSheet("mail row write");
-    await caller.spreadsheet.createColumn({ id: sheet.id, name: "Note" });
-    await caller.spreadsheet.createColumn({
-      id: sheet.id,
-      name: "Mail",
-      type: "json",
-      node: "email",
-      prompt: "Say hi",
-    });
-    await expectTRPCError(
-      caller.spreadsheet.updateRow({
-        id: sheet.id,
-        rowIndex: 0,
-        cells: [
-          { columnIndex: 0, value: "fine" },
-          { columnIndex: 1, value: { "a@b.test": "x" } },
-        ],
-      }),
-      "BAD_REQUEST",
-    );
-    const row = await caller.spreadsheet.row({ id: sheet.id, rowIndex: 0 });
-    expect(row.columns).toEqual([]); // nothing was written
   });
 });
 
@@ -1331,24 +1358,6 @@ describe.skipIf(!dbUp)("spreadsheet.appendRow", () => {
       ],
     });
     expect(row.columns).toEqual([{ id: "col.0", name: "text", value: "kept" }]);
-  });
-
-  it("rejects an entry for a read-only Mail column", async () => {
-    const sheet = await makeSheet("mail append");
-    await caller.spreadsheet.createColumn({
-      id: sheet.id,
-      name: "Mail",
-      type: "json",
-      node: "email",
-      prompt: "Say hi",
-    });
-    await expectTRPCError(
-      caller.spreadsheet.appendRow({
-        id: sheet.id,
-        cells: [{ columnIndex: 0, value: { "a@b.test": "x" } }],
-      }),
-      "BAD_REQUEST",
-    );
   });
 
   it("rejects the whole batch on a type mismatch, creating no row", async () => {

@@ -181,16 +181,12 @@ export class RunAiService {
       const run = await this.byId(id);
       const address = parseCellId(run.cellId);
       if (!address) throw new RunAiInvalidCellIdError(run.cellId);
-      await spreadsheetCellsService.setCell(
-        {
-          id: address.sheetId,
-          rowIndex: address.row,
-          columnIndex: address.col,
-          value: output,
-        },
-        // The run's own result may land in read-only (Mail) columns.
-        { computed: true },
-      );
+      await spreadsheetCellsService.setCell({
+        id: address.sheetId,
+        rowIndex: address.row,
+        columnIndex: address.col,
+        value: output,
+      });
     }
     return this.update(id, { status: "COMPLETED", ...resultAndCredit(input) });
   }

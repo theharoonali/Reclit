@@ -85,6 +85,7 @@ database one — tightening the index would break the reorder.
 | `spreadsheet.cell` | query | `SpreadsheetService.cell` | NOT_FOUND |
 | `spreadsheet.setCell` | mutation | `SpreadsheetCellsService.setCell` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.updateRow` | mutation | `SpreadsheetCellsService.updateRow` | NOT_FOUND, BAD_REQUEST |
+| `spreadsheet.updateCells` | mutation | `SpreadsheetCellsService.updateCells` | NOT_FOUND, BAD_REQUEST |
 | `spreadsheet.createRow` | mutation | `SpreadsheetCellsService.createRow` | NOT_FOUND, CONFLICT |
 | `spreadsheet.appendRow` | mutation | `SpreadsheetCellsService.appendRow` | NOT_FOUND, BAD_REQUEST, CONFLICT |
 | `spreadsheet.removeRow` | mutation | `SpreadsheetCellsService.removeRow` | NOT_FOUND |
@@ -160,7 +161,9 @@ transpiles.
 
 - `SpreadsheetService.columnsOf` — the single ordering point for columns;
   `countRows` — how many rows hold something.
-- `SpreadsheetCellsService.updateCells` — cell writes across many rows,
+- `SpreadsheetCellsService.updateCells` — exposed as `spreadsheet.updateCells`
+  (the dashboard's paste) and used by the assistant's bulk fill — cell writes
+  across many rows,
   validated up front and written in chunked transactions (the assistant's
   bulk fill; service only, no procedure).
 - `SpreadsheetService.rowCells` + `buildRowCells` — "the row as the user sees

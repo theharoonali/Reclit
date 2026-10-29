@@ -211,7 +211,7 @@ export const updateRowInput = rowRefInput.extend({
     .min(1),
 });
 
-/** The most cells one `updateCells` call writes (service only — the assistant's bulk fill). */
+/** The most cells one `updateCells` call writes (the assistant's bulk fill, the sheet's paste). */
 export const MAX_UPDATE_CELLS = 5000;
 
 /** Cell writes across many rows at once; `null` clears a cell. */

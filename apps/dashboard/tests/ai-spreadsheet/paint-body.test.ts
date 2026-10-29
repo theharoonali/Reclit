@@ -6,6 +6,7 @@ import {
   GUTTER_WIDTH,
   ROW_HEIGHT,
 } from "@/lib/ai-spreadsheet/geometry";
+import { uniformLayout } from "@/lib/ai-spreadsheet/layout";
 import { paintBody } from "@/lib/ai-spreadsheet/paint-body";
 import { paintEditor } from "@/lib/ai-spreadsheet/paint-editor";
 import { clearMetricsCache } from "@/lib/ai-spreadsheet/text-metrics";
@@ -38,6 +39,7 @@ const VIEWPORT: Viewport = {
   scrollY: 0,
   rowExtent: 100,
   columnCount: 3,
+  layout: uniformLayout(3),
 };
 
 const PLAIN = { node: null, prompt: null } as const;
@@ -65,6 +67,7 @@ const idleAt = (row: number, col: number): EditorState => ({
   caret: 0,
   selection: [0, 0],
   innerScrollX: 0,
+  innerScrollY: 0,
   caretVisible: true,
 });
 

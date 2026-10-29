@@ -216,10 +216,10 @@ export const sizes = {
   "import-dialog": "48rem",
   "import-section": "14rem",
 
-  // The sheet's cell tooltip — its widest line, and the tallest it grows
-  // before the full value scrolls.
-  "cell-tooltip": "20rem",
-  "cell-tooltip-tall": "12rem",
+  // The sheet's cell dialog (JSON / Mail cells) — its width, and the tallest
+  // the key/value table grows before it scrolls.
+  "cell-dialog": "40rem",
+  "cell-dialog-body": "24rem",
 
   // Dashboard widgets — the body height of a chart card (`height` in the
   // dashboard JSON: sm | md | lg).

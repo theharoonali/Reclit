@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { previewOrder } from "@/lib/ai-spreadsheet/column-order";
 import { COL_WIDTH, HEADER_HEIGHT } from "@/lib/ai-spreadsheet/geometry";
+import { uniformLayout } from "@/lib/ai-spreadsheet/layout";
 import { paintHeader } from "@/lib/ai-spreadsheet/paint-header";
 import { clearMetricsCache } from "@/lib/ai-spreadsheet/text-metrics";
 import type {
@@ -31,6 +32,7 @@ const VIEWPORT: Viewport = {
   scrollY: 0,
   rowExtent: 100,
   columnCount: 3,
+  layout: uniformLayout(3),
 };
 
 const PLAIN = { node: null, prompt: null } as const;

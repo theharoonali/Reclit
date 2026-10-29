@@ -20,10 +20,13 @@ change.
 | `…/ai-spreadsheet-grid.tsx` | client | the main component; takes `payload`, owns panel state, mounts every header control |
 | `…/ai-spreadsheet-header.tsx` | client | header canvas (`h-sheet-header`), pointer routing, the screen-reader "add column" button, the grip tooltip anchor |
 | `…/ai-spreadsheet-body.tsx` | client | body canvas, scroll container, scroll spacer |
-| `…/ai-spreadsheet-input-proxy.tsx` | client | the hidden textarea and the key bindings |
+| `…/ai-spreadsheet-input-proxy.tsx` | client | the hidden textarea, the key bindings and the clipboard events |
 | `…/ai-spreadsheet-side-panel.tsx` | client | the docked panel frame (`w-panel`) |
 | `…/ai-spreadsheet-column-form.tsx` | client | add **and** edit a column (name, type, node, prompt) |
-| `…/ai-spreadsheet-json-editor.tsx` | client | the stacked key/value entries behind a JSON cell |
+| `…/ai-spreadsheet-cell-dialog.tsx` | client | the modal key/value table behind a JSON or Mail cell; draft + Save/Cancel |
+| `lib/ai-spreadsheet/layout.ts` | pure | fitted column widths, grown row heights, `wrapRanges`, `rowAt`/`colAt` |
+| `lib/ai-spreadsheet/clipboard.ts` | pure | TSV in and out: `selectionToTsv`, `parseTsv` |
+| `…/use-sheet-clipboard.ts` | hook | Ctrl+C/X/V on the proxy: copy TSV, simple cut, batched paste |
 | `…/ai-spreadsheet-date-editor.tsx` | client | UTC calendar behind a date cell |
 | `…/ai-spreadsheet-upload-editor.tsx` | client | upload panel behind file and audio cells (`POST /files`) |
 | `…/ai-spreadsheet-header-action.tsx` | client | one header control (`HeaderActions` + error + `Button`, Hugeicons glyph); `iconOnly` moves the label to `aria-label` + a tooltip; every toolbar control is an instance of it (Run is the assistant capsule's) |
@@ -100,24 +103,28 @@ of remounting. Never `resetQueries`/`removeQueries` here.
 ## Behaviour
 
 - **Rows.** `totalRows` rows plus a blank tail that grows by 1,000 as the
-  viewport approaches it; blank rows are ordinary editable cells.
+  viewport approaches it; blank rows are ordinary editable cells. A row
+  grows with its tallest string cell's wrapped text, up to 10 lines
+  (`MAX_CELL_LINES`, `lib/ai-spreadsheet/layout.ts`); past the cap the
+  display ends in an ellipsis and the full value is reached by selecting
+  the cell (it scrolls in place) or editing it. Heights (and fitted widths)
+  come from a `SheetLayout` built
+  from the loaded cells, rebuilt on cell/column/font changes — never per
+  frame.
 - **Scroll.** The spacer is capped at 8,000,000px and offsets are mapped
   through a ratio, so 5,000,000 rows stay under browser element limits. The
   wheel is handled directly (a notch ≈ three rows); scrollbars are hidden.
 - **Columns.** Types come from the payload; unknown types degrade to `string`.
   Clicking a header opens the panel to edit; the `+` after the last column adds
   one, always on a blank form (every open remounts it, since the closed panel
-  keeps rendering its last content while it slides away). Widths are uniform and fixed. Hovering a body cell for 300 ms opens a tooltip with its full content
-  (`ai-spreadsheet-cell-tooltip.tsx`, text from `lib/ai-spreadsheet/cell-tooltip.ts`):
-  the whole text, pretty JSON, a file/audio URL, and a working run's status;
-  nothing for a blank cell. It hangs off a `pointer-events-none` box over
-  the cell, like the grip tooltip. It is hoverable: a value taller than
-  12rem scrolls inside it (the wheel scrolls the tooltip, not the sheet).
-  Leaving the cell waits 150 ms before switching or closing, so the pointer
-  can reach the tooltip; on it, it stays open until the pointer leaves it. A
-  press, a scroll of the sheet, a drag or editing that cell close it at once. Hovering a header shows a red × (delete)
-  at the right and a six-dot grip (reorder) at the left; the grip's lane is
-  reserved on every column so the name never shifts.
+  keeps rendering its last content while it slides away). Each column
+  auto-fits its widest content between 96px and 360px (`MIN_COL_WIDTH` /
+  `MAX_COL_WIDTH` in `layout.ts`); there is no drag-resize. There is no cell
+  hover tooltip (removed by request): a cell's full content is reached by
+  selecting it (the in-place scroller), editing it, or the cell dialog.
+  Hovering a header shows a red × (delete) at the right and a six-dot grip
+  (reorder) at the left; the grip's lane is reserved on every column so the
+  name never shifts.
 - **Column nodes.** The form offers None / AI / Mail / API / Google Search.
   API is locked (a lock on the capsule; it cannot be selected) and is not a
   wire node. Mail is the wire node `email`. Choosing an unlocked node reveals
@@ -138,10 +145,11 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   decides to contact, and sends them through Resend (run-ai contract); no
   address, or no clear recipient, fails the cell without sending. The cell
   then holds `{address: sent email | "FAILED"}` and paints two count
-  capsules — green sent, red failed (red only when any failed); hovering
-  shows the full object. Mail cells are read-only: double-click, typing and
-  Delete only select (the API refuses manual writes too), the json chip
-  opens no panel, and a legacy string Mail column is not runnable.
+  capsules — green sent, red failed (red only when any failed); the cell
+  dialog shows the full object. Typing and Delete on a Mail cell only select —
+  accidental edits cannot touch what was sent — while Enter, F2 or a
+  double-click opens the cell dialog, where the object is edited
+  deliberately. A legacy string Mail column is not runnable.
 - **Run.** The Run control is the outlined "Run AI" pill at the right end
   of the header's assistant capsule (the count is in its tooltip), present
   only while the selection holds an AI cell with a prompt; the toolbar has no
@@ -168,9 +176,21 @@ of remounting. Never `resetQueries`/`removeQueries` here.
 - **Editing.** One click selects, a second (or Enter / F2) opens. Text,
   selection and caret are painted; a 1×1 hidden textarea holds focus and
   captures keys, IME and paste. Enter/Tab/Escape/arrows behave as in a
-  spreadsheet; moving away commits, only Escape discards. Text that does not
-  parse for its column type stays local-only and paints in the destructive
-  colour, so the server never sees a value it would reject.
+  spreadsheet; moving away commits, only Escape discards. Alt+Enter inserts
+  a newline; the editor wraps at the cell's width, grows with the text up to
+  10 lines and scrolls inside the cell past that (`innerScrollY`). Text that
+  does not parse for its column type stays local-only and paints in the
+  destructive colour, so the server never sees a value it would reject.
+- **Clipboard.** Excel's dialect (`lib/ai-spreadsheet/clipboard.ts`), hung on
+  the proxy textarea's own clipboard events, idle mode only (an open editor
+  keeps the textarea's native behaviour). Ctrl+C writes the current
+  rectangle as TSV (objects as JSON, cells holding tabs/newlines/quotes
+  double-quoted), clamped to the stored rows and 5,000 cells. Ctrl+X is
+  copy plus an immediate clear of the source. Ctrl+V parses TSV (or a lone
+  value) from Excel/Sheets/this sheet and writes it anchored at the active
+  cell, each value parsed per its target column's type — one batched
+  `spreadsheet.updateCells` call with all-or-nothing rollback, never a
+  request per cell.
 - **Multi-cell selection.** The selection is a set of areas. Shift+arrows or
   a press-and-drag extend the current area into a rectangle from its anchor
   (the drag captures the pointer and autoscrolls within 48px of an edge; a
@@ -186,8 +206,11 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   (`onSelectionChange`), never per keystroke.
 - **Capsule cells.** JSON, file, audio and boolean values paint as chips at
   one shared inset; a value that does not match its column falls back to
-  destructive text. JSON: labelled with the key count, edited in the panel as
-  stacked key/value entries (nested values pretty-printed). File: labelled
+  destructive text. JSON: labelled with the key count; the chip's click, a
+  double-click or Enter/F2 opens the cell dialog
+  (`ai-spreadsheet-cell-dialog.tsx`) — a modal key/value table edited as a
+  draft and written once on Save (Mail cells open the same dialog, titled
+  for their recipient → email object). File: labelled
   with the last path segment; click opens the file, Enter/F2/double-click
   opens the upload editor. Audio: a play/pause control before the name; one
   shared `Audio` element, so one note at a time; a URL that fails to load

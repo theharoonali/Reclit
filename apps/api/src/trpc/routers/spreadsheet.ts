@@ -11,6 +11,7 @@ import {
   rowRefInput,
   setCellInput,
   sheetRowsInput,
+  updateCellsInput,
   updateColumnInput,
   updateRowInput,
 } from "../../modules/spreadsheet/spreadsheet.schema";
@@ -74,6 +75,12 @@ export const spreadsheetRouter = createTRPCRouter({
     .input(setCellInput)
     .mutation(({ input }) =>
       spreadsheetCellsService.setCell(input).catch(mapDomainError),
+    ),
+
+  updateCells: publicProcedure
+    .input(updateCellsInput)
+    .mutation(({ input }) =>
+      spreadsheetCellsService.updateCells(input).catch(mapDomainError),
     ),
 
   updateRow: publicProcedure

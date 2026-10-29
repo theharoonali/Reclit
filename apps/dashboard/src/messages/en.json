@@ -168,7 +168,6 @@
     "panel": {
       "addColumn": "New column",
       "editColumn": "Edit column",
-      "jsonTitle": "JSON value",
       "dateTitle": "Date value",
       "audioTitle": "Audio file",
       "fileTitle": "File",
@@ -203,7 +202,11 @@
       "value": "Value",
       "add": "Add pair",
       "remove": "Remove pair",
-      "empty": "No key/value pairs yet."
+      "empty": "No key/value pairs yet.",
+      "title": "JSON value",
+      "mailTitle": "Sent emails",
+      "save": "Save",
+      "cancel": "Cancel"
     },
     "date": {
       "clear": "Clear date",

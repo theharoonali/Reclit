@@ -25,6 +25,15 @@ type DirtyCell = {
 export type SheetSyncApi = {
   /** Drop-in for the model's `setCell`: mutates the ref, then persists. */
   setCell: (row: number, columnId: string, value: CellValue) => void;
+  /**
+   * A paste's bulk write: applies every entry to the model at once, then
+   * persists them as ONE `spreadsheet.updateCells` call — not a request per
+   * cell. Values the column type rejects stay local-only (painted invalid),
+   * like `setCell`. On failure every sent cell snaps back together.
+   */
+  setCells: (
+    entries: { row: number; columnId: string; value: CellValue }[],
+  ) => void;
   syncColumnCreate: (draft: ColumnDraft) => void;
   syncColumnUpdate: (columnId: string, draft: ColumnDraft) => void;
   /**
@@ -81,6 +90,9 @@ export function useSheetSync(args: {
   const setCellMutation = useMutation(
     trpc.spreadsheet.setCell.mutationOptions(),
   );
+  const updateCellsMutation = useMutation(
+    trpc.spreadsheet.updateCells.mutationOptions(),
+  );
   const createColumnMutation = useMutation(
     trpc.spreadsheet.createColumn.mutationOptions(),
   );
@@ -95,6 +107,7 @@ export function useSheetSync(args: {
   // The debounce closes over these refs, not the mutation objects, so the
   // callbacks stay referentially stable for the canvas wiring.
   const mutateCellRef = useLatestRef(setCellMutation.mutateAsync);
+  const mutateCellsRef = useLatestRef(updateCellsMutation.mutateAsync);
   const mutateCreateRef = useLatestRef(createColumnMutation.mutate);
   const mutateUpdateRef = useLatestRef(updateColumnMutation.mutate);
 
@@ -171,6 +184,61 @@ export function useSheetSync(args: {
     [flushCell, modelRef, setCellLocal],
   );
 
+  const setCells = useCallback(
+    (entries: { row: number; columnId: string; value: CellValue }[]) => {
+      const model = modelRef.current;
+      if (!model || entries.length === 0) return;
+      if (entries.length === 1) {
+        const only = entries[0] as (typeof entries)[number];
+        setCell(only.row, only.columnId, only.value);
+        return;
+      }
+      const columns = new Map(model.columns.map((c) => [c.id, c]));
+      const sent: {
+        row: number;
+        columnId: string;
+        snapshot: CellValue;
+      }[] = [];
+      const cells: {
+        rowIndex: number;
+        columnIndex: number;
+        value: CellValue;
+      }[] = [];
+      for (const entry of entries) {
+        const column = columns.get(entry.columnId);
+        const columnIndex = parseShortColumnId(entry.columnId);
+        if (!column || columnIndex === null) continue;
+        const snapshot =
+          model.cells.get(cellKey(entry.row, entry.columnId)) ?? null;
+        setCellLocal(entry.row, entry.columnId, entry.value);
+        // Mistyped text stays local-only, like `setCell` — a batch holding
+        // one would be refused whole by the server.
+        if (entry.value !== null && isMistyped(entry.value, column.type)) {
+          continue;
+        }
+        sent.push({ row: entry.row, columnId: entry.columnId, snapshot });
+        cells.push({
+          rowIndex: entry.row,
+          columnIndex,
+          value: entry.value,
+        });
+      }
+      if (cells.length === 0) return;
+      const generation = generationRef.current;
+      void mutateCellsRef.current({ id: model.sheetId, cells }).then(
+        () => undefined,
+        () => {
+          if (generationRef.current !== generation) return;
+          for (const cell of sent) {
+            setCellLocal(cell.row, cell.columnId, cell.snapshot);
+          }
+          requestPaint();
+        },
+      );
+    },
+    [modelRef, requestPaint, setCell, setCellLocal],
+  );
+
   // Column ops fire immediately: they already re-render via columnsVersion,
   // and the optimistic `col.<nextColumnIndex>` id matches the server's
   // append-only id, so success needs no reconciliation.
@@ -210,6 +278,7 @@ export function useSheetSync(args: {
 
   return {
     setCell,
+    setCells,
     syncColumnCreate,
     syncColumnUpdate,
     discardPending,

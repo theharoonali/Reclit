@@ -1,11 +1,6 @@
-import {
-  COL_WIDTH,
-  cellRect,
-  GUTTER_WIDTH,
-  ROW_HEIGHT,
-  visibleCols,
-  visibleRows,
-} from "./geometry";
+import { cellRect, GUTTER_WIDTH, visibleCols, visibleRows } from "./geometry";
+import type { SheetLayout } from "./layout";
+import { colLeft, colWidth, rowHeight, rowTop } from "./layout";
 import { paintCell } from "./paint-cell";
 import { selectionRects } from "./run-targets";
 import { withAlpha } from "./theme-colors";
@@ -46,13 +41,14 @@ function hairline(
 function paintArea(
   ctx: CanvasRenderingContext2D,
   rect: SelectionRect,
+  layout: SheetLayout,
   palette: SheetPalette,
   dpr: number,
 ) {
-  const x = rect.colFirst * COL_WIDTH;
-  const y = rect.rowFirst * ROW_HEIGHT;
-  const w = (rect.colLast - rect.colFirst + 1) * COL_WIDTH;
-  const h = (rect.rowLast - rect.rowFirst + 1) * ROW_HEIGHT;
+  const x = colLeft(layout, rect.colFirst);
+  const y = rowTop(layout, rect.rowFirst);
+  const w = colLeft(layout, rect.colLast + 1) - x;
+  const h = rowTop(layout, rect.rowLast) + rowHeight(layout, rect.rowLast) - y;
   ctx.fillStyle = withAlpha(palette.ring, 0.08);
   ctx.fillRect(x, y, w, h);
   const ring = 2 / dpr;
@@ -86,6 +82,11 @@ export type BodyPaintArgs = {
   columns: SheetColumn[];
   /** The dragged column's landing slot, painted as an empty well. Null if idle. */
   draggingCol: number | null;
+  /**
+   * The selected idle cell's in-place scroll offset (the canvas hook owns
+   * it, wheel-driven); undefined when the active cell has no scroller.
+   */
+  activeCellScrollY?: number;
 };
 
 /**
@@ -112,15 +113,18 @@ export function paintBody(args: BodyPaintArgs) {
   ctx.clip();
   ctx.translate(GUTTER_WIDTH - scrollX, -scrollY);
 
+  const { layout } = viewport;
   ctx.fillStyle = palette.gridline;
   const lineW = 1 / dpr;
-  const spanW = (cols.last - cols.first + 1) * COL_WIDTH;
+  const spanLeft = colLeft(layout, cols.first);
+  const spanW = colLeft(layout, cols.last + 1) - spanLeft;
+  const spanTop = rowTop(layout, rows.first);
+  const spanH = rowTop(layout, rows.last + 1) - spanTop;
   for (let row = rows.first; row <= rows.last + 1; row++) {
-    hairline(ctx, cols.first * COL_WIDTH, row * ROW_HEIGHT, spanW, lineW, dpr);
+    hairline(ctx, spanLeft, rowTop(layout, row), spanW, lineW, dpr);
   }
-  const spanH = (rows.last - rows.first + 1) * ROW_HEIGHT;
   for (let col = cols.first; col <= cols.last + 1; col++) {
-    hairline(ctx, col * COL_WIDTH, rows.first * ROW_HEIGHT, lineW, spanH, dpr);
+    hairline(ctx, colLeft(layout, col), spanTop, lineW, spanH, dpr);
   }
 
   ctx.font = fonts.cell;
@@ -140,10 +144,17 @@ export function paintBody(args: BodyPaintArgs) {
       const run = args.runs?.get(key);
       paintCell({
         ctx,
-        rect: cellRect(row, col),
+        rect: cellRect(layout, row, col),
         value: model.cells.get(key) ?? null,
         type: column.type,
         node: column.node,
+        innerScrollY:
+          args.activeCellScrollY !== undefined &&
+          editor.mode === "idle" &&
+          editor.active?.row === row &&
+          editor.active?.col === col
+            ? args.activeCellScrollY
+            : undefined,
         palette,
         labels: args.labels,
         formatters: args.formatters,
@@ -177,11 +188,11 @@ export function paintBody(args: BodyPaintArgs) {
       const single =
         rect.rowFirst === rect.rowLast && rect.colFirst === rect.colLast;
       if (index === current && single) return;
-      paintArea(ctx, rect, palette, dpr);
+      paintArea(ctx, rect, layout, palette, dpr);
     });
   }
   if (active && editor.mode === "idle") {
-    const rect = cellRect(active.row, active.col);
+    const rect = cellRect(layout, active.row, active.col);
     const ring = 2 / dpr;
     ctx.strokeStyle = palette.ring;
     ctx.lineWidth = ring;
@@ -194,7 +205,12 @@ export function paintBody(args: BodyPaintArgs) {
   }
   if (draggingCol !== null) {
     ctx.fillStyle = withAlpha(palette.ring, 0.06);
-    ctx.fillRect(draggingCol * COL_WIDTH, scrollY, COL_WIDTH, height);
+    ctx.fillRect(
+      colLeft(layout, draggingCol),
+      scrollY,
+      colWidth(layout, draggingCol),
+      height,
+    );
   }
   ctx.restore();
 
@@ -209,17 +225,19 @@ export function paintBody(args: BodyPaintArgs) {
   ctx.font = fonts.gutter;
   ctx.textAlign = "center";
   for (let row = rows.first; row <= rows.last; row++) {
-    const top = row * ROW_HEIGHT - scrollY;
-    if (top < -ROW_HEIGHT || top > height) continue;
+    const rowH = rowHeight(layout, row);
+    const top = rowTop(layout, row) - scrollY;
+    if (top < -rowH || top > height) continue;
     const inSelection = rects.some(
       (rect) => row >= rect.rowFirst && row <= rect.rowLast,
     );
     if (inSelection) {
       ctx.fillStyle = withAlpha(palette.ring, 0.08);
-      ctx.fillRect(0, top, GUTTER_WIDTH - lineW, ROW_HEIGHT);
+      ctx.fillRect(0, top, GUTTER_WIDTH - lineW, rowH);
     }
     ctx.fillStyle = inSelection ? palette.text : palette.mutedText;
-    ctx.fillText(String(row + 1), GUTTER_WIDTH / 2, top + ROW_HEIGHT / 2);
+    // Tall rows keep the number at the first line, not the middle.
+    ctx.fillText(String(row + 1), GUTTER_WIDTH / 2, top + 16);
   }
   ctx.fillStyle = palette.gridline;
   hairline(ctx, GUTTER_WIDTH - lineW, 0, lineW, height, dpr);

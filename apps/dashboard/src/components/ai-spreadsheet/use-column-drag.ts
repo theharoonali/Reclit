@@ -73,7 +73,7 @@ export function createColumnDragHandlers(args: ColumnDragArgs) {
   const resolveSlot = (drag: ColumnDragState) => {
     const viewport = viewportRef.current;
     const contentX = drag.x - GUTTER_WIDTH + viewport.scrollX;
-    return dropSlotAt(contentX, viewport.columnCount);
+    return dropSlotAt(viewport.layout, contentX, viewport.columnCount);
   };
 
   /**
@@ -94,8 +94,7 @@ export function createColumnDragHandlers(args: ColumnDragArgs) {
         fromLeft < AUTOSCROLL_EDGE && viewport.scrollX > 0
           ? -AUTOSCROLL_STEP
           : fromRight < AUTOSCROLL_EDGE &&
-              viewport.scrollX <
-                maxScrollX(viewport.columnCount, viewport.width)
+              viewport.scrollX < maxScrollX(viewport.layout, viewport.width)
             ? AUTOSCROLL_STEP
             : 0;
       if (dx === 0) {

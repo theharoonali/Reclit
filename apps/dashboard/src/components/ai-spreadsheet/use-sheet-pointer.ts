@@ -50,10 +50,6 @@ export type SheetPointerArgs = {
   rangeDrag: RangeDragApi;
   /** Which column's grip is under the pointer, for the "Drag and drop" tooltip. */
   onGripHover: (col: number | null) => void;
-  /** What body cell (if any) the pointer rests on, for the full-content tooltip. */
-  onCellHover: (hit: SheetHit) => void;
-  /** Closes the cell tooltip at once (a press acts on the cell instead). */
-  onCellHoverEnd: () => void;
   getCell: (row: number, columnId: string) => CellValue;
   requestPaint: () => void;
   onOpenJson: (row: number, columnId: string) => void;
@@ -75,7 +71,6 @@ const CHECKBOX_HIT_PAD = 5;
 export function createSheetPointerHandlers(args: SheetPointerArgs) {
   const { modelRef, viewportRef, ctxRef, fontsRef, hoverRef } = args;
   const { labels, editor, drag, rangeDrag, onGripHover } = args;
-  const { onCellHover, onCellHoverEnd } = args;
   const { getCell, requestPaint } = args;
   const { onOpenJson, onOpenColumn, onRemoveColumn, onToggleAudio } = args;
 
@@ -115,7 +110,12 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
      */
     const hits = (label: string, leading = 0) => {
       ctx.font = fontsRef.current.cell;
-      const chip = capsuleRect(ctx, cellRect(row, col), label, leading);
+      const chip = capsuleRect(
+        ctx,
+        cellRect(viewport.layout, row, col),
+        label,
+        leading,
+      );
       return containsPoint(
         chip,
         x - GUTTER_WIDTH + viewport.scrollX,
@@ -153,8 +153,6 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
   };
 
   const handleBodyPointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    // A press acts on the cell; the tooltip comes back once the pointer rests.
-    onCellHoverEnd();
     const { x, y } = localPoint(event);
     // Kills the text-selection drag. It also cancels the focus the click would
     // have given us, which is why the editor re-focuses the proxy explicitly.
@@ -231,15 +229,7 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
   };
 
   const handleBodyPointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    // A range drag owns the pointer (it holds the capture): no tooltip mid-drag.
-    if (rangeDrag.move(event)) return;
-    const { x, y } = localPoint(event);
-    onCellHover(hitTest(x, y, viewportRef.current));
-  };
-
-  const handleBodyPointerLeave = () => {
-    if (rangeDrag.isDragging()) return;
-    onCellHover({ kind: "empty" });
+    rangeDrag.move(event);
   };
 
   const handleBodyPointerUp = (event: PointerEvent<HTMLDivElement>) => {
@@ -251,7 +241,6 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
   };
 
   const handleBodyDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
-    onCellHoverEnd();
     const { x, y } = localPoint(event);
     const hit = hitTest(x, y, viewportRef.current);
     if (hit.kind === "cell") editor.beginEdit(hit.row, hit.col);
@@ -339,7 +328,6 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     handleBodyPointerMove,
     handleBodyPointerUp,
     handleBodyPointerCancel,
-    handleBodyPointerLeave,
     handleBodyDoubleClick,
     handleHeaderPointerDown,
     handleHeaderPointerMove,

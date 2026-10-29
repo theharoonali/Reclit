@@ -13,8 +13,6 @@ type AiSpreadsheetBodyProps = {
   onPointerMove: (event: PointerEvent<HTMLDivElement>) => void;
   onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
   onPointerCancel: () => void;
-  /** Closes the cell tooltip when the pointer leaves the sheet. */
-  onPointerLeave: () => void;
   onDoubleClick: (event: MouseEvent<HTMLDivElement>) => void;
   rowCount: number;
   columnCount: number;
@@ -58,7 +56,6 @@ export function AiSpreadsheetBody(props: AiSpreadsheetBodyProps) {
         onDoubleClick={props.onDoubleClick}
         onPointerCancel={props.onPointerCancel}
         onPointerDown={props.onPointerDown}
-        onPointerLeave={props.onPointerLeave}
         onPointerMove={props.onPointerMove}
         onPointerUp={props.onPointerUp}
         ref={props.scrollerRef}

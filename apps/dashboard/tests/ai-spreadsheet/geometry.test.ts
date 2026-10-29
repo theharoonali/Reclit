@@ -7,7 +7,10 @@ import {
   hitTestHeader,
   isHeaderColumnHit,
 } from "@/lib/ai-spreadsheet/geometry";
+import { uniformLayout } from "@/lib/ai-spreadsheet/layout";
 import type { Viewport } from "@/lib/ai-spreadsheet/types";
+
+const layout = uniformLayout(3, COL_WIDTH);
 
 const viewport = (scrollX = 0): Viewport => ({
   width: 800,
@@ -16,6 +19,7 @@ const viewport = (scrollX = 0): Viewport => ({
   scrollY: 0,
   rowExtent: 100,
   columnCount: 3,
+  layout,
 });
 
 /** Canvas-space x for a point `offset` into column `col`. */
@@ -73,16 +77,16 @@ describe("isHeaderColumnHit", () => {
 
 describe("dropSlotAt", () => {
   test("rounds to the nearest boundary, not the containing column", () => {
-    expect(dropSlotAt(0, 3)).toBe(0);
+    expect(dropSlotAt(layout, 0, 3)).toBe(0);
     // Just left of centre still belongs to the gap before the column.
-    expect(dropSlotAt(COL_WIDTH * 0.49, 3)).toBe(0);
-    expect(dropSlotAt(COL_WIDTH * 0.51, 3)).toBe(1);
-    expect(dropSlotAt(COL_WIDTH * 1.5, 3)).toBe(2);
+    expect(dropSlotAt(layout, COL_WIDTH * 0.49, 3)).toBe(0);
+    expect(dropSlotAt(layout, COL_WIDTH * 0.51, 3)).toBe(1);
+    expect(dropSlotAt(layout, COL_WIDTH * 1.5, 3)).toBe(2);
   });
 
   // There are columnCount + 1 gaps: a column can be dropped after the last one.
   test("clamps to the gaps that exist", () => {
-    expect(dropSlotAt(-500, 3)).toBe(0);
-    expect(dropSlotAt(COL_WIDTH * 99, 3)).toBe(3);
+    expect(dropSlotAt(layout, -500, 3)).toBe(0);
+    expect(dropSlotAt(layout, COL_WIDTH * 99, 3)).toBe(3);
   });
 });

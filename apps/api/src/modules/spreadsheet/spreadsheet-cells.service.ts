@@ -3,7 +3,6 @@ import { prisma, toJsonInput } from "../../db/prisma";
 import {
   SpreadsheetCellTypeMismatchError,
   SpreadsheetColumnNotFoundError,
-  SpreadsheetColumnReadOnlyError,
   SpreadsheetRowExistsError,
 } from "./spreadsheet.errors";
 import { cellId, rowId, shortRowId } from "./spreadsheet.ids";
@@ -18,11 +17,7 @@ import type {
   UpdateCellsInput,
   UpdateRowInput,
 } from "./spreadsheet.schema";
-import {
-  cellValueMatchesType,
-  toWireColumnType,
-  toWireNodeType,
-} from "./spreadsheet.schema";
+import { cellValueMatchesType, toWireColumnType } from "./spreadsheet.schema";
 import { spreadsheetService } from "./spreadsheet.service";
 import type { ColumnRecord } from "./spreadsheet.shape";
 import { toSheetCell } from "./spreadsheet.shape";
@@ -42,24 +37,12 @@ function assertValueFits(value: CellValue, dbType: string): void {
   }
 }
 
-/**
- * Throws for a manual write to a machine-written column: a Mail column's
- * cells hold what its runs sent, and only `runAiService.complete` (through
- * `setCell`'s `computed` option) may write them.
- */
-function assertEditable(column: ColumnRecord): void {
-  if (column.node !== null && toWireNodeType(column.node) === "email") {
-    throw new SpreadsheetColumnReadOnlyError(column.name);
-  }
-}
-
-/** Throws unless every entry targets an existing, editable column with a fitting value. */
+/** Throws unless every entry targets an existing column with a fitting value. */
 function assertCellsFit(columns: ColumnRecord[], cells: CellWrite[]): void {
   const byIndex = new Map(columns.map((column) => [column.index, column]));
   for (const entry of cells) {
     const column = byIndex.get(entry.columnIndex);
     if (!column) throw new SpreadsheetColumnNotFoundError(entry.columnIndex);
-    assertEditable(column);
     assertValueFits(entry.value, column.type);
   }
 }
@@ -122,15 +105,15 @@ export async function nextRowIndex(id: string): Promise<number> {
 export class SpreadsheetCellsService {
   /**
    * The column read both validates the type and proves the sheet exists.
-   * `value: null` clears (deletes) the cell. `computed: true` is the one
-   * bypass of the read-only guard — the run worker writing its own result.
+   * `value: null` clears (deletes) the cell.
    */
-  async setCell(
-    { id, rowIndex, columnIndex, value }: SetCellInput,
-    options?: { computed?: boolean },
-  ): Promise<SheetCell> {
+  async setCell({
+    id,
+    rowIndex,
+    columnIndex,
+    value,
+  }: SetCellInput): Promise<SheetCell> {
     const column = await spreadsheetService.columnOrThrow(id, columnIndex);
-    if (!options?.computed) assertEditable(column);
     assertValueFits(value, column.type);
     const write = writeCell(id, rowIndex, { columnIndex, value });
     if (value === null) await write;

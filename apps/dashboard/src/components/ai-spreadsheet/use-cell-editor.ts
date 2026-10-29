@@ -3,13 +3,19 @@
 import { useCallback, useEffect, useRef } from "react";
 import { editableText, parseCellInput } from "@/lib/ai-spreadsheet/cell-format";
 import { isEmailNode } from "@/lib/ai-spreadsheet/email-cell";
-import { CELL_PAD_X, COL_WIDTH, clamp } from "@/lib/ai-spreadsheet/geometry";
+import { CELL_PAD_X, clamp } from "@/lib/ai-spreadsheet/geometry";
+import {
+  caretPosition,
+  colWidth,
+  LINE_HEIGHT,
+  MAX_CELL_LINES,
+  wrapRanges,
+} from "@/lib/ai-spreadsheet/layout";
 import {
   containsCell,
   selectionRect,
   selectionRects,
 } from "@/lib/ai-spreadsheet/run-targets";
-import { caretXForIndex } from "@/lib/ai-spreadsheet/text-metrics";
 import type {
   CellAddress,
   CellValue,
@@ -31,6 +37,7 @@ const IDLE: EditorState = {
   caret: 0,
   selection: [0, 0],
   innerScrollX: 0,
+  innerScrollY: 0,
   caretVisible: true,
 };
 
@@ -136,16 +143,33 @@ export function useCellEditor(args: CellEditorArgs) {
   const refreshCaretMetrics = useCallback(() => {
     const ctx = ctxRef.current;
     const editor = editorRef.current;
-    if (!ctx) return;
+    const active = editor.active;
+    if (!ctx || !active) return;
     ctx.font = fontsRef.current.cell;
-    const caretX = caretXForIndex(ctx, editor.buffer, editor.caret);
-    const inner = COL_WIDTH - CELL_PAD_X * 2;
-    if (caretX - editor.innerScrollX > inner) {
-      editor.innerScrollX = caretX - inner;
+    const inner =
+      colWidth(viewportRef.current.layout, active.col) - CELL_PAD_X * 2;
+    const ranges = wrapRanges(
+      ctx,
+      editor.buffer,
+      inner,
+      Number.MAX_SAFE_INTEGER,
+    );
+    const caret = caretPosition(ctx, editor.buffer, ranges, editor.caret);
+    if (caret.x - editor.innerScrollX > inner) {
+      editor.innerScrollX = caret.x - inner;
     }
-    if (caretX - editor.innerScrollX < 0) editor.innerScrollX = caretX;
+    if (caret.x - editor.innerScrollX < 0) editor.innerScrollX = caret.x;
     editor.innerScrollX = Math.max(0, editor.innerScrollX);
-  }, [ctxRef, fontsRef]);
+    // The vertical twin: the editor box shows at most MAX_CELL_LINES lines,
+    // and the caret's line must stay inside that window.
+    const caretTop = caret.line * LINE_HEIGHT;
+    const windowH = Math.min(ranges.length, MAX_CELL_LINES) * LINE_HEIGHT;
+    if (caretTop + LINE_HEIGHT - editor.innerScrollY > windowH) {
+      editor.innerScrollY = caretTop + LINE_HEIGHT - windowH;
+    }
+    if (caretTop - editor.innerScrollY < 0) editor.innerScrollY = caretTop;
+    editor.innerScrollY = Math.max(0, editor.innerScrollY);
+  }, [ctxRef, fontsRef, viewportRef]);
 
   const focusProxy = useCallback(() => {
     proxyRef.current?.focus({ preventScroll: true });
@@ -156,6 +180,21 @@ export function useCellEditor(args: CellEditorArgs) {
     if (!proxy) return;
     proxy.value = text;
     proxy.setSelectionRange(text.length, text.length);
+  }, []);
+
+  /**
+   * Idle parking for the proxy: a one-character sentinel, fully selected.
+   * With an empty textarea and a collapsed selection the browser never
+   * fires `copy`/`cut` for Ctrl+C/X, so the grid's clipboard (the proxy's
+   * clipboard events — use-sheet-clipboard.ts) would be unreachable. The
+   * sentinel never leaks: a printable key begins an edit with a seed, which
+   * resets the value first, and idle mode ignores `onInput`.
+   */
+  const parkProxy = useCallback(() => {
+    const proxy = proxyRef.current;
+    if (!proxy) return;
+    proxy.value = " ";
+    proxy.select();
   }, []);
 
   /**
@@ -179,7 +218,7 @@ export function useCellEditor(args: CellEditorArgs) {
     }
     stopBlink();
     editorRef.current = { ...IDLE, active };
-    resetProxy("");
+    parkProxy();
   }, [columnAt, getCell, resetProxy, setCell, stopBlink]);
 
   /**
@@ -194,7 +233,7 @@ export function useCellEditor(args: CellEditorArgs) {
       commitPending();
       stopBlink();
       editorRef.current = { ...IDLE, active, anchor, areas };
-      resetProxy("");
+      parkProxy();
       focusProxy();
       requestPaint();
       notifyPresence();
@@ -238,7 +277,7 @@ export function useCellEditor(args: CellEditorArgs) {
     commitPending();
     stopBlink();
     editorRef.current = { ...IDLE };
-    resetProxy("");
+    parkProxy();
     requestPaint();
     notifyPresence();
   }, [commitPending, notifyPresence, requestPaint, resetProxy, stopBlink]);
@@ -308,13 +347,15 @@ export function useCellEditor(args: CellEditorArgs) {
     (row: number, col: number, seed?: string) => {
       const column = columnAt(col);
       if (!column) return;
-      // A Mail column's cells are read-only — its runs write them (the API
-      // refuses manual writes too) — so an edit only selects.
+      // A Mail cell never edits as text: a deliberate edit (Enter, F2,
+      // double-click) opens the cell dialog over its object; typing into it
+      // only selects, so a stray keystroke cannot touch what was sent.
       if (isEmailNode(column)) {
         selectCell(row, col);
+        if (seed === undefined) onOpenJson(row, column.id);
         return;
       }
-      // JSON is never edited as text in the cell — the side panel owns it.
+      // JSON is never edited as text in the cell — the dialog owns it.
       if (column.type === "json") {
         selectCell(row, col);
         onOpenJson(row, column.id);
@@ -373,6 +414,7 @@ export function useCellEditor(args: CellEditorArgs) {
         caret: text.length,
         selection: [text.length, text.length],
         innerScrollX: 0,
+        innerScrollY: 0,
         caretVisible: true,
       };
       resetProxy(text);
@@ -431,7 +473,7 @@ export function useCellEditor(args: CellEditorArgs) {
     const { active, anchor, areas } = editorRef.current;
     stopBlink();
     editorRef.current = { ...IDLE, active, anchor, areas };
-    resetProxy("");
+    parkProxy();
     requestPaint();
   }, [requestPaint, resetProxy, stopBlink]);
 

@@ -8,6 +8,7 @@ import {
   HEADER_FONT_SIZE,
   TYPE_FONT_SIZE,
 } from "@/lib/ai-spreadsheet/geometry";
+import { uniformLayout } from "@/lib/ai-spreadsheet/layout";
 import { clearMetricsCache } from "@/lib/ai-spreadsheet/text-metrics";
 import {
   FALLBACK_PALETTE,
@@ -34,6 +35,10 @@ export type SheetViewportApi = {
   /** The grid installs the real paint pass here after mount. */
   paintRef: React.RefObject<() => void>;
   requestPaint: () => void;
+  /** True when `viewport.layout` must be rebuilt before the next paint. */
+  layoutDirtyRef: React.RefObject<boolean>;
+  /** Marks the layout stale and schedules the rebuild-and-paint frame. */
+  invalidateLayout: () => void;
 };
 
 /**
@@ -55,11 +60,13 @@ export function useSheetViewport(
     scrollY: 0,
     rowExtent: rowCount + BLANK_TAIL_CHUNK,
     columnCount,
+    layout: uniformLayout(columnCount),
   });
   const paletteRef = useRef<SheetPalette>(FALLBACK_PALETTE);
   const fontsRef = useRef<SheetFonts>(FALLBACK_FONTS);
   const paintRef = useRef<() => void>(() => {});
   const frameRef = useRef(0);
+  const layoutDirtyRef = useRef(true);
 
   // Coalesces every caller in a frame into one paint. Not a permanently
   // running rAF loop — an idle sheet costs nothing.
@@ -82,6 +89,11 @@ export function useSheetViewport(
     };
   }, []);
 
+  const invalidateLayout = useCallback(() => {
+    layoutDirtyRef.current = true;
+    requestPaint();
+  }, [requestPaint]);
+
   useEffect(() => {
     const refreshTheme = () => {
       paletteRef.current = readPalette(document.documentElement);
@@ -93,6 +105,8 @@ export function useSheetViewport(
         gutter: readCanvasFont(family, GUTTER_FONT_SIZE),
       };
       clearMetricsCache();
+      // New fonts measure differently, so every fitted size is stale.
+      layoutDirtyRef.current = true;
       requestPaint();
     };
 
@@ -119,5 +133,13 @@ export function useSheetViewport(
     };
   }, [requestPaint]);
 
-  return { viewportRef, paletteRef, fontsRef, paintRef, requestPaint };
+  return {
+    viewportRef,
+    paletteRef,
+    fontsRef,
+    paintRef,
+    requestPaint,
+    layoutDirtyRef,
+    invalidateLayout,
+  };
 }

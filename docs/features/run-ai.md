@@ -158,9 +158,9 @@ There is no REST face.
   gets `{address: "Subject: …\n\n…" | "FAILED"}` and the run
   `result.emails`; when `complete` fails after the sends, `run-ai-cell`
   fails the run with the generator's extras, so `result.emails` survives.
-  Mail cells are read-only for every other writer — `complete` passes
-  `setCell`'s `computed` option; the spreadsheet contract owns
-  `SPREADSHEET_COLUMN_READ_ONLY`. Media is not resolved: file/audio/url
+  Mail cells are machine-written by runs but editable like any json cell —
+  the dashboard blocks accidental inline edits and edits them deliberately
+  through its cell dialog. Media is not resolved: file/audio/url
   cells reach the model as text, as for search. Because `isRunnable` gates
   `runRow` and onboarding too, a mail column also sends on every public form
   submission and in onboarding's `finish`.
