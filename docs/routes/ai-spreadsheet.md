@@ -122,15 +122,26 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   API is locked (a lock on the capsule; it cannot be selected) and is not a
   wire node. Mail is the wire node `email`. Choosing an unlocked node reveals
   a Prompt textarea, the node's whole configuration; Mail gets its own
-  placeholder (`column.mailPromptPlaceholder`) saying it sends on Run.
-  A column whose node has an icon (`ai` → Hugeicons `StarIcon`, `email` →
-  `Mail01Icon`, `NODE_ICONS` in `lib/ai-spreadsheet/node-icons.ts`) shows it
-  on its picker capsule and paints the same path data before its name in the
-  header. An `ai` or `google_search` column's prompt is what Run executes; a
-  Google Search column searches Google about the row before answering; a
-  Mail column on a Text or JSON column drafts an email to one of the row's
-  email cells and sends it, then shows "Sent to … : subject" (any other
-  column type is not runnable).
+  placeholder (`column.mailPromptPlaceholder`) saying it sends on Run, locks
+  the Type select to JSON (`column.mailTypeLocked` explains why), and — when
+  editing an existing Mail column — shows the column's totals above the form
+  (`EmailCountChips`: a green circle counting sent emails, a red one when
+  any failed, summed from the loaded cells). A column whose node has an icon
+  (`ai` → Hugeicons `AiSparklesIcon` in the primary orange, `email` →
+  `Mail01Icon`; `NODE_ICONS` / `NODE_ICON_ACCENT` in
+  `lib/ai-spreadsheet/node-icons.ts`) shows it on its picker capsule and
+  paints the same path data before its name in the header. An `ai` or
+  `google_search` column's prompt is what Run executes; a Google Search
+  column searches Google about the row before answering.
+- **Mail columns.** Run finds addresses in the column's prompt and in any of
+  the row's cells, writes one personalized email per recipient the model
+  decides to contact, and sends them through Resend (run-ai contract); no
+  address, or no clear recipient, fails the cell without sending. The cell
+  then holds `{address: sent email | "FAILED"}` and paints two count
+  capsules — green sent, red failed (red only when any failed); hovering
+  shows the full object. Mail cells are read-only: double-click, typing and
+  Delete only select (the API refuses manual writes too), the json chip
+  opens no panel, and a legacy string Mail column is not runnable.
 - **Run.** The Run control is the outlined "Run AI" pill at the right end
   of the header's assistant capsule (the count is in its tooltip), present
   only while the selection holds an AI cell with a prompt; the toolbar has no

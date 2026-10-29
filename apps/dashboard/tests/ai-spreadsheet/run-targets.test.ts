@@ -95,11 +95,12 @@ describe("planRunBatches runnability", () => {
     expect(runnableCount(search({ prompt: null }))).toBe(0);
   });
 
-  test("counts a mail column with a prompt on a text or JSON column only", () => {
+  test("counts a mail column with a prompt on a JSON column only", () => {
     const mail = (over: Partial<SheetColumn>) =>
       column("col.9", { node: "email", prompt: "Say hi", ...over });
-    expect(runnableCount(mail({ type: "string" }))).toBe(1);
     expect(runnableCount(mail({ type: "json" }))).toBe(1);
+    // A legacy string Mail column (predating the json rule) is skipped.
+    expect(runnableCount(mail({ type: "string" }))).toBe(0);
     expect(runnableCount(mail({ type: "number" }))).toBe(0);
     expect(runnableCount(mail({ prompt: null }))).toBe(0);
   });

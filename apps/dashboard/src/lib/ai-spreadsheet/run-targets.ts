@@ -83,7 +83,9 @@ export const containsCell = (rect: SelectionRect, row: number, col: number) =>
  * in the API's `run-ai-batch.service.ts` (the dashboard may not import API
  * runtime values): a node with an executor, and a prompt — a column that has
  * a node but no prompt yet is half-finished, and the Run button must not
- * count it. A mail (`email`) column must also be a text or JSON column.
+ * count it. A mail (`email`) column must also be a JSON column — its cell
+ * holds `{address: sent email | "FAILED"}` (a legacy string Mail column is
+ * not runnable).
  */
 const isRunnable = (column: SheetColumn) => {
   if (column.prompt === null) return false;
@@ -92,7 +94,7 @@ const isRunnable = (column: SheetColumn) => {
     case "google_search":
       return true;
     case "email":
-      return column.type === "string" || column.type === "json";
+      return column.type === "json";
     default:
       return false;
   }

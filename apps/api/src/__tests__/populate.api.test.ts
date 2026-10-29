@@ -194,23 +194,16 @@ describe.skipIf(!dbUp)("populate.form", () => {
     const mail = await add({
       id: mailSheet,
       name: "Welcome",
+      type: "json",
       node: "email",
       prompt: "Thank them for signing up",
-    });
-    // A mail node on a number column cannot hold what it sent: not runnable.
-    await add({
-      id: mailSheet,
-      name: "Count",
-      type: "number",
-      node: "email",
-      prompt: "Say hi",
     });
     const form = await caller.populate.form({ id: mailSheet });
     expect(form.fields).toEqual([
       { name: "Contact", type: "email", columnIndex: contact },
     ]);
     expect(form.outputs).toEqual([
-      { name: "Welcome", type: "string", columnIndex: mail },
+      { name: "Welcome", type: "json", columnIndex: mail },
     ]);
   });
 

@@ -58,9 +58,10 @@ type Target = { rowIndex: number; column: RunnableColumn; cellId: string };
 
 /**
  * Which columns a Run click executes: a node with an executor, and a prompt
- * (the instruction). A mail (`email`) column must also be a `string` or
- * `json` column — its cell holds the send summary or the sent record. A
- * column that fails either is skipped silently — it is a half-finished
+ * (the instruction). A mail (`email`) column must also be a `json` column —
+ * its cell holds `{address: sent email | "FAILED"}` (the create/update path
+ * enforces json for new Mail columns; an older string one is skipped here).
+ * A column that fails either is skipped silently — it is a half-finished
  * column, not a client error. Exported for onboarding's final step, which
  * runs every runnable column of a new sheet, and for populate, whose
  * submissions run them too (so a mail column sends on every submission).
@@ -71,10 +72,8 @@ export function isRunnable(column: ColumnRecord): column is RunnableColumn {
     case "ai":
     case "google_search":
       return true;
-    case "email": {
-      const type = toWireColumnType(column.type);
-      return type === "string" || type === "json";
-    }
+    case "email":
+      return toWireColumnType(column.type) === "json";
     default:
       return false;
   }

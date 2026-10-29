@@ -186,7 +186,10 @@
       "add": "Add column",
       "reorder": "Drag and drop",
       "save": "Save",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "mailTypeLocked": "Mail columns store what they sent as JSON.",
+      "emailSent": "emails sent",
+      "emailFailed": "failed"
     },
     "nodes": {
       "none": "None",

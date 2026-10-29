@@ -45,17 +45,19 @@ export const SEARCH_RULES = [
 ].join("\n");
 
 /**
- * The sentences that make a cell a Mail cell: write one email to someone in
- * this row, pick the address from the allowed list, forward the previous
- * step verbatim when asked. `buildCellMessages` adds them, plus the allowed
- * recipients, for an `email` target in place of the "Answer with …" line;
- * exported so the contract test asserts the wording without an API key.
+ * The sentences that make a cell a Mail cell: write one personalized email
+ * per recipient worth contacting, pick every address from the allowed list,
+ * answer with an empty list when it is unclear who to email, forward the
+ * previous step verbatim when asked. `buildCellMessages` adds them, plus the
+ * allowed recipients, for an `email` target in place of the "Answer with …"
+ * line; exported so the contract test asserts the wording without an API key.
  */
 export const EMAIL_RULES = [
-  "This is a Mail cell: write the one email the instruction asks for, to a person in this row. It will be sent as soon as you answer.",
-  'Answer with "to", "subject" and "body". "to" must be copied exactly from the allowed recipients below — never invent, guess or change an address.',
+  "This is a Mail cell: write the emails the instruction asks for. Each one is sent as soon as you answer.",
+  'Answer with an "emails" list, one entry per recipient, each with "to", "subject" and "body". Write each email personally for its recipient from this row — never the same text twice.',
+  '"to" must be copied exactly from the allowed recipients below — never invent, guess or change an address. Email only the recipients the instruction makes clear should be written to; when it is not clear who to email, answer with an empty list and nothing is sent.',
   "When there is output of a previous step, it is your primary input; when the instruction says to send it (or a named column) as it is, put that text in the body verbatim.",
-  "Write the body as plain text with line breaks: no markdown, no HTML, no placeholders like [Name] — use the row's values instead.",
+  "Write each body as plain text with line breaks: no markdown, no HTML, no placeholders like [Name] — use the row's values instead.",
 ].join("\n");
 
 /**

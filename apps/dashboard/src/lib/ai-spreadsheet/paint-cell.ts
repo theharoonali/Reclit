@@ -5,6 +5,7 @@ import {
   isMistyped,
   isResourceUrl,
 } from "./cell-format";
+import { emailCellCounts } from "./email-cell";
 import {
   CAPSULE_DOT,
   CAPSULE_DOT_GAP,
@@ -22,6 +23,7 @@ import { withAlpha } from "./theme-colors";
 import type {
   CellValue,
   ColumnType,
+  NodeType,
   SheetFormatters,
   SheetLabels,
   SheetPalette,
@@ -227,6 +229,27 @@ const audioStyle = (
 });
 
 /**
+ * A Mail cell's count chip: a soft tinted pill with a status dot and the
+ * count in the status colour — the boolean capsule's construction with the
+ * run chip's borderless fill, green for sent and red for failed.
+ */
+const EMAIL_CHIP_FILL_ALPHA = 0.12;
+const EMAIL_CHIP_GAP = 4;
+const emailCountStyle = (
+  tone: "sent" | "failed",
+  palette: SheetPalette,
+): CapsuleStyle => {
+  const color = tone === "sent" ? palette.boolTrue : palette.invalid;
+  return {
+    fill: withAlpha(color, EMAIL_CHIP_FILL_ALPHA),
+    border: color,
+    borderWidth: 0,
+    text: color,
+    mark: { kind: "dot", color },
+  };
+};
+
+/**
  * A working run's colour by status: grey while queued, green while running,
  * and the primary orange for any custom stage the backend reports
  * (`analyzing`, ...). Terminal runs are never painted — the run hook drops
@@ -264,6 +287,8 @@ export type CellPaintArgs = {
   rect: Rect;
   value: CellValue;
   type: ColumnType;
+  /** The column's node — a Mail (`email`) cell paints count chips. */
+  node?: NodeType | null;
   palette: SheetPalette;
   labels: SheetLabels;
   formatters: SheetFormatters;
@@ -296,6 +321,29 @@ export function paintCell(args: CellPaintArgs) {
   }
 
   if (value === null) return;
+
+  // A Mail cell: one green chip counting the sends that went out and, when
+  // any failed, a red chip counting those — the column's glanceable summary.
+  if (args.node === "email" && isJsonObject(value)) {
+    const counts = emailCellCounts(value);
+    if (counts) {
+      const sentLabel = String(counts.sent);
+      paintCapsule(ctx, rect, sentLabel, emailCountStyle("sent", palette));
+      if (counts.failed > 0) {
+        // The red chip starts where the green one ends; `paintCapsule` adds
+        // the same CELL_PAD_X inset to whatever rect it is given.
+        const chip = capsuleRect(ctx, rect, sentLabel, capsuleLeading("dot"));
+        const shifted = { ...rect, x: rect.x + chip.w + EMAIL_CHIP_GAP };
+        paintCapsule(
+          ctx,
+          shifted,
+          String(counts.failed),
+          emailCountStyle("failed", palette),
+        );
+      }
+      return;
+    }
+  }
 
   if (type === "json" && isJsonObject(value)) {
     const label = labels.jsonCapsule(Object.keys(value).length);

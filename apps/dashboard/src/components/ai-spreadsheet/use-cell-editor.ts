@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { editableText, parseCellInput } from "@/lib/ai-spreadsheet/cell-format";
+import { isEmailNode } from "@/lib/ai-spreadsheet/email-cell";
 import { CELL_PAD_X, COL_WIDTH, clamp } from "@/lib/ai-spreadsheet/geometry";
 import {
   containsCell,
@@ -307,6 +308,12 @@ export function useCellEditor(args: CellEditorArgs) {
     (row: number, col: number, seed?: string) => {
       const column = columnAt(col);
       if (!column) return;
+      // A Mail column's cells are read-only — its runs write them (the API
+      // refuses manual writes too) — so an edit only selects.
+      if (isEmailNode(column)) {
+        selectCell(row, col);
+        return;
+      }
       // JSON is never edited as text in the cell — the side panel owns it.
       if (column.type === "json") {
         selectCell(row, col);
@@ -452,12 +459,17 @@ export function useCellEditor(args: CellEditorArgs) {
     const rects = selectionRects(editorRef.current);
     if (!model || rects.length === 0) return;
     const displayCol = new Map<string, number>();
+    // Mail columns are read-only (see beginEdit), so a sweep skips them.
+    const readOnly = new Set(
+      model.columns.filter(isEmailNode).map((column) => column.id),
+    );
     model.columns.forEach((column, index) => {
       displayCol.set(column.id, index);
     });
     for (const key of [...model.cells.keys()]) {
       const [rowText, columnId] = key.split(/:(.*)/s);
       if (rowText === undefined || !columnId) continue;
+      if (readOnly.has(columnId)) continue;
       const row = Number.parseInt(rowText, 10);
       const col = displayCol.get(columnId);
       if (col === undefined) continue;

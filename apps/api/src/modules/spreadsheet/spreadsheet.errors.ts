@@ -33,6 +33,28 @@ export class SpreadsheetCellTypeMismatchError extends DomainError {
   }
 }
 
+/** A Mail column's cells are written by its runs alone (docs/features/run-ai.md). */
+export class SpreadsheetColumnReadOnlyError extends DomainError {
+  readonly kind = "bad_request";
+  readonly code = "SPREADSHEET_COLUMN_READ_ONLY";
+  constructor(name: string) {
+    super(
+      `Column "${name}" is read-only: a Mail column's cells are written by its runs`,
+    );
+    this.name = "SpreadsheetColumnReadOnlyError";
+  }
+}
+
+/** A Mail column records `{address: email | "FAILED"}`, which only json holds. */
+export class SpreadsheetEmailColumnTypeError extends DomainError {
+  readonly kind = "bad_request";
+  readonly code = "SPREADSHEET_EMAIL_COLUMN_TYPE";
+  constructor(type: string) {
+    super(`A Mail column must be a json column, not ${type}`);
+    this.name = "SpreadsheetEmailColumnTypeError";
+  }
+}
+
 export class SpreadsheetPromptWithoutNodeError extends DomainError {
   readonly kind = "bad_request";
   readonly code = "SPREADSHEET_PROMPT_WITHOUT_NODE";

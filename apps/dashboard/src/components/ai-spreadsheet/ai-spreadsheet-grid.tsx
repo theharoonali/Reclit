@@ -4,6 +4,7 @@ import { Delete02Icon, FileExportIcon } from "@hugeicons/core-free-icons";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAssistantPageAction } from "@/components/assistant/use-page-action";
+import { emailCellCounts, isEmailNode } from "@/lib/ai-spreadsheet/email-cell";
 import { sheetToCsv } from "@/lib/ai-spreadsheet/export-csv";
 import type {
   ColumnDraft,
@@ -24,6 +25,7 @@ import { AiSpreadsheetJsonEditor } from "./ai-spreadsheet-json-editor";
 import { AiSpreadsheetSelectionBar } from "./ai-spreadsheet-selection-bar";
 import { AiSpreadsheetSidePanel } from "./ai-spreadsheet-side-panel";
 import { AiSpreadsheetUploadEditor } from "./ai-spreadsheet-upload-editor";
+import { EmailCountChips } from "./email-count-chips";
 import { useAssistantRefresh } from "./use-assistant-refresh";
 import { useColumnRemove } from "./use-column-remove";
 import { useColumnReorder } from "./use-column-reorder";
@@ -400,6 +402,27 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
       ? columns.find((column) => column.id === shown.columnId)
       : undefined;
 
+  // A Mail column's overview: its sends summed over the loaded cells. Read
+  // when the panel opens (the model ref is not reactive), which is also when
+  // the numbers are looked at.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: isOpen re-reads the ref when the panel opens.
+  const emailTotals = useMemo(() => {
+    if (!editedColumn || !isEmailNode(editedColumn)) return null;
+    const cells = modelRef.current?.cells;
+    if (!cells) return null;
+    let sent = 0;
+    let failed = 0;
+    const suffix = `:${editedColumn.id}`;
+    for (const [key, value] of cells) {
+      if (!key.endsWith(suffix)) continue;
+      const counts = emailCellCounts(value);
+      if (!counts) continue;
+      sent += counts.sent;
+      failed += counts.failed;
+    }
+    return { sent, failed };
+  }, [editedColumn, modelRef, isOpen]);
+
   const panelTitle =
     shown.kind === "json"
       ? t("panel.jsonTitle")
@@ -508,6 +531,17 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
           open={isOpen}
           title={panelTitle}
         >
+          {shown.kind === "column" && emailTotals && (
+            <EmailCountChips
+              className="mb-4"
+              failed={emailTotals.failed}
+              labels={{
+                sent: t("column.emailSent"),
+                failed: t("column.emailFailed"),
+              }}
+              sent={emailTotals.sent}
+            />
+          )}
           {shown.kind === "column" && (
             <AiSpreadsheetColumnForm
               column={editedColumn}
@@ -521,6 +555,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
                 prompt: t("column.prompt"),
                 promptPlaceholder: t("column.promptPlaceholder"),
                 mailPromptPlaceholder: t("column.mailPromptPlaceholder"),
+                mailTypeLocked: t("column.mailTypeLocked"),
                 submit: editedColumn ? t("column.save") : t("column.add"),
                 cancel: t("column.cancel"),
                 typeNames: labels.typeNames,

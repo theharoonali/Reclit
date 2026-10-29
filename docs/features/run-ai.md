@@ -61,7 +61,7 @@ Background jobs (outside the tRPC graph — [ARCHITECTURE.md](../../ARCHITECTURE
 | --- | --- |
 | `apps/api/trigger.config.ts` | Trigger.dev project config (`runtime: "bun"`, `dirs: ["./src/trigger"]`, `prismaExtension({ mode: "modern" })`) |
 | `apps/api/src/trigger/run-ai-batch.ts` | task `run-ai-batch` (`RunAiBatchJob`) — the skeleton of a Run click: per wave, `failPending` the cells of stopped rows → `prepare` the rest → `run-ai-cell` as `batchTriggerAndWait` (one cell: `triggerAndWait`) → a non-`completed` outcome stops the row; no retries; `onFailure` → `failPending` of every run |
-| `apps/api/src/trigger/run-ai-cell.ts` | task `run-ai-cell` (`{ runId, input }`): `markRunning` → `generateCellValue` (given the run's parsed cell address and a crawl resolver that `batchTriggerAndWait`s `crawl-website` for the row's url cells) or `generateSearchCellValue` or `generateEmailCellValue` (`input.target.node` decides) → `complete` / `fail` (a failed `complete` keeps the generator's extras, e.g. `result.email`), returns `{ runId, status }`; no retries, `maxDuration` 300 s of CPU time (a transcription may precede the model call; the wait for crawls is free); `onFailure` fails the run |
+| `apps/api/src/trigger/run-ai-cell.ts` | task `run-ai-cell` (`{ runId, input }`): `markRunning` → `generateCellValue` (given the run's parsed cell address and a crawl resolver that `batchTriggerAndWait`s `crawl-website` for the row's url cells) or `generateSearchCellValue` or `generateEmailCellValue` (`input.target.node` decides) → `complete` / `fail` (a failed `complete` keeps the generator's extras, e.g. `result.emails`), returns `{ runId, status }`; no retries, `maxDuration` 300 s of CPU time (a transcription may precede the model call; the wait for crawls is free); `onFailure` fails the run |
 | `apps/api/src/trigger/crawl-website.ts` | task `crawl-website` (`{ cellId, url }` → `{ recordId, reused, pages, characters }`): the general Firecrawl crawl into `ExternalApi`, one at a time, retried with backoff ([external-api.md](external-api.md)) |
 | `apps/api/src/jobs/run-ai-dispatch.ts` | the API-side client: `registerRunAiDispatcher()` → `tasks.trigger("run-ai-batch", …, { idempotencyKey: batchId })`, the only `@trigger.dev/sdk` import on the API side; called from `src/main.ts` |
 | `apps/api/src/ai/gemini.ts` | `gemini(modelId?)` — the one Gemini provider for the Vercel AI SDK |
@@ -72,8 +72,8 @@ Background jobs (outside the tRPC graph — [ARCHITECTURE.md](../../ARCHITECTURE
 | `apps/api/src/ai/cell-transcripts.ts` | resolves the row's audio cells to text through `ExternalApi` + ElevenLabs ([external-api.md](external-api.md)); a failure is recorded, never thrown |
 | `apps/api/src/ai/cell-crawls.ts` | resolves the row's url cells to crawled pages through `ExternalApi` + Firecrawl (`firecrawl.ts`, the `crawl-website` task — [external-api.md](external-api.md)); `formatCrawledPages` budgets what the prompt gets; a failure is recorded, never thrown |
 | `apps/api/src/ai/resend.ts` | `sendEmail` — the Resend send-email call (raw `fetch`, key read per call, `RESEND_FROM` defaulting to `Reclit <hello@reclit.com>`, `Idempotency-Key`) |
-| `apps/api/src/ai/email-prompt.ts` | pure: `emailRecipients`, `emailDraftSchema`, `resolveRecipient`, `emailCellValue` |
-| `apps/api/src/ai/email-output.ts` | `generateEmailCellValue` — the `email` node: recipients → draft → recipient check → send |
+| `apps/api/src/ai/email-prompt.ts` | pure: `findEmailAddresses` + `emailRecipients` (addresses from the prompt and any cell, target cell excluded, capped at `MAX_EMAIL_RECIPIENTS`), `emailDraftSchema` (a draft list), `resolveRecipient`, `emailCellValue` (`{address: "Subject: …" \| "FAILED"}`) |
+| `apps/api/src/ai/email-output.ts` | `generateEmailCellValue` — the `email` node: recipients → one draft-list call → per-draft checks → sequential sends with per-address idempotency, failures recorded as FAILED, run still completed |
 | `apps/api/src/ai/cell-output.ts` | `generateCellValue(input, address, deps)` — attachments, transcripts and crawls in parallel, then `generateTypedCellValue`, the one typed-output call both generators end on (`Output.object`, or `Output.json` for `json` columns, then `coerceCellValue` / `cellValueMatchesType`) |
 
 ## Procedures
@@ -120,7 +120,9 @@ There is no REST face.
   `RunAiSeriesStopped` and skipped.
 - **A Google Search column is fed the row, like an AI column.** `isRunnable`
   is a per-node switch: `ai` and `google_search` need a prompt, `email` needs
-  a prompt and a `string` / `json` column. `prepare` builds one input shape for
+  a prompt and a `json` column (create/update enforce json for Mail columns —
+  `SPREADSHEET_EMAIL_COLUMN_TYPE` — so only a legacy string one is skipped
+  here). `prepare` builds one input shape for
   every node — the whole row plus `previous`; the prompt is the whole
   configuration of a search column ("the official website of this company",
   "top 10 companies working on SAP with their URLs"), so a blank row still
@@ -140,20 +142,28 @@ There is no REST face.
   queries and pages land in `result.searches` (source URLs are Google
   redirect links, `title` the domain); `result.attachments` is always `[]`
   and `result.usage` is both calls summed.
-- **A Mail (`email`) column sends real email.** `generateEmailCellValue`
-  (`src/ai/email-output.ts`) checks the row has an `email`-typed cell with a
-  valid address (`emailRecipients`), drafts `{ to, subject, body }` in one
-  Gemini call (`Output.object`, no tools; `buildCellMessages` swaps the
-  "Answer with …" line for `EMAIL_RULES` plus the allowed recipients),
-  refuses any `to` the row does not hold (`resolveRecipient`), and only then
-  sends through Resend (`sendEmail`, `src/ai/resend.ts`) with the run id as
-  `Idempotency-Key`. Every refusal happens before the send. The cell gets
-  `Sent to <to>: <subject>` (or the record, in a json column) and the run
-  `result.email`; when `complete` fails after the send, `run-ai-cell` fails
-  the run with the generator's extras, so `result.email` survives. Media is
-  not resolved: file/audio/url cells reach the model as text, as for search.
-  Because `isRunnable` gates `runRow` and onboarding too, a mail column also
-  sends on every public form submission and in onboarding's `finish`.
+- **A Mail (`email`) column sends real email, personalized per recipient.**
+  `generateEmailCellValue` (`src/ai/email-output.ts`) collects the allowed
+  addresses from the column's prompt and every cell's content
+  (`emailRecipients`: target cell excluded, deduped case-insensitively, first
+  spelling kept, capped at `MAX_EMAIL_RECIPIENTS` = 10), asks Gemini once for
+  a draft list (`Output.object`, no tools; `buildCellMessages` swaps the
+  "Answer with …" line for `EMAIL_RULES` plus the allowed recipients), drops
+  any draft whose `to` the list does not hold (`resolveRecipient`), is a
+  duplicate, or has an empty subject/body, and fails the run before any send
+  when no address exists or no draft survives. The surviving drafts are sent
+  one by one through Resend (`sendEmail`, `src/ai/resend.ts`), idempotency
+  key `<runId>:<address lowercase>`; a failed send records
+  `status: "failed"` on that entry and the run still completes. The cell
+  gets `{address: "Subject: …\n\n…" | "FAILED"}` and the run
+  `result.emails`; when `complete` fails after the sends, `run-ai-cell`
+  fails the run with the generator's extras, so `result.emails` survives.
+  Mail cells are read-only for every other writer — `complete` passes
+  `setCell`'s `computed` option; the spreadsheet contract owns
+  `SPREADSHEET_COLUMN_READ_ONLY`. Media is not resolved: file/audio/url
+  cells reach the model as text, as for search. Because `isRunnable` gates
+  `runRow` and onboarding too, a mail column also sends on every public form
+  submission and in onboarding's `finish`.
 - **One working run per cell is a database rule**, not a service check: the
   partial unique index refuses the insert (or a transition that would revive
   a finished run while another works the cell) and `create` / `createMany` /

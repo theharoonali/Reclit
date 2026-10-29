@@ -3,6 +3,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@reclit/ui/button";
 import { CapsuleSelect } from "@reclit/ui/capsule-select";
+import { cn } from "@reclit/ui/cn";
 import { Input } from "@reclit/ui/input";
 import {
   Select,
@@ -16,7 +17,7 @@ import { type FormEvent, useId, useState } from "react";
 import { FormField } from "@/components/common/form-field";
 import { columnTypes } from "@/lib/ai-spreadsheet/cell-format";
 import { isColumnNameTaken } from "@/lib/ai-spreadsheet/column-names";
-import { NODE_ICONS } from "@/lib/ai-spreadsheet/node-icons";
+import { NODE_ICON_ACCENT, NODE_ICONS } from "@/lib/ai-spreadsheet/node-icons";
 import type {
   ColumnDraft,
   ColumnType,
@@ -44,11 +45,15 @@ const NODE_CHOICES: NodeChoice[] = [
 
 /** The picker shows a node's icon — the same one the header paints. */
 function nodeIcon(option: NodeChoice) {
-  const icon =
-    option === NO_NODE || option === API_NODE ? undefined : NODE_ICONS[option];
+  if (option === NO_NODE || option === API_NODE) return undefined;
+  const icon = NODE_ICONS[option];
   return (
     icon && (
-      <HugeiconsIcon aria-hidden="true" className="size-icon" icon={icon} />
+      <HugeiconsIcon
+        aria-hidden="true"
+        className={cn("size-icon", NODE_ICON_ACCENT[option] && "text-primary")}
+        icon={icon}
+      />
     )
   );
 }
@@ -68,6 +73,8 @@ type AiSpreadsheetColumnFormProps = {
     promptPlaceholder: string;
     /** A Mail column's prompt is an email instruction, and it sends on Run. */
     mailPromptPlaceholder: string;
+    /** Why the type select is locked on a Mail column. */
+    mailTypeLocked: string;
     submit: string;
     cancel: string;
     typeNames: Record<ColumnType, string>;
@@ -88,8 +95,14 @@ type AiSpreadsheetColumnFormProps = {
 export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
   const { column, labels } = props;
   const [name, setName] = useState(column?.name ?? "");
-  const [type, setType] = useState<ColumnType>(column?.type ?? "string");
+  const [pickedType, setPickedType] = useState<ColumnType>(
+    column?.type ?? "string",
+  );
   const [node, setNode] = useState<NodeType | null>(column?.node ?? null);
+  // A Mail column stores `{address: email | "FAILED"}`, so its type is json
+  // — the API refuses anything else. The picked type survives in state, so
+  // switching the node away restores it.
+  const type = node === "email" ? "json" : pickedType;
   const [prompt, setPrompt] = useState(column?.prompt ?? "");
   const nameId = useId();
   const typeId = useId();
@@ -137,7 +150,8 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
 
       <FormField htmlFor={typeId} label={labels.type}>
         <Select
-          onValueChange={(value) => setType(value as ColumnType)}
+          disabled={node === "email"}
+          onValueChange={(value) => setPickedType(value as ColumnType)}
           value={type}
         >
           <SelectTrigger id={typeId}>
@@ -151,6 +165,11 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
             ))}
           </SelectContent>
         </Select>
+        {node === "email" && (
+          <p className="text-caption text-muted-foreground">
+            {labels.mailTypeLocked}
+          </p>
+        )}
       </FormField>
 
       <FormField label={labels.node} labelId={nodeId}>

@@ -14,7 +14,7 @@ import {
   plusButtonRect,
   visibleCols,
 } from "./geometry";
-import { NODE_ICON_VIEWBOX, NODE_ICONS } from "./node-icons";
+import { NODE_ICON_ACCENT, NODE_ICON_VIEWBOX, NODE_ICONS } from "./node-icons";
 import { type CheckboxPaintState, paintCheckbox } from "./paint-checkbox";
 import { measureWidth, truncateToWidth } from "./text-metrics";
 import { withAlpha } from "./theme-colors";
@@ -219,8 +219,12 @@ export function paintHeader(args: HeaderPaintArgs) {
     const glyph =
       column.node === null ? undefined : nodeGlyphPaths(column.node);
     let glyphSpace = 0;
-    if (glyph !== undefined) {
-      paintGlyph(ctx, glyph, x + leftInset, palette.headerText);
+    if (glyph !== undefined && column.node !== null) {
+      // Accented nodes (the AI mark) stroke in the primary orange.
+      const glyphColor = NODE_ICON_ACCENT[column.node]
+        ? palette.ring
+        : palette.headerText;
+      paintGlyph(ctx, glyph, x + leftInset, glyphColor);
       glyphSpace = GLYPH_SIZE + GLYPH_GAP;
     }
     const room =

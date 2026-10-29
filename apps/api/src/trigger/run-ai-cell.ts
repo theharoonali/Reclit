@@ -93,8 +93,8 @@ export const runAiCellTask = schemaTask({
     if (!address) throw new RunAiInvalidCellIdError(run.cellId);
     await runAiService.markRunning(runId);
     // What the generator produced, kept for the failure path: a mail cell
-    // has already sent its email by the time `complete` writes the cell, so
-    // a refused write must still leave `result.email` on the failed run.
+    // has already sent its emails by the time `complete` writes the cell, so
+    // a refused write must still leave `result.emails` on the failed run.
     let generated: Record<string, unknown> = {};
     try {
       // The node decides which generator fills the cell; everything around

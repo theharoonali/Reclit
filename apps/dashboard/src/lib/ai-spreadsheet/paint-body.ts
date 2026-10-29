@@ -143,6 +143,7 @@ export function paintBody(args: BodyPaintArgs) {
         rect: cellRect(row, col),
         value: model.cells.get(key) ?? null,
         type: column.type,
+        node: column.node,
         palette,
         labels: args.labels,
         formatters: args.formatters,

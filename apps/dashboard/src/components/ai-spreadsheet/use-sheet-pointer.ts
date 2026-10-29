@@ -6,6 +6,7 @@ import {
   isJsonObject,
   isResourceUrl,
 } from "@/lib/ai-spreadsheet/cell-format";
+import { isEmailNode } from "@/lib/ai-spreadsheet/email-cell";
 import {
   cellRect,
   containsPoint,
@@ -123,6 +124,9 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     };
 
     const value = getCell(row, column.id);
+    // A Mail cell paints count chips, not the json chip, and its object is
+    // read-only — no JSON panel, so no chip target either.
+    if (isEmailNode(column)) return null;
     if (column.type === "json" && isJsonObject(value)) {
       const label = labels.jsonCapsule(Object.keys(value).length);
       return hits(label) ? { kind: "json", columnId: column.id } : null;

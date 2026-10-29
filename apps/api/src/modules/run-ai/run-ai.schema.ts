@@ -126,12 +126,26 @@ export const runAiSearchesSchema = z.object({
 export type RunAiSearches = z.infer<typeof runAiSearchesSchema>;
 
 /**
- * What an `email` run sent: the address (one of the row's email cells), the
- * drafted subject and plain-text body, the sender, Resend's message id and
- * when it went out (ISO). Present on a completed mail run, and on a failed
- * one whose send went out before the cell write failed.
+ * One recipient of an `email` run: the drafted subject and personalized
+ * plain-text body, and either the send receipt (`status: "sent"` with the
+ * sender, Resend's message id and when it went out, ISO) or
+ * `status: "failed"` with the reason. Present on a completed mail run, and
+ * on a failed one whose sends went out before the cell write failed.
  */
 export const runAiEmailSchema = z.object({
+  to: z.string(),
+  subject: z.string(),
+  body: z.string(),
+  status: z.enum(["sent", "failed"]),
+  from: z.string().optional(),
+  messageId: z.string().optional(),
+  sentAt: z.string().optional(),
+  error: z.string().optional(),
+});
+export type RunAiEmail = z.infer<typeof runAiEmailSchema>;
+
+/** Pre-040 single-send record, kept so stored results still parse. */
+const legacyRunAiEmailSchema = z.object({
   to: z.string(),
   subject: z.string(),
   body: z.string(),
@@ -139,22 +153,23 @@ export const runAiEmailSchema = z.object({
   messageId: z.string(),
   sentAt: z.string(),
 });
-export type RunAiEmail = z.infer<typeof runAiEmailSchema>;
 
 /**
  * Free-form JSON object on the run. `input` is what the run was given
  * (written on create); `output`, when present, is the value the run produced
  * for its cell — a plain cell value — and `complete` writes it into the Cell
- * row. `searches` is what a `google_search` run searched and read; `email`
- * is what an `email` run sent. Everything else (`model`, `usage`,
- * `error: { name, message }`) is kept as-is.
+ * row. `searches` is what a `google_search` run searched and read; `emails`
+ * is what an `email` run sent, one entry per recipient (`email`, singular,
+ * is the pre-040 single-send record on old runs). Everything else (`model`,
+ * `usage`, `error: { name, message }`) is kept as-is.
  */
 export const runAiResultSchema = z
   .object({
     input: runAiInputSchema.optional(),
     output: cellValueSchema.optional(),
     searches: runAiSearchesSchema.optional(),
-    email: runAiEmailSchema.optional(),
+    emails: z.array(runAiEmailSchema).optional(),
+    email: legacyRunAiEmailSchema.optional(),
   })
   .catchall(z.unknown());
 export type RunAiResult = z.infer<typeof runAiResultSchema>;

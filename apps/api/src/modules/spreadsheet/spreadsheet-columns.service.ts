@@ -1,6 +1,7 @@
 import { prisma } from "../../db/prisma";
 import {
   SpreadsheetColumnNameTakenError,
+  SpreadsheetEmailColumnTypeError,
   SpreadsheetPromptWithoutNodeError,
   SpreadsheetSortOrderOutOfRangeError,
 } from "./spreadsheet.errors";
@@ -11,7 +12,12 @@ import type {
   SheetColumn,
   UpdateColumnInput,
 } from "./spreadsheet.schema";
-import { toDbColumnType, toDbNodeType } from "./spreadsheet.schema";
+import {
+  toDbColumnType,
+  toDbNodeType,
+  toWireColumnType,
+  toWireNodeType,
+} from "./spreadsheet.schema";
 import { columnSelect, spreadsheetService } from "./spreadsheet.service";
 import { toSheetColumn } from "./spreadsheet.shape";
 
@@ -64,6 +70,11 @@ export class SpreadsheetColumnsService {
     prompt,
   }: CreateColumnInput): Promise<SheetColumn> {
     await spreadsheetService.byId(id);
+    // A Mail column records `{address: email | "FAILED"}`, which only json
+    // holds (docs/features/run-ai.md).
+    if (node === "email" && type !== "json") {
+      throw new SpreadsheetEmailColumnTypeError(type);
+    }
     await this.assertNameFree(id, name);
     const max = await prisma.column.aggregate({
       where: { spreadsheetId: id },
@@ -110,6 +121,18 @@ export class SpreadsheetColumnsService {
       prompt !== undefined ? prompt : node === null ? null : stored.prompt;
     if (effectiveNode === null && effectivePrompt !== null) {
       throw new SpreadsheetPromptWithoutNodeError();
+    }
+    // The effective pair may never be a non-json Mail column (see create).
+    const effectiveWireNode =
+      effectiveNode === null
+        ? null
+        : node !== undefined
+          ? node
+          : toWireNodeType(stored.node as string);
+    const effectiveType =
+      type !== undefined ? type : toWireColumnType(stored.type);
+    if (effectiveWireNode === "email" && effectiveType !== "json") {
+      throw new SpreadsheetEmailColumnTypeError(effectiveType);
     }
     if (name !== undefined) await this.assertNameFree(id, name, columnIndex);
     const record = await prisma.column.update({
