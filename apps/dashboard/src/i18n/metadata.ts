@@ -13,7 +13,8 @@ export async function pageMetadata(
     | "settings"
     | "publicForm"
     | "onboarding"
-    | "chat",
+    | "chat"
+    | "login",
 ): Promise<Metadata> {
   const t = await getTranslations(namespace);
   return { title: t("title"), description: t("description") };

@@ -22,7 +22,8 @@
  *   status: string;                       // lowercase: "pending" | "running" | "completed" | "failed" | "<custom>"
  *   credit: number;
  *   result: ({ input?: RunAiInput; output?: CellValue;
- *              searches?: RunAiSearches }               // google_search only
+ *              searches?: RunAiSearches                 // google_search only
+ *              email?: RunAiEmail }                     // email only: what was sent
  *            & Record<string, unknown>) | null;
  *   createdAt: Date; updatedAt: Date;
  * }
@@ -36,6 +37,13 @@
  * RunAiSearches = {                       // what a google_search run's grounded call did
  *   queries: string[];                    // the Google queries the model ran; never empty on a completed run
  *   sources: { url: string; title?: string }[];  // pages it grounded on: Google redirect URLs, title = the domain; deduped, at most 20
+ * }
+ * RunAiEmail = {                          // what an email (Mail) run sent
+ *   to: string;                           // one of the row's email cells, as the row spells it
+ *   subject: string; body: string;        // plain text, drafted by Gemini
+ *   from: string;                         // RESEND_FROM, default "Reclit <noreply@reclit.com>"
+ *   messageId: string;                    // Resend's id
+ *   sentAt: string;                       // ISO time the send returned
  * }
  * RunAiJobPayload = { runId: string; input: RunAiInput }       // the Trigger.dev `run-ai-cell` payload
  * RunAiBatchJob = {                        // the Trigger.dev `run-ai-batch` payload — one per Run click
@@ -144,6 +152,24 @@
  *   completing from memory. The queries and pages are `result.searches`;
  *   `result.attachments` is always `[]` (file cells go in as text, nothing
  *   is fetched) and `result.usage` is both calls summed.
+ * - An `email` (Mail) column SENDS REAL EMAIL. It is runnable with a node, a
+ *   prompt, and a `string` or `json` type (any other type is skipped like a
+ *   promptless column). `prepare` gives it the same input as every node. The
+ *   cell task drafts `{ to, subject, body }` with one Gemini call (structured
+ *   output, no tools) from the prompt and the row — the previous step's
+ *   output, when there is one, is the primary input and is copied verbatim
+ *   when the prompt says to send it — then sends it through Resend
+ *   (`POST https://api.resend.com/emails`, plain text, `Idempotency-Key` =
+ *   the run id, so a worker re-execution never sends twice). `to` must be one
+ *   of the row's `email`-typed cells holding a valid address (trimmed,
+ *   case-insensitive): a row with none, or a model that names another
+ *   address, FAILS the cell before anything is sent. A completed run has
+ *   `result.email` and `output` = `"Sent to <to>: <subject>"` in a string
+ *   column, `{ to, subject, body, messageId, sentAt }` in a json column. If
+ *   the cell write fails after the send, the run fails WITH `result.email`:
+ *   a failed mail run that carries it did send. Every Run is a new run and a
+ *   new send; a mail column also sends from `runRow` (every public form
+ *   submission) and from onboarding's final step.
  * - The stream is a generation, not a socket. A sheet should be streaming
  *   exactly while it has a run that is not `completed` / `failed`:
  *   `listActive` answers that on page load (non-empty → subscribe), the
@@ -202,6 +228,7 @@ import type { CellSourceNote } from "../ai/cell-prompt";
 import {
   buildCellMessages,
   cellOutputSchema,
+  EMAIL_RULES,
   formatCellLine,
   SEARCH_RULES,
   TYPE_RULES,
@@ -213,6 +240,12 @@ import {
   summariseTranscripts,
 } from "../ai/cell-transcripts";
 import { type TranscribeFetch, transcribeAudio } from "../ai/elevenlabs";
+import { generateEmailCellValue } from "../ai/email-output";
+import {
+  emailCellValue,
+  emailRecipients,
+  resolveRecipient,
+} from "../ai/email-prompt";
 import type { CrawlFetch } from "../ai/firecrawl";
 import {
   CRAWL_OPTIONS,
@@ -224,6 +257,12 @@ import {
   FirecrawlError,
   startCrawl,
 } from "../ai/firecrawl";
+import {
+  DEFAULT_RESEND_FROM,
+  RESEND_API_URL,
+  type SendEmailFetch,
+  sendEmail,
+} from "../ai/resend";
 import {
   buildSearchExtractMessages,
   MAX_SEARCH_SOURCES,
@@ -247,6 +286,7 @@ import type {
   CreateRunAiInput,
   RunAiBatchJob,
   RunAiChange,
+  RunAiEmail,
   RunAiInput,
   RunAiInputCell,
 } from "../modules/run-ai/run-ai.schema";
@@ -2629,5 +2669,304 @@ describe("run-ai-cell task crawls (pure)", () => {
     expect(prompt.indexOf("Content of the website")).toBeLessThan(
       prompt.indexOf('Fill the column "Summary".'),
     );
+  });
+});
+
+describe.skipIf(!dbUp)("email (Mail) node", () => {
+  // Contact (email) | Mail (string, email node, prompt) | Mail log (json,
+  // email node, prompt) | Mail count (number, email node, prompt) | Unwritten
+  // (string, email node, no prompt) — runnability is asserted against the
+  // last four.
+  let sheet = "";
+  let workspaceId = "";
+  let contactColumn = 0;
+  let mailColumn = 0;
+  let logColumn = 0;
+  let countColumn = 0;
+  let unwrittenColumn = 0;
+
+  beforeAll(async () => {
+    const workspace = await makeWorkspace("run-ai email");
+    workspaceId = workspace.id;
+    sheet = workspace.spreadsheetId ?? "";
+    const create = (
+      name: string,
+      over: Partial<Parameters<typeof caller.spreadsheet.createColumn>[0]> = {},
+    ) =>
+      caller.spreadsheet
+        .createColumn({ id: sheet, name, ...over })
+        .then((column) => column.index);
+    contactColumn = await create("Contact", { type: "email" });
+    mailColumn = await create("Mail", {
+      node: "email",
+      prompt: "Invite them to Friday's demo",
+    });
+    logColumn = await create("Mail log", {
+      type: "json",
+      node: "email",
+      prompt: "Send the previous step as it is",
+    });
+    countColumn = await create("Mail count", {
+      type: "number",
+      node: "email",
+      prompt: "Say hi",
+    });
+    unwrittenColumn = await create("Unwritten", { node: "email" });
+    await caller.spreadsheet.updateRow({
+      id: sheet,
+      rowIndex: 0,
+      cells: [{ columnIndex: contactColumn, value: "ada@example.test" }],
+    });
+  });
+
+  afterAll(async () => {
+    if (workspaceId) await removeWorkspace(workspaceId);
+  });
+
+  it("runs a mail column with a prompt on a string or json column, nothing else", async () => {
+    const runs = await caller.runAi.runCells({
+      id: sheet,
+      rowIndexes: [0],
+      columnIndexes: [
+        contactColumn,
+        mailColumn,
+        logColumn,
+        countColumn,
+        unwrittenColumn,
+      ],
+    });
+    expect(runs.map((run) => run.cellId)).toEqual([
+      `${sheet}.cell.0.${mailColumn}`,
+      `${sheet}.cell.0.${logColumn}`,
+    ]);
+    await runAiService.failPending(
+      runs.map((run) => run.id),
+      { error: { name: "ContractCleanup", message: "not executed" } },
+    );
+  });
+
+  it("prepares a mail cell with the whole row and the email node", async () => {
+    const [run] = await caller.runAi.runCells({
+      id: sheet,
+      rowIndexes: [0],
+      columnIndexes: [mailColumn],
+    });
+    if (!run) throw new Error("no run");
+    const { input } = await runAiBatchService.prepare(run.id);
+    expect(input.target).toMatchObject({
+      index: mailColumn,
+      type: "string",
+      node: "email",
+    });
+    expect(input.prompt).toBe("Invite them to Friday's demo");
+    expect(emailRecipients(input)).toEqual(["ada@example.test"]);
+    await runAiService.fail(run.id);
+  });
+});
+
+describe("email (Mail) node (pure)", () => {
+  const cell = (
+    index: number,
+    name: string,
+    type: RunAiInputCell["type"],
+    value: RunAiInputCell["value"],
+  ): RunAiInputCell => ({ id: `col.${index}`, index, name, type, value });
+  const input: RunAiInput = {
+    prompt: "Invite them to Friday's demo",
+    target: {
+      id: "col.4",
+      index: 4,
+      name: "Mail",
+      type: "string",
+      node: "email",
+    },
+    row: {
+      id: "row.0",
+      index: 0,
+      cells: [
+        cell(0, "Name", "string", "Ada"),
+        cell(1, "Work email", "email", " Ada@Example.test "),
+        cell(2, "Home email", "email", "ada@example.test"),
+        cell(3, "Backup", "email", "not-an-address"),
+        cell(5, "Manager", "email", "grace@example.test"),
+        cell(4, "Mail", "string", null),
+      ],
+    },
+  };
+  const sent: RunAiEmail = {
+    to: "Ada@Example.test",
+    subject: "Demo on Friday",
+    body: "Hi Ada,\nJoin us Friday.",
+    from: "Reclit <noreply@reclit.com>",
+    messageId: "msg-1",
+    sentAt: "2026-10-21T10:00:00.000Z",
+  };
+
+  it("offers the row's valid email cells as recipients, trimmed and deduped", () => {
+    expect(emailRecipients(input)).toEqual([
+      "Ada@Example.test",
+      "grace@example.test",
+    ]);
+  });
+
+  it("accepts the model's address only when the row holds it", () => {
+    const recipients = emailRecipients(input);
+    expect(resolveRecipient("  ada@example.TEST ", recipients)).toBe(
+      "Ada@Example.test",
+    );
+    expect(resolveRecipient("grace@example.test", recipients)).toBe(
+      "grace@example.test",
+    );
+    expect(resolveRecipient("eve@evil.test", recipients)).toBeNull();
+  });
+
+  it("tells a mail cell to pick an allowed recipient instead of a typed answer", () => {
+    const { system, prompt } = buildCellMessages(input);
+    expect(system).toContain(EMAIL_RULES);
+    expect(system).toContain(
+      "Allowed recipients: Ada@Example.test, grace@example.test",
+    );
+    expect(system).not.toContain(`Answer with ${TYPE_RULES.string}`);
+    expect(system).toContain("Invite them to Friday's demo");
+    expect(prompt).toContain("Work email (email):  Ada@Example.test ");
+    expect(prompt).toContain('Fill the column "Mail".');
+  });
+
+  it("names the previous step as the text to forward when there is one", () => {
+    const { system, prompt } = buildCellMessages({
+      ...input,
+      previous: cell(6, "Draft", "string", "Hello from the draft"),
+    });
+    expect(system).toContain('filled the column "Draft"');
+    expect(prompt).toContain("Draft (string): Hello from the draft");
+  });
+
+  it("records a summary in a text cell and the record in a JSON cell", () => {
+    expect(emailCellValue(sent, "string")).toBe(
+      "Sent to Ada@Example.test: Demo on Friday",
+    );
+    expect(emailCellValue(sent, "json")).toEqual({
+      to: "Ada@Example.test",
+      subject: "Demo on Friday",
+      body: "Hi Ada,\nJoin us Friday.",
+      messageId: "msg-1",
+      sentAt: "2026-10-21T10:00:00.000Z",
+    });
+  });
+
+  it("fails a row with no email address before drafting or sending", async () => {
+    let called = false;
+    const fetchImpl: SendEmailFetch = async () => {
+      called = true;
+      throw new Error("must not send");
+    };
+    const error = await expectError(
+      generateEmailCellValue(
+        {
+          ...input,
+          row: { ...input.row, cells: [cell(0, "Name", "string", "Ada")] },
+        },
+        { runId: "run-1", fetchImpl },
+      ),
+      Error,
+    );
+    expect(error.message).toContain("no email cell with a valid address");
+    expect(called).toBe(false);
+  });
+});
+
+describe("Resend client (pure)", () => {
+  // The key is read per call, so a fake one is enough to reach the fake fetch.
+  const originalKey = process.env.RESEND_API_KEY;
+  const originalFrom = process.env.RESEND_FROM;
+  process.env.RESEND_API_KEY = "contract-test-key";
+  delete process.env.RESEND_FROM;
+  afterAll(() => {
+    if (originalKey === undefined) delete process.env.RESEND_API_KEY;
+    else process.env.RESEND_API_KEY = originalKey;
+    if (originalFrom === undefined) delete process.env.RESEND_FROM;
+    else process.env.RESEND_FROM = originalFrom;
+  });
+
+  const email = {
+    to: "ada@example.test",
+    subject: "Demo on Friday",
+    text: "Hi Ada",
+    idempotencyKey: "run-123",
+  };
+  const answering =
+    (
+      status: number,
+      body: unknown,
+      seen?: { calls: unknown[] },
+    ): SendEmailFetch =>
+    async (url, init) => {
+      seen?.calls.push({ url, ...init, body: JSON.parse(init.body) });
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        text: async () => JSON.stringify(body),
+        json: async () => body,
+      };
+    };
+
+  it("posts one JSON email with the bearer key and the run as idempotency key", async () => {
+    const seen = { calls: [] as unknown[] };
+    const sent = await sendEmail(email, answering(200, { id: "msg-1" }, seen));
+    expect(sent).toEqual({ id: "msg-1", from: DEFAULT_RESEND_FROM });
+    expect(seen.calls).toHaveLength(1);
+    expect(seen.calls[0]).toMatchObject({
+      url: RESEND_API_URL,
+      method: "POST",
+      headers: {
+        Authorization: "Bearer contract-test-key",
+        "Content-Type": "application/json",
+        "Idempotency-Key": "run-123",
+      },
+      body: {
+        from: "Reclit <noreply@reclit.com>",
+        to: ["ada@example.test"],
+        subject: "Demo on Friday",
+        text: "Hi Ada",
+      },
+    });
+  });
+
+  it("sends from RESEND_FROM when it is set", async () => {
+    process.env.RESEND_FROM = "Team <team@reclit.com>";
+    try {
+      const sent = await sendEmail(email, answering(200, { id: "msg-2" }));
+      expect(sent.from).toBe("Team <team@reclit.com>");
+    } finally {
+      delete process.env.RESEND_FROM;
+    }
+  });
+
+  it("throws on an HTTP error with the status, and on an answer with no id", async () => {
+    const refused = await expectError(
+      sendEmail(email, answering(403, { message: "domain not verified" })),
+      Error,
+    );
+    expect(refused.message).toContain("HTTP 403");
+    expect(refused.message).toContain("domain not verified");
+
+    const blank = await expectError(
+      sendEmail(email, answering(200, {})),
+      Error,
+    );
+    expect(blank.message).toBe("Resend returned no message id");
+  });
+
+  it("names the missing key instead of sending", async () => {
+    delete process.env.RESEND_API_KEY;
+    try {
+      const error = await expectError(
+        sendEmail(email, answering(200, { id: "never" })),
+        Error,
+      );
+      expect(error.message).toContain("RESEND_API_KEY is not set");
+    } finally {
+      process.env.RESEND_API_KEY = "contract-test-key";
+    }
   });
 });

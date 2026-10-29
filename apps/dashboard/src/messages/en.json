@@ -28,6 +28,20 @@
     "settings": "Settings",
     "logout": "Log out"
   },
+  "login": {
+    "title": "Sign in",
+    "description": "Sign in to your workspace.",
+    "heading": "Welcome back",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "passwordLabel": "Password",
+    "passwordPlaceholder": "Your password",
+    "submit": "Sign in",
+    "submitting": "Signing in...",
+    "invalidCredentials": "That email or password is incorrect.",
+    "error": "Something went wrong. Please try again.",
+    "checking": "Checking your session..."
+  },
   "workspace": {
     "newWorkspace": "New workspace",
     "create": {
@@ -39,6 +53,16 @@
       "submitting": "Creating...",
       "cancel": "Cancel",
       "error": "The workspace could not be created. Try again."
+    },
+    "remove": {
+      "title": "Delete workspace",
+      "description": "\"{name}\" and its spreadsheet data will be permanently deleted. This cannot be undone.",
+      "delete": "Delete",
+      "deleting": "Deleting...",
+      "cancel": "Cancel",
+      "error": "The workspace could not be deleted. Try again.",
+      "lastWorkspace": "You can't delete your last workspace.",
+      "iconLabel": "Delete workspace {name}"
     }
   },
   "settings": {
@@ -158,6 +182,7 @@
       "node": "Node",
       "prompt": "Prompt",
       "promptPlaceholder": "What should this node do?",
+      "mailPromptPlaceholder": "Who in this row to email and what to say, e.g. \"Invite them to Friday's demo\" or \"Send the Draft column as it is\". Sends on Run.",
       "add": "Add column",
       "reorder": "Drag and drop",
       "save": "Save",
@@ -166,7 +191,7 @@
     "nodes": {
       "none": "None",
       "ai": "AI",
-      "email": "Email",
+      "email": "Mail",
       "api": "API",
       "google_search": "Google Search"
     },

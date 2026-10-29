@@ -30,10 +30,10 @@ const NO_NODE = "none";
 const API_NODE = "api";
 type NodeChoice = NodeType | typeof NO_NODE | typeof API_NODE;
 
-/** Email stays on the wire for columns that already use it; neither can be picked. */
-const LOCKED_NODES = new Set<NodeChoice>(["email", API_NODE]);
+/** API is a picker label only, not a wire node, so it cannot be picked. */
+const LOCKED_NODES = new Set<NodeChoice>([API_NODE]);
 
-/** Picker order. API sits with Email, the two locked choices. */
+/** Picker order. */
 const NODE_CHOICES: NodeChoice[] = [
   NO_NODE,
   "ai",
@@ -66,6 +66,8 @@ type AiSpreadsheetColumnFormProps = {
     node: string;
     prompt: string;
     promptPlaceholder: string;
+    /** A Mail column's prompt is an email instruction, and it sends on Run. */
+    mailPromptPlaceholder: string;
     submit: string;
     cancel: string;
     typeNames: Record<ColumnType, string>;
@@ -78,7 +80,8 @@ type AiSpreadsheetColumnFormProps = {
 /**
  * Name, type, node and — when a node is chosen — its prompt, for both adding
  * and editing a column. The prompt is a node's whole configuration: an AI
- * column answers it from the row, a Google Search column searches for it.
+ * column answers it from the row, a Google Search column searches for it, a
+ * Mail column drafts and sends the email it describes.
  * Every control is a shared `@reclit/ui` primitive — see
  * `docs/rules/FRONTEND.md`.
  */
@@ -158,7 +161,13 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
               setNode(null);
               return;
             }
-            if (value === "ai" || value === "google_search") setNode(value);
+            if (
+              value === "ai" ||
+              value === "google_search" ||
+              value === "email"
+            ) {
+              setNode(value);
+            }
           }}
           options={NODE_CHOICES.map((option) => ({
             value: option,
@@ -175,7 +184,11 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
           <Textarea
             id={promptId}
             onChange={(event) => setPrompt(event.target.value)}
-            placeholder={labels.promptPlaceholder}
+            placeholder={
+              node === "email"
+                ? labels.mailPromptPlaceholder
+                : labels.promptPlaceholder
+            }
             rows={4}
             value={prompt}
           />

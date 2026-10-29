@@ -95,10 +95,13 @@ describe("planRunBatches runnability", () => {
     expect(runnableCount(search({ prompt: null }))).toBe(0);
   });
 
-  test("ignores a node with no executor", () => {
-    expect(
-      runnableCount(column("col.9", { node: "email", prompt: "hi" })),
-    ).toBe(0);
+  test("counts a mail column with a prompt on a text or JSON column only", () => {
+    const mail = (over: Partial<SheetColumn>) =>
+      column("col.9", { node: "email", prompt: "Say hi", ...over });
+    expect(runnableCount(mail({ type: "string" }))).toBe(1);
+    expect(runnableCount(mail({ type: "json" }))).toBe(1);
+    expect(runnableCount(mail({ type: "number" }))).toBe(0);
+    expect(runnableCount(mail({ prompt: null }))).toBe(0);
   });
 });
 

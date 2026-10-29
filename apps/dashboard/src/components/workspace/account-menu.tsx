@@ -11,29 +11,56 @@ import {
   DropdownMenuTrigger,
 } from "@reclit/ui/dropdown-menu";
 import { focusOutline } from "@reclit/ui/focus-ring";
-import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, LogOut, Plus, Settings } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Check,
+  ChevronsUpDown,
+  LogOut,
+  Plus,
+  Settings,
+  Trash2,
+} from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useTRPC } from "@/trpc/client";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
-import { useWorkspace } from "./workspace-provider";
+import { DeleteWorkspaceDialog } from "./delete-workspace-dialog";
+import { useWorkspace, type WorkspaceSummary } from "./workspace-provider";
 
 /**
  * The account block at the bottom of the sidebar: the user's avatar with the
  * active workspace's name and the user's email as the trigger, with a menu
  * (opening above it, sized to the trigger) that lists every
- * workspace (picking one makes it active), a "new workspace" entry, a link to
- * /settings and a log-out item. There is no auth yet — log out is UI only.
+ * workspace (picking one makes it active, its trash icon asks to delete it —
+ * hidden on the last workspace, which the API refuses to delete), a "new
+ * workspace" entry, a link to /settings and a log-out item that clears the
+ * session cookie and returns to /login (docs/features/auth.md).
  */
 export function AccountMenu({ collapsed }: { collapsed: boolean }) {
   const t = useTranslations("account");
   const tw = useTranslations("workspace");
   const trpc = useTRPC();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const me = useQuery(trpc.user.me.queryOptions());
   const { workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspace();
+  const [menuOpen, setMenuOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<WorkspaceSummary | null>(
+    null,
+  );
+
+  const logout = useMutation(
+    trpc.auth.logout.mutationOptions({
+      onSuccess: () => {
+        // Drop every cached query — the next sign-in must refetch it all.
+        queryClient.clear();
+        router.replace("/login");
+      },
+    }),
+  );
 
   const workspaceName = activeWorkspace?.name ?? "";
   const email = me.data?.email ?? "";
@@ -41,7 +68,7 @@ export function AccountMenu({ collapsed }: { collapsed: boolean }) {
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={setMenuOpen} open={menuOpen}>
         <DropdownMenuTrigger asChild>
           <Button
             aria-label={t("menuLabel")}
@@ -87,6 +114,7 @@ export function AccountMenu({ collapsed }: { collapsed: boolean }) {
         >
           {workspaces.map((workspace) => (
             <DropdownMenuItem
+              className="group"
               key={workspace.id}
               onSelect={() => setActiveWorkspaceId(workspace.id)}
             >
@@ -94,6 +122,27 @@ export function AccountMenu({ collapsed }: { collapsed: boolean }) {
               <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
               {workspace.id === activeWorkspace?.id && (
                 <Check className="text-primary" />
+              )}
+              {/* The API refuses deleting the last workspace, so the icon
+                  only shows when there is another one to fall back to —
+                  and only while its row is highlighted, like a row action,
+                  not a permanent control. */}
+              {workspaces.length > 1 && (
+                <button
+                  aria-label={tw("remove.iconLabel", { name: workspace.name })}
+                  className="shrink-0 rounded-sm text-muted-foreground/70 opacity-0 hover:text-destructive focus-visible:opacity-100 group-data-[highlighted]:opacity-100"
+                  onClick={(event) => {
+                    // A click inside the item must not also select the
+                    // workspace or keep the menu under the dialog.
+                    event.stopPropagation();
+                    setMenuOpen(false);
+                    setDeleteTarget(workspace);
+                  }}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  type="button"
+                >
+                  <Trash2 className="size-icon" strokeWidth={1.5} />
+                </button>
               )}
             </DropdownMenuItem>
           ))}
@@ -108,7 +157,7 @@ export function AccountMenu({ collapsed }: { collapsed: boolean }) {
               {t("settings")}
             </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => logout.mutate()}>
             <LogOut />
             {t("logout")}
           </DropdownMenuItem>
@@ -116,6 +165,12 @@ export function AccountMenu({ collapsed }: { collapsed: boolean }) {
       </DropdownMenu>
 
       <CreateWorkspaceDialog onOpenChange={setCreateOpen} open={createOpen} />
+      <DeleteWorkspaceDialog
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        workspace={deleteTarget}
+      />
     </>
   );
 }

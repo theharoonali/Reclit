@@ -36,7 +36,8 @@ apps/api (NestJS on Bun, port 4001)
         ├── run-ai-cell: calls the same services → the row's audio through ElevenLabs,
         │                its url cells through crawl-website (both cached in ExternalApi)
         │                → Gemini via src/ai/ (grounded with the google_search tool for a
-        │                google_search column) → writes the run + cell
+        │                google_search column; drafting an email for an email column,
+        │                then sending it through Resend) → writes the run + cell
         ├── crawl-website: one site through Firecrawl → ExternalApi, reused from any cell
         └── assistant-run: the header capsule's prompt as a Gemini tool loop over the
                            spreadsheet + dashboard services, one tool call at a time; a
@@ -79,7 +80,8 @@ packages/dashboard-engine → the dashboard's formula + query engine (pure TS): 
   `src/jobs/<feature>-dispatch.ts` registers from `src/main.ts` — not from
   `bootstrap.ts`, so the test suite stays network-free.
 - `src/ai/` holds the model providers (`gemini.ts` for the Vercel AI SDK,
-  `elevenlabs.ts` for Speech-to-Text, `firecrawl.ts` for crawling) and the
+  `elevenlabs.ts` for Speech-to-Text, `firecrawl.ts` for crawling, `resend.ts`
+  for sending a mail cell's email) and the
   helpers a task composes: the prompt (`cell-prompt.ts`), the row's
   attachments (`cell-attachments.ts`), its audio transcripts
   (`cell-transcripts.ts`) and its crawled websites (`cell-crawls.ts`), the
@@ -166,6 +168,7 @@ no Prisma code; `bunx turbo build` is the check.
 | `ELEVENLABS_API_KEY` | api, worker | ElevenLabs Speech-to-Text (`src/ai/elevenlabs.ts`): the worker transcribes audio cells (without it the prompt says the audio could not be transcribed); the api transcribes the header capsule's mic recording through `POST /assistant/transcribe` (without it the route answers 503) |
 | `ASSISTANT_MODEL` | api, worker | optional; the Gemini model the assistant's tool loop (worker) and its recommendation call (api) use (`src/ai/assistant-step.ts`), default `gemini-2.5-flash` |
 | `FIRECRAWL_API_KEY` | worker | Firecrawl for url cells (`src/ai/firecrawl.ts`, the `crawl-website` task); same two places; without it the prompt says the site could not be crawled |
+| `RESEND_API_KEY`, `RESEND_FROM` | worker | Resend for mail (`email`) cells (`src/ai/resend.ts`); `RESEND_FROM` is optional, default `Reclit <noreply@reclit.com>`; same two places; without the key a mail cell fails with the reason |
 | `NEXT_PUBLIC_API_URL` | dashboard | browser tRPC target (default `http://localhost:4001`) |
 | `API_INTERNAL_URL` | dashboard | optional SSR-side override |
 

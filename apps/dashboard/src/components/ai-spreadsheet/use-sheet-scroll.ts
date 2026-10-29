@@ -42,8 +42,13 @@ export function useSheetScroll(args: {
   spacerRef: React.RefObject<HTMLDivElement | null>;
   viewportRef: React.RefObject<Viewport>;
   requestPaint: () => void;
+  /** The user scrolled (wheel, thumb, keys): anything anchored to a cell is stale. */
+  onScrolled?: () => void;
 }): SheetScrollApi {
   const { scrollerRef, spacerRef, viewportRef, requestPaint } = args;
+  // Read through a ref so a new callback never re-binds the listeners.
+  const onScrolledRef = useRef(args.onScrolled);
+  onScrolledRef.current = args.onScrolled;
   const scaleRef = useRef(1);
   const syncingRef = useRef(false);
 
@@ -123,6 +128,7 @@ export function useSheetScroll(args: {
 
       if (!extendTail()) applyNative();
       requestPaint();
+      onScrolledRef.current?.();
     };
 
     // Thumb drags, touch flings, PageUp/Down and keyboard scrolling all land
@@ -138,6 +144,7 @@ export function useSheetScroll(args: {
       viewport.scrollX = scroller.scrollLeft;
       extendTail();
       requestPaint();
+      onScrolledRef.current?.();
     };
 
     // React's onWheel is passive at the root, so preventDefault() there is a

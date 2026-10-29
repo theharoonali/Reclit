@@ -12,6 +12,7 @@ import type {
   SheetPayload,
 } from "@/lib/ai-spreadsheet/types";
 import { AiSpreadsheetBody } from "./ai-spreadsheet-body";
+import { AiSpreadsheetCellTooltip } from "./ai-spreadsheet-cell-tooltip";
 import { AiSpreadsheetColumnForm } from "./ai-spreadsheet-column-form";
 import { AiSpreadsheetDateEditor } from "./ai-spreadsheet-date-editor";
 import { AiSpreadsheetDragChip } from "./ai-spreadsheet-drag-chip";
@@ -482,6 +483,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
           onDoubleClick={canvas.handleBodyDoubleClick}
           onPointerCancel={canvas.handleBodyPointerCancel}
           onPointerDown={canvas.handleBodyPointerDown}
+          onPointerLeave={canvas.handleBodyPointerLeave}
           onPointerMove={canvas.handleBodyPointerMove}
           onPointerUp={canvas.handleBodyPointerUp}
           rowCount={payload.spreadsheet.totalRows}
@@ -491,6 +493,11 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
           <AiSpreadsheetInputProxy
             editor={canvas.editor}
             label={t("cellInput")}
+          />
+          <AiSpreadsheetCellTooltip
+            onPointerEnter={canvas.holdHover}
+            onPointerLeave={canvas.clearHover}
+            tooltip={canvas.cellTooltip}
           />
         </AiSpreadsheetBody>
 
@@ -513,6 +520,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
                 node: t("column.node"),
                 prompt: t("column.prompt"),
                 promptPlaceholder: t("column.promptPlaceholder"),
+                mailPromptPlaceholder: t("column.mailPromptPlaceholder"),
                 submit: editedColumn ? t("column.save") : t("column.add"),
                 cancel: t("column.cancel"),
                 typeNames: labels.typeNames,

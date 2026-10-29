@@ -22,6 +22,7 @@
  *
  * ColumnType (db): STRING NUMBER BOOLEAN DATE JSON FORMULA AUDIO FILE EMAIL URL
  * NodeType (db): AI EMAIL GOOGLE_SEARCH — a column's automated-processing kind; null = none.
+ *   EMAIL is the Mail node: it sends real email when run (run-ai contract).
  * On the wire both vocabularies are lowercase ("string", "audio", "ai", ...).
  *
  * MODELS (wire — ids are always the short form)

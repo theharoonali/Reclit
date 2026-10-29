@@ -47,7 +47,7 @@ export function PopulatePanel() {
         </p>
 
         <div className="flex items-center gap-3">
-        <Switch
+          <Switch
             checked={output.enabled}
             disabled={!spreadsheetId || output.isLoading || output.isPending}
             id={switchId}

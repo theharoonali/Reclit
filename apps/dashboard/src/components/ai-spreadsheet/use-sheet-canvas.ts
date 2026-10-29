@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useCanvasSurface } from "@/hooks/use-canvas-surface";
+import {
+  CELL_TOOLTIP_DELAY_MS,
+  CELL_TOOLTIP_GRACE_MS,
+  cellTooltipContent,
+} from "@/lib/ai-spreadsheet/cell-tooltip";
 import { dropTarget, previewOrder } from "@/lib/ai-spreadsheet/column-order";
 import {
   COL_WIDTH,
@@ -14,14 +19,16 @@ import { paintBody } from "@/lib/ai-spreadsheet/paint-body";
 import { paintEditor } from "@/lib/ai-spreadsheet/paint-editor";
 import { paintHeader } from "@/lib/ai-spreadsheet/paint-header";
 import { selectAllState } from "@/lib/ai-spreadsheet/row-selection";
-import type {
-  CellValue,
-  ColumnDragState,
-  RangeDragState,
-  SheetFormatters,
-  SheetHit,
-  SheetLabels,
-  SheetModel,
+import {
+  type CellAddress,
+  type CellValue,
+  type ColumnDragState,
+  cellKey,
+  type RangeDragState,
+  type SheetFormatters,
+  type SheetHit,
+  type SheetLabels,
+  type SheetModel,
 } from "@/lib/ai-spreadsheet/types";
 import { useCellEditor } from "./use-cell-editor";
 import { createColumnDragHandlers } from "./use-column-drag";
@@ -97,6 +104,98 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   // crosses onto or off a grip — not on the paint path — because a tooltip
   // needs a real DOM anchor and a real `open` prop.
   const [gripCol, setGripCol] = useState<number | null>(null);
+  // The cell whose full-content tooltip is open. Same rule as `gripCol`: it
+  // changes when the pointer settles on another cell, never per move. The
+  // refs hold what the pointer is over now (`hoverTargetRef`, maybe still
+  // waiting out the delay) and what the state last became (`hoverShownRef`),
+  // so a scroll or a drag can close it without a render when nothing is open.
+  // The tooltip is itself hoverable — a long value scrolls inside it — so
+  // leaving the cell does not close it at once: the change waits
+  // `CELL_TOOLTIP_GRACE_MS`, and reaching the tooltip in that time keeps it
+  // open (`hoverPinnedRef`) until the pointer leaves the tooltip.
+  const [hoverCell, setHoverCell] = useState<CellAddress | null>(null);
+  const hoverTargetRef = useRef<CellAddress | null>(null);
+  const hoverShownRef = useRef<CellAddress | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverPinnedRef = useRef(false);
+
+  const cancelHoverTimer = useCallback(() => {
+    if (hoverTimerRef.current !== null) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  }, []);
+
+  /** Closes the tooltip now: a press, a scroll, a drag, the pointer leaving it. */
+  const clearHover = useCallback(() => {
+    hoverTargetRef.current = null;
+    hoverPinnedRef.current = false;
+    cancelHoverTimer();
+    if (hoverShownRef.current !== null) {
+      hoverShownRef.current = null;
+      setHoverCell(null);
+    }
+  }, [cancelHoverTimer]);
+
+  /**
+   * The body pointer is over `hit`. A new cell opens its tooltip after
+   * `CELL_TOOLTIP_DELAY_MS`; while one is open, moving to another cell or
+   * off the cells waits `CELL_TOOLTIP_GRACE_MS`, so the pointer can cross
+   * onto the tooltip to scroll it.
+   */
+  const onCellHover = useCallback(
+    (hit: SheetHit) => {
+      if (hoverPinnedRef.current) return;
+      const open = hoverShownRef.current !== null;
+      if (hit.kind !== "cell") {
+        if (!open) {
+          clearHover();
+          return;
+        }
+        if (hoverTargetRef.current === null) return;
+        hoverTargetRef.current = null;
+        cancelHoverTimer();
+        hoverTimerRef.current = setTimeout(clearHover, CELL_TOOLTIP_GRACE_MS);
+        return;
+      }
+      const current = hoverTargetRef.current;
+      if (current && current.row === hit.row && current.col === hit.col) {
+        return;
+      }
+      const target = { row: hit.row, col: hit.col };
+      hoverTargetRef.current = target;
+      cancelHoverTimer();
+      const shown = hoverShownRef.current;
+      if (shown && shown.row === target.row && shown.col === target.col) {
+        return; // back on the open cell before the grace ran out
+      }
+      const show = () => {
+        hoverTimerRef.current = null;
+        hoverShownRef.current = target;
+        setHoverCell(target);
+      };
+      hoverTimerRef.current = setTimeout(
+        show,
+        open ? CELL_TOOLTIP_GRACE_MS : CELL_TOOLTIP_DELAY_MS,
+      );
+    },
+    [cancelHoverTimer, clearHover],
+  );
+
+  /** The pointer reached the open tooltip: keep it until the pointer leaves. */
+  const holdHover = useCallback(() => {
+    if (hoverShownRef.current === null) return;
+    cancelHoverTimer();
+    hoverPinnedRef.current = true;
+    hoverTargetRef.current = hoverShownRef.current;
+  }, [cancelHoverTimer]);
+
+  useEffect(
+    () => () => {
+      if (hoverTimerRef.current !== null) clearTimeout(hoverTimerRef.current);
+    },
+    [],
+  );
 
   const view = useSheetViewport(
     rowCount,
@@ -109,6 +208,8 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     spacerRef,
     viewportRef,
     requestPaint,
+    // The tooltip's anchor was placed for the old scroll position.
+    onScrolled: clearHover,
   });
 
   // Measured against the scroller's client box, not its own parent — the
@@ -204,7 +305,9 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   /** For post-delete cleanup: a stale hover would paint a ghost affordance. */
   const resetHover = useCallback(() => {
     hoverRef.current = { kind: "empty" };
-  }, []);
+    // A column was removed or moved: the hovered cell names another column.
+    clearHover();
+  }, [clearHover]);
 
   /** Parks the hidden textarea over the active cell — see the proxy's docs. */
   const positionProxy = useCallback(() => {
@@ -322,6 +425,8 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     editor,
     drag: columnDrag,
     onGripHover: setGripCol,
+    onCellHover,
+    onCellHoverEnd: clearHover,
     getCell,
     requestPaint,
     onOpenJson,
@@ -345,6 +450,41 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
           y: headerGripRect(gripCol).y,
         };
 
+  // The hovered cell's box in body-canvas space and what its tooltip says,
+  // read at render like `gripAnchor`. Nothing while that cell is being
+  // edited: the editor already shows the whole value.
+  const hoverColumn =
+    hoverCell === null ? undefined : modelRef.current?.columns[hoverCell.col];
+  const editorState = editorRef.current;
+  const editingHovered =
+    hoverCell !== null &&
+    editorState.mode === "editing" &&
+    editorState.active?.row === hoverCell.row &&
+    editorState.active?.col === hoverCell.col;
+  const cellTooltip =
+    hoverCell === null || hoverColumn === undefined || editingHovered
+      ? null
+      : (() => {
+          const content = cellTooltipContent(
+            getCell(hoverCell.row, hoverColumn.id),
+            hoverColumn.type,
+            runs.runsRef.current.get(cellKey(hoverCell.row, hoverColumn.id)),
+            labels,
+            formatters,
+          );
+          if (content === null) return null;
+          const viewport = viewportRef.current;
+          return {
+            content,
+            anchor: {
+              x: GUTTER_WIDTH + hoverCell.col * COL_WIDTH - viewport.scrollX,
+              y: hoverCell.row * ROW_HEIGHT - viewport.scrollY,
+              width: COL_WIDTH,
+              height: ROW_HEIGHT,
+            },
+          };
+        })();
+
   return {
     bodyCanvasRef: body.canvasRef,
     headerCanvasRef: header.canvasRef,
@@ -355,6 +495,9 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     requestPaint,
     resetHover,
     gripAnchor,
+    cellTooltip,
+    clearHover,
+    holdHover,
     ...pointer,
   };
 }

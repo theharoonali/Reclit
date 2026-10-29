@@ -8,7 +8,7 @@ import { useLatestRef } from "@/hooks/use-latest-ref";
 export type OrbState = "idle" | "listening" | "running";
 
 /**
- * How fast the ribbons play, per state. Idle is the design's own tempo;
+ * How fast the field plays, per state. Idle is the canvas's own tempo;
  * listening and running speed the same motion up.
  */
 const TEMPO: Record<OrbState, number> = {
@@ -17,169 +17,216 @@ const TEMPO: Record<OrbState, number> = {
   running: 2.6,
 };
 
-/** The still frame when the user prefers reduced motion. */
+/** Seconds into the motion when the user prefers reduced motion. */
 const STILL_TIME = 1.15;
 
-type Rgb = readonly [number, number, number];
+/** The solving canvas's playback rate, applied on top of `TEMPO`. */
+const SPEED = 1.82 * 0.8;
 
-type Wave = {
-  shift: number;
-  color: Rgb;
-  core: Rgb;
+const MOVE_COUNT = 14;
+
+/** The 28px icon the field was tuned for. Larger canvases keep its spacing. */
+const ICON_PX = 28;
+
+type Axis = 0 | 1 | 2;
+
+type Move = {
+  axis: Axis;
+  lo: number;
+  hi: number;
+  ang: number;
 };
 
-/** Two waves across the disc. Colours are the orb's own, not theme tokens. */
-const WAVES: Wave[] = [
-  { shift: 0, color: [64, 168, 255], core: [236, 247, 255] },
-  { shift: 1, color: [255, 52, 36], core: [255, 186, 150] },
-];
+type Field = {
+  latRings: number;
+  lonDensity: number;
+  rBase: number;
+  rDepth: number;
+  rActive: number;
+  inkFar: number;
+  inkSpan: number;
+  rsPow: number;
+  rMin: number;
+};
 
-const STEPS = 140;
+type Dot = {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  white: number;
+};
 
-function motion(time: number) {
-  const morph = 0.5 + 0.5 * Math.sin(time * 0.27);
+type Twist = {
+  amount: number[];
+  active: number;
+};
+
+function hash(x: number, y: number) {
+  const n = 43758.5453 * Math.sin(12.9898 * x + 78.233 * y);
+  return n - Math.floor(n);
+}
+
+function axisOf(i: number): Axis {
+  const axis = Math.min(2, Math.floor(3 * hash(i, 2.3)));
+  if (axis === 0 || axis === 1) return axis;
+  return 2;
+}
+
+function buildMoves(count: number): Move[] {
+  const list: Move[] = [];
+  for (let i = 0; i < count; i++) {
+    const lo = -1 + 0.5 * Math.min(3, Math.floor(4 * hash(i, 5.9)));
+    const dir = hash(i, 7.7) > 0.5 ? -1 : 1;
+    list.push({
+      axis: axisOf(i),
+      lo,
+      hi: lo + 0.5,
+      ang: (dir * Math.PI) / 2,
+    });
+  }
+  return list;
+}
+
+const MOVES = buildMoves(MOVE_COUNT);
+
+/**
+ * Ring counts from the solving canvas (`count` 0.35), scaled so a canvas
+ * larger than the 28px icon keeps the same dust instead of a sparse shell.
+ */
+function fieldFor(size: number): Field {
+  const density = Math.sqrt(0.35) * (size / ICON_PX);
+  const sizeMul = 1.05;
   return {
-    freq: 0.92 + morph * 0.78,
-    amp: 0.24 + morph * 0.14,
-    split: 0.35 + 2.35 * (0.5 + 0.5 * Math.sin(time * 0.19)),
+    latRings: Math.max(2, Math.round(15 * density)),
+    lonDensity: Math.max(2, Math.round(40 * density)),
+    rBase: 0.6 * sizeMul,
+    rDepth: 1.7 * sizeMul,
+    rActive: 0.3 * sizeMul,
+    inkFar: 0.62,
+    inkSpan: 0.54,
+    rsPow: 0.6,
+    rMin: 0.3,
   };
 }
 
-function waveY(across: number, time: number, shift: number) {
-  const m = motion(time);
-  const breathe = 0.84 + 0.16 * Math.sin(time * 0.58 + shift * 1.7);
-  const phase = time * 0.82 + shift * m.split;
-  const p = across * Math.PI * m.freq + phase;
-  const shape = Math.sin(p) + 0.14 * Math.sin(p * 2 + 0.5);
-  const env = Math.max(0, 1 - across * across) ** 0.72;
-  return shape * m.amp * breathe * env;
+function project(yaw: number, pitch: number, size: number) {
+  const sp = Math.sin(pitch);
+  const cp = Math.cos(pitch);
+  const sy = Math.sin(yaw);
+  const cy = Math.cos(yaw);
+  const ox = size / 2;
+  const oy = size / 2;
+  const scale = (size / 2) * 0.82;
+  return (x: number, y: number, z: number) => {
+    const u = -x * sy + z * cy;
+    return [
+      ox + (x * cy + z * sy) * scale,
+      oy - (y * cp - u * sp) * scale,
+      y * sp + u * cp,
+    ] as const;
+  };
 }
 
-function ribbonPath(
-  ctx: CanvasRenderingContext2D,
-  time: number,
-  shift: number,
-  cx: number,
-  cy: number,
-  radius: number,
-  bulk: number,
-) {
-  const upper: [number, number][] = [];
-  const lower: [number, number][] = [];
-  for (let i = 0; i <= STEPS; i++) {
-    const across = (i / STEPS) * 2 - 1;
-    const env = Math.max(0, 1 - across * across) ** 0.8;
-    const y = waveY(across, time, shift) * radius;
-    const half = radius * bulk * (0.05 + 0.95 * env);
-    const x = cx + across * radius * 0.985;
-    upper.push([x, cy + y - half]);
-    lower.push([x, cy + y + half]);
+function twist(time: number, count: number): Twist {
+  const span = 2 * count * 0.42 + 1.2;
+  const t = time % span;
+  const amount = Array.from({ length: count }, () => 0);
+  let active = -1;
+  if (t < 2 * count * 0.42) {
+    const step = Math.floor(t / 0.42);
+    const p = Math.min(1, (t - 0.42 * step) / 0.42 / 0.7);
+    const eased = 1 - (1 - p) ** 3;
+    if (step < count) {
+      for (let j = 0; j < step; j++) amount[j] = 1;
+      amount[step] = eased;
+      active = step;
+    } else {
+      const back = 2 * count - 1 - step;
+      for (let k = 0; k < back; k++) amount[k] = 1;
+      amount[back] = 1 - eased;
+      active = back;
+    }
   }
-  const start = upper[0];
-  if (!start) return;
-  ctx.beginPath();
-  ctx.moveTo(start[0], start[1]);
-  for (let i = 1; i < upper.length; i++) {
-    const point = upper[i];
-    if (point) ctx.lineTo(point[0], point[1]);
+  return { amount, active };
+}
+
+function turn(
+  point: readonly [number, number, number],
+  cubes: readonly Move[],
+  state: Twist,
+): [number, number, number, boolean] {
+  let x = point[0];
+  let y = point[1];
+  let z = point[2];
+  let hot = false;
+  for (let i = 0; i < cubes.length; i++) {
+    const amount = state.amount[i] ?? 0;
+    if (amount <= 0) continue;
+    const move = cubes[i];
+    if (!move) continue;
+    const coord = move.axis === 0 ? x : move.axis === 1 ? y : z;
+    if (coord < move.lo || coord >= move.hi) continue;
+    if (i === state.active) hot = true;
+    const ang = move.ang * amount;
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    if (move.axis === 0) {
+      const nx = y * c - z * s;
+      z = y * s + z * c;
+      y = nx;
+    } else if (move.axis === 1) {
+      const nx = x * c + z * s;
+      z = -x * s + z * c;
+      x = nx;
+    } else {
+      const nx = x * c - y * s;
+      y = x * s + y * c;
+      x = nx;
+    }
   }
-  for (let i = lower.length - 1; i >= 0; i--) {
-    const point = lower[i];
-    if (point) ctx.lineTo(point[0], point[1]);
+  return [x, y, z, hot];
+}
+
+function rubik(size: number, time: number, field: Field): Dot[] {
+  const cam = project(0.55 * time, 0.35 + 0.1 * Math.sin(0.9 * time), size);
+  const scale = (size / 300) ** field.rsPow;
+  const state = twist(time, MOVE_COUNT);
+  const dots: Dot[] = [];
+  for (let lat = 0; lat <= field.latRings; lat++) {
+    const phi = -Math.PI / 2 + (lat / field.latRings) * Math.PI;
+    const cy = Math.cos(phi);
+    const sy = Math.sin(phi);
+    const segs = Math.max(1, Math.round(Math.abs(cy) * field.lonDensity));
+    for (let lon = 0; lon < segs; lon++) {
+      const th = (lon / segs) * 2 * Math.PI;
+      const spun = turn(
+        [cy * Math.cos(th), sy, cy * Math.sin(th)],
+        MOVES,
+        state,
+      );
+      const p = cam(spun[0], spun[1], spun[2]);
+      const depth = (p[2] + 1) / 2;
+      dots.push({
+        x: p[0],
+        y: p[1],
+        z: p[2],
+        r:
+          (field.rBase + field.rDepth * depth + (spun[3] ? field.rActive : 0)) *
+          scale,
+        white: field.inkFar - field.inkSpan * depth - (spun[3] ? 0.14 : 0),
+      });
+    }
   }
-  ctx.closePath();
-}
-
-function centerPath(
-  ctx: CanvasRenderingContext2D,
-  time: number,
-  shift: number,
-  cx: number,
-  cy: number,
-  radius: number,
-) {
-  ctx.beginPath();
-  for (let i = 0; i <= STEPS; i++) {
-    const across = (i / STEPS) * 2 - 1;
-    const x = cx + across * radius * 0.985;
-    const y = cy + waveY(across, time, shift) * radius;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-}
-
-function rgba(rgb: Rgb, alpha: number) {
-  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
-}
-
-function paintWave(
-  ctx: CanvasRenderingContext2D,
-  time: number,
-  wave: Wave,
-  cx: number,
-  cy: number,
-  radius: number,
-) {
-  ctx.save();
-  ctx.globalCompositeOperation = "lighter";
-  ctx.shadowColor = `rgb(${wave.color[0]}, ${wave.color[1]}, ${wave.color[2]})`;
-  ctx.fillStyle = rgba(wave.color, 0.16);
-  ctx.shadowBlur = radius * 0.22;
-  ribbonPath(ctx, time, wave.shift, cx, cy, radius, 0.018);
-  ctx.fill();
-
-  ctx.shadowBlur = radius * 0.045;
-  ctx.fillStyle = rgba(wave.color, 0.78);
-  ribbonPath(ctx, time, wave.shift, cx, cy, radius, 0.011);
-  ctx.fill();
-
-  const core = ctx.createLinearGradient(cx - radius, cy, cx + radius, cy);
-  core.addColorStop(0, rgba(wave.core, 0));
-  core.addColorStop(0.16, rgba(wave.core, 0.2));
-  core.addColorStop(0.5, "rgba(255, 255, 255, 0.8)");
-  core.addColorStop(0.84, rgba(wave.core, 0.2));
-  core.addColorStop(1, rgba(wave.core, 0));
-  ctx.shadowBlur = radius * 0.012;
-  ctx.strokeStyle = core;
-  ctx.lineWidth = Math.max(1, radius * 0.007);
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  centerPath(ctx, time, wave.shift, cx, cy, radius);
-  ctx.stroke();
-  ctx.restore();
-}
-
-type Gloss = { x: number; y: number; color: string; alpha: number };
-
-function glossSpots(time: number): Gloss[] {
-  return [
-    {
-      x: Math.cos(time * 0.9) * 0.46,
-      y: Math.sin(time * 0.7) * 0.4,
-      color: "80, 180, 255",
-      alpha: 0.5,
-    },
-    {
-      x: Math.cos(time * 0.75 + 2.1) * 0.5,
-      y: Math.sin(time * 1.05 + 1) * 0.42,
-      color: "255, 70, 160",
-      alpha: 0.4,
-    },
-    {
-      x: Math.cos(time * 0.62 + 4) * 0.42,
-      y: Math.sin(time * 0.84 + 2.4) * 0.48,
-      color: "255, 100, 40",
-      alpha: 0.36,
-    },
-  ];
+  for (const dot of dots) dot.r = Math.max(field.rMin, dot.r);
+  dots.sort((a, b) => a.z - b.z);
+  return dots;
 }
 
 /**
- * Circular wave orb: a dark disc with a rotating blue–purple–pink–orange
- * sweep, three drifting gloss spots and a white sheen, two filled ribbons
- * clipped inside it, then a shade and a gradient rim. Coordinates are CSS
- * pixels. Self-contained on purpose — the component around it handles
- * sizing, timing and pausing.
+ * The solving field: a twisting particle sphere on a transparent ground.
+ * Coordinates are CSS pixels. The component around it handles sizing,
+ * timing and pausing. Ink is the canvas's own grayscale, not a theme token.
  */
 function paint(
   ctx: CanvasRenderingContext2D,
@@ -187,94 +234,27 @@ function paint(
   height: number,
   time: number,
 ) {
-  const cx = width / 2;
-  const cy = height / 2;
-  const radius = Math.min(width, height) * 0.5;
-
+  const size = Math.min(width, height);
   ctx.clearRect(0, 0, width, height);
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.clip();
-
-  ctx.fillStyle = "#07030c";
-  ctx.fillRect(0, 0, width, height);
-
-  const spin = time * 0.65;
-  const sweep = ctx.createLinearGradient(
-    cx + Math.cos(spin) * radius,
-    cy + Math.sin(spin) * radius,
-    cx - Math.cos(spin) * radius,
-    cy - Math.sin(spin * 0.85) * radius,
-  );
-  sweep.addColorStop(0, "rgba(70, 165, 255, 0.62)");
-  sweep.addColorStop(0.34, "rgba(186, 64, 255, 0.4)");
-  sweep.addColorStop(0.66, "rgba(255, 64, 130, 0.36)");
-  sweep.addColorStop(1, "rgba(255, 96, 42, 0.48)");
-  ctx.fillStyle = sweep;
-  ctx.fillRect(0, 0, width, height);
-
-  for (const spot of glossSpots(time)) {
-    const wash = ctx.createRadialGradient(
-      cx + spot.x * radius,
-      cy + spot.y * radius,
-      radius * 0.02,
-      cx,
-      cy,
-      radius * 0.78,
-    );
-    wash.addColorStop(0, `rgba(${spot.color}, ${spot.alpha})`);
-    wash.addColorStop(0.45, `rgba(${spot.color}, ${spot.alpha * 0.22})`);
-    wash.addColorStop(1, "rgba(0, 0, 0, 0)");
-    ctx.fillStyle = wash;
-    ctx.fillRect(0, 0, width, height);
+  if (size <= 0) return;
+  const ox = (width - size) / 2;
+  const oy = (height - size) / 2;
+  const dots = rubik(size, time, fieldFor(size));
+  for (const dot of dots) {
+    const g = Math.round(Math.min(1, Math.max(0, dot.white)) * 255);
+    ctx.fillStyle = `rgba(${g},${g},${g},1)`;
+    ctx.beginPath();
+    ctx.arc(dot.x + ox, dot.y + oy, dot.r, 0, Math.PI * 2);
+    ctx.fill();
   }
-
-  for (const wave of WAVES) paintWave(ctx, time, wave, cx, cy, radius);
-
-  const sheen = ctx.createRadialGradient(
-    cx + Math.sin(time * 0.8) * radius * 0.32,
-    cy - radius * 0.4 + Math.cos(time * 0.55) * radius * 0.1,
-    radius * 0.02,
-    cx,
-    cy - radius * 0.05,
-    radius * 0.75,
-  );
-  sheen.addColorStop(0, "rgba(255, 255, 255, 0.28)");
-  sheen.addColorStop(0.35, "rgba(255, 255, 255, 0.08)");
-  sheen.addColorStop(1, "rgba(255, 255, 255, 0)");
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = sheen;
-  ctx.fillRect(0, 0, width, height);
-
-  const shade = ctx.createRadialGradient(cx, cy, radius * 0.55, cx, cy, radius);
-  shade.addColorStop(0, "rgba(0, 0, 0, 0)");
-  shade.addColorStop(0.82, "rgba(0, 0, 0, 0.08)");
-  shade.addColorStop(1, "rgba(0, 0, 0, 0.42)");
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = shade;
-  ctx.fillRect(0, 0, width, height);
-  ctx.restore();
-
-  const rimWidth = Math.max(2, radius * 0.018);
-  const rim = ctx.createLinearGradient(cx, cy - radius, cx, cy + radius);
-  rim.addColorStop(0, "rgba(255, 255, 255, 0.9)");
-  rim.addColorStop(0.22, "rgba(255, 255, 255, 0.45)");
-  rim.addColorStop(0.5, "rgba(190, 150, 170, 0.22)");
-  rim.addColorStop(1, "rgba(255, 122, 78, 0.42)");
-  ctx.beginPath();
-  ctx.arc(cx, cy, Math.max(0, radius - rimWidth * 0.5), 0, Math.PI * 2);
-  ctx.strokeStyle = rim;
-  ctx.lineWidth = rimWidth;
-  ctx.stroke();
 }
 
 /**
- * The island's animated orb: a `size-orb` canvas driven by
+ * The island's animated mark: a `size-orb` canvas driven by
  * `requestAnimationFrame`. `state` only changes the tempo. The loop stops
  * while the tab is hidden or the user prefers reduced motion, leaving one
  * still frame, and resumes when either changes back. Decorative — the
- * capsule's text carries the meaning.
+ * capsule's text carries the meaning. Onboarding uses the same mark, larger.
  */
 export function AssistantOrb({
   state,
@@ -290,7 +270,7 @@ export function AssistantOrb({
     const ctx = ctxRef.current;
     const { width, height } = sizeRef.current;
     if (ctx && width > 0 && height > 0) {
-      paint(ctx, width, height, timeRef.current);
+      paint(ctx, width, height, timeRef.current * SPEED);
     }
   }, []);
   const { canvasRef, ctxRef, sizeRef } = useCanvasSurface(drawFrame);
@@ -332,10 +312,7 @@ export function AssistantOrb({
   return (
     <span
       aria-hidden="true"
-      className={cn(
-        "relative block size-orb shrink-0 overflow-hidden rounded-full",
-        className,
-      )}
+      className={cn("relative block size-orb shrink-0", className)}
     >
       <canvas className="block" ref={canvasRef} />
     </span>

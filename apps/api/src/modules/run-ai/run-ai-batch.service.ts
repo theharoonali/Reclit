@@ -58,9 +58,12 @@ type Target = { rowIndex: number; column: RunnableColumn; cellId: string };
 
 /**
  * Which columns a Run click executes: a node with an executor, and a prompt
- * (the instruction). A column that has a node but no prompt yet is skipped
- * silently — it is a half-finished column, not a client error. Exported for
- * onboarding's final step, which runs every runnable column of a new sheet.
+ * (the instruction). A mail (`email`) column must also be a `string` or
+ * `json` column — its cell holds the send summary or the sent record. A
+ * column that fails either is skipped silently — it is a half-finished
+ * column, not a client error. Exported for onboarding's final step, which
+ * runs every runnable column of a new sheet, and for populate, whose
+ * submissions run them too (so a mail column sends on every submission).
  */
 export function isRunnable(column: ColumnRecord): column is RunnableColumn {
   if (column.node === null || column.prompt === null) return false;
@@ -68,7 +71,10 @@ export function isRunnable(column: ColumnRecord): column is RunnableColumn {
     case "ai":
     case "google_search":
       return true;
-    // `email` is a registered node with no executor yet.
+    case "email": {
+      const type = toWireColumnType(column.type);
+      return type === "string" || type === "json";
+    }
     default:
       return false;
   }

@@ -107,19 +107,30 @@ of remounting. Never `resetQueries`/`removeQueries` here.
 - **Columns.** Types come from the payload; unknown types degrade to `string`.
   Clicking a header opens the panel to edit; the `+` after the last column adds
   one, always on a blank form (every open remounts it, since the closed panel
-  keeps rendering its last content while it slides away). Widths are uniform and fixed. Hovering a header shows a red × (delete)
+  keeps rendering its last content while it slides away). Widths are uniform and fixed. Hovering a body cell for 300 ms opens a tooltip with its full content
+  (`ai-spreadsheet-cell-tooltip.tsx`, text from `lib/ai-spreadsheet/cell-tooltip.ts`):
+  the whole text, pretty JSON, a file/audio URL, and a working run's status;
+  nothing for a blank cell. It hangs off a `pointer-events-none` box over
+  the cell, like the grip tooltip. It is hoverable: a value taller than
+  12rem scrolls inside it (the wheel scrolls the tooltip, not the sheet).
+  Leaving the cell waits 150 ms before switching or closing, so the pointer
+  can reach the tooltip; on it, it stays open until the pointer leaves it. A
+  press, a scroll of the sheet, a drag or editing that cell close it at once. Hovering a header shows a red × (delete)
   at the right and a six-dot grip (reorder) at the left; the grip's lane is
   reserved on every column so the name never shifts.
-- **Column nodes.** The form offers None / AI / Email / API / Google Search.
-  Email and API are locked (a lock on the capsule; they cannot be selected).
-  API is not a wire node. An existing email column still shows Email as its
-  current value and can still be saved. Choosing an unlocked node reveals a
-  Prompt textarea, the node's whole configuration.
-  A column whose node has an icon (`ai` → Hugeicons `StarIcon`,
-  `NODE_ICONS` in `lib/ai-spreadsheet/node-icons.ts`) shows it on its picker
-  capsule and paints the same path data before its name in the header. An `ai` or `google_search`
-  column's prompt is what Run executes; a Google Search column searches
-  Google about the row before answering.
+- **Column nodes.** The form offers None / AI / Mail / API / Google Search.
+  API is locked (a lock on the capsule; it cannot be selected) and is not a
+  wire node. Mail is the wire node `email`. Choosing an unlocked node reveals
+  a Prompt textarea, the node's whole configuration; Mail gets its own
+  placeholder (`column.mailPromptPlaceholder`) saying it sends on Run.
+  A column whose node has an icon (`ai` → Hugeicons `StarIcon`, `email` →
+  `Mail01Icon`, `NODE_ICONS` in `lib/ai-spreadsheet/node-icons.ts`) shows it
+  on its picker capsule and paints the same path data before its name in the
+  header. An `ai` or `google_search` column's prompt is what Run executes; a
+  Google Search column searches Google about the row before answering; a
+  Mail column on a Text or JSON column drafts an email to one of the row's
+  email cells and sends it, then shows "Sent to … : subject" (any other
+  column type is not runnable).
 - **Run.** The Run control is the outlined "Run AI" pill at the right end
   of the header's assistant capsule (the count is in its tooltip), present
   only while the selection holds an AI cell with a prompt; the toolbar has no

@@ -7,15 +7,20 @@ import { appRouter } from "../../trpc/routers/_app";
 // re-declaring setup (docs/rules/TESTING.md). Not a `*.test.ts` file, so the
 // runner does not pick it up as a suite.
 
-/** A direct tRPC caller with an empty context — the transport-free API surface. */
-export const caller = createCallerFactory(appRouter)({});
+/** The context contract tests run under: authenticated, like a logged-in
+ * browser, so protected procedures work without staging env credentials.
+ * The auth contract builds its own contexts to exercise the login flow. */
+const testContext = { authenticated: true, devMode: false } as const;
+
+/** A direct tRPC caller — the transport-free API surface. */
+export const caller = createCallerFactory(appRouter)(testContext);
 
 /**
  * A caller whose subscriptions end when `signal` aborts. The signal is per
  * caller, not per call, so each open stream gets its own.
  */
 export const callerWithSignal = (signal: AbortSignal) =>
-  createCallerFactory(appRouter)({}, { signal });
+  createCallerFactory(appRouter)(testContext, { signal });
 
 /** One item of a `tracked()` subscription, as the client sees it. */
 export type TrackedItem<T> = { id: string; data: T };

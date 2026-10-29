@@ -48,6 +48,10 @@ only `populate.setOutput` writes.
   show their names before a submission. `outputEnabled` mirrors
   `Spreadsheet.formOutputEnabled`; `setOutput` writes it through
   `spreadsheetService.setFormOutput` and answers the form.
+- **A Mail column sends on submit.** An `email` node with a prompt on a
+  `string` / `json` column is runnable, so it is an output and every
+  submission whose row holds an email address sends a real email through
+  Resend ([run-ai.md](run-ai.md)).
 - Column names are unique for every column created since plan 026, but
   nothing in the database enforces it and older sheets may hold duplicates.
   `fillableByName` gives a name

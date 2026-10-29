@@ -26,6 +26,8 @@ export async function createApp(opts?: { logger?: false }) {
       "Last-Event-ID",
     ],
     exposedHeaders: ["Content-Length", "Content-Type", "Cache-Control"],
+    // The session rides an httpOnly cookie; :4000 → :4001 is cross-origin.
+    credentials: true,
     maxAge: 86400,
   });
 

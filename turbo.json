@@ -12,6 +12,8 @@
     "GOOGLE_GENERATIVE_AI_API_KEY",
     "ELEVENLABS_API_KEY",
     "FIRECRAWL_API_KEY",
+    "RESEND_API_KEY",
+    "RESEND_FROM",
     "ASSISTANT_MODEL"
   ],
   "ui": "stream",

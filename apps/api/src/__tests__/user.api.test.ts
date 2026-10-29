@@ -18,10 +18,10 @@
  * Dates cross the wire as real Date objects (superjson).
  *
  * PROCEDURES
- * | Procedure   | Kind     | Payload                                                        | Response    | Errors      |
- * | ----------- | -------- | -------------------------------------------------------------- | ----------- | ----------- |
- * | user.me     | query    | —                                                              | UserProfile | —           |
- * | user.update | mutation | { name?: 1..200; email?: email \| null; imageUrl?: url \| null } | UserProfile | BAD_REQUEST |
+ * | Procedure   | Kind     | Payload                                                        | Response    | Errors                    |
+ * | ----------- | -------- | -------------------------------------------------------------- | ----------- | ------------------------- |
+ * | user.me     | query    | —                                                              | UserProfile | UNAUTHORIZED              |
+ * | user.update | mutation | { name?: 1..200; email?: email \| null; imageUrl?: url \| null } | UserProfile | BAD_REQUEST, UNAUTHORIZED |
  *
  * NOTES
  * - There is no auth. The app has exactly one user (seeded as "Demo User");
@@ -40,7 +40,9 @@
  *   unknown keys). Only `POST /onboarding` (see the onboarding contract)
  *   flips it to true. The dashboard sends a user with `false` to
  *   /onboarding.
- * - Every procedure is public; there is no auth yet.
+ * - Both procedures are protected: without a session (or DEV=TRUE) they answer
+ *   UNAUTHORIZED — produced in the auth contract (auth.api.test.ts), which
+ *   owns login and the session cookie. The caller here is authenticated.
  */
 
 import { afterAll, describe, expect, it } from "bun:test";

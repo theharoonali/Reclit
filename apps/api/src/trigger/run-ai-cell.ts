@@ -1,6 +1,7 @@
 import { logger, schemaTask } from "@trigger.dev/sdk";
 import type { CrawlResolver } from "../ai/cell-crawls";
 import { generateCellValue } from "../ai/cell-output";
+import { generateEmailCellValue } from "../ai/email-output";
 import { generateSearchCellValue } from "../ai/search-output";
 import { describeError } from "../common/errors";
 import { externalApiService } from "../modules/external-api/external-api.service";
@@ -14,7 +15,7 @@ import { parseCellId } from "../modules/spreadsheet/spreadsheet.ids";
 import type { CrawlWebsiteOutcome } from "./crawl-website";
 import { crawlWebsiteTask } from "./crawl-website";
 
-// One AI or Google Search cell, end to end — the unit of work `run-ai-batch`
+// One AI, Google Search or Mail cell, end to end — the unit of work `run-ai-batch`
 // fans out. The orchestrator has already recorded `result.input` on the
 // `pending` run, including the node that decides which generator runs; this
 // task moves it `running`, asks the model, and `complete`s it (the service
@@ -91,6 +92,10 @@ export const runAiCellTask = schemaTask({
     const address = parseCellId(run.cellId);
     if (!address) throw new RunAiInvalidCellIdError(run.cellId);
     await runAiService.markRunning(runId);
+    // What the generator produced, kept for the failure path: a mail cell
+    // has already sent its email by the time `complete` writes the cell, so
+    // a refused write must still leave `result.email` on the failed run.
+    let generated: Record<string, unknown> = {};
     try {
       // The node decides which generator fills the cell; everything around
       // this line — the transitions, the guards, the failure paths — is the
@@ -98,9 +103,12 @@ export const runAiCellTask = schemaTask({
       const { output, model, usage, attachments, ...extra } =
         input.target.node === "google_search"
           ? await generateSearchCellValue(input)
-          : await generateCellValue(input, address, {
-              crawls: crawlViaTask(runId),
-            });
+          : input.target.node === "email"
+            ? await generateEmailCellValue(input, { runId })
+            : await generateCellValue(input, address, {
+                crawls: crawlViaTask(runId),
+              });
+      generated = { model, usage, attachments, ...extra };
       logger.info("cell generated", {
         runId,
         node: input.target.node,
@@ -116,7 +124,9 @@ export const runAiCellTask = schemaTask({
     } catch (error) {
       const failure = describeError(error);
       logger.error("cell generation failed", { runId, ...failure });
-      await runAiService.fail(runId, { result: { input, error: failure } });
+      await runAiService.fail(runId, {
+        result: { input, ...generated, error: failure },
+      });
       throw error;
     }
   },

@@ -138,7 +138,7 @@ export const ASSISTANT_TOOLS = {
   },
   createColumn: {
     description:
-      "Adds a column at the end. A node (ai, google_search) needs a prompt; email has no executor.",
+      "Adds a column at the end. A node (ai, google_search, email) needs a prompt. An email node sends a real email, drafted from its prompt, to one of the row's email cells when it runs; it must be a string or json column.",
     inputSchema: z.object({
       name: z.string().trim().min(1).max(200),
       type: columnTypeWire.default("string"),

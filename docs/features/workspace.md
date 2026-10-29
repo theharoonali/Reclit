@@ -71,8 +71,10 @@ default user and one workspace per pre-existing sheet.
   `workspace.create`.
 - `/ai-spreadsheet` ([route doc](../routes/ai-spreadsheet.md)) — reads the
   active workspace's `spreadsheetId` via `workspace.list`.
-- `workspace.rename` / `workspace.remove` currently have no UI surface — the
-  settings workspace section was removed; the procedures and contract remain.
+- `workspace.remove` — the account menu's per-workspace delete icon
+  (`components/workspace/delete-workspace-dialog.tsx`), hidden on the last
+  workspace. `workspace.rename` currently has no UI surface — the settings
+  workspace section was removed; the procedure and contract remain.
 - The `dashboard` feature ([dashboard.md](dashboard.md)) — `byId` to check
   the workspace and default a widget to its `spreadsheetId`; `Dashboard`
   hangs off `Workspace` one-to-one.

@@ -30,7 +30,8 @@ them here.
 | `createdAt` / `updatedAt` | `DateTime` | on all four models |
 
 `ColumnType`: `STRING NUMBER BOOLEAN DATE JSON FORMULA AUDIO FILE EMAIL URL` ·
-`NodeType`: `AI EMAIL GOOGLE_SEARCH` (both lowercase on the wire). Scoped pks are a recorded
+`NodeType`: `AI EMAIL GOOGLE_SEARCH` (both lowercase on the wire; `EMAIL` is
+the Mail node, which sends real email — [run-ai.md](run-ai.md)). Scoped pks are a recorded
 deviation from the uuid rule (docs/plans/005-spreadsheet-backend.md): they make
 the wire ids predictable (`row.0`, `col.1`, `cell.0.1`) and a cell write a
 single upsert by pk.

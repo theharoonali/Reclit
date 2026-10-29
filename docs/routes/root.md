@@ -45,14 +45,15 @@ client because the active workspace is client state (localStorage).
 | `…/use-assistant-run.ts` | client hook | The run layer: `assistant.active` on load (`staleTime: 0`), the `assistant.onChange` subscription while a run is alive (newer row wins; `closed` ends it), `assistant.start` (subscribes first) / `cancel` / `respond`, tRPC code → `errorKey` |
 | `apps/dashboard/src/components/assistant/assistant-island.tsx` | client | The capsule: a `<form>` portalled into `HeaderCenter`, `islandMode` from the run and the field (draft, hover, focus, voice), width `w-island-closed` / `w-island` / `w-island-wide`, Enter submits, Escape collapses an empty field; the orb, then one of the pieces below |
 | `…/assistant-composer.tsx` · `assistant-stage.tsx` · `assistant-confirm.tsx` · `assistant-result.tsx` · `assistant-run-action.tsx` | client | The pill `Input` with mic / Stop / Send (arrow right) / spinner inside its right end · the stage line (`aria-live`) + cancel × · the question + circular check / cross (disabled once answered) · the done / failed / cancelled, error or page-refusal line + dismiss · the page's action pill (the sheet's Run AI: outlined in the primary colour, the count in its tooltip, "Starting…" while busy) |
-| `…/assistant-orb.tsx` | client | The animated orb: a `size-orb` canvas (`useCanvasSurface` + `requestAnimationFrame`) of two filled wave ribbons (blue and red) on a dark disc with a rotating colour sweep, drifting gloss and a white sheen, clipped to a circle with a gradient rim. `state` sets the tempo (idle is the design speed), paused when the tab is hidden or motion is reduced (still frame) |
+| `…/assistant-orb.tsx` | client | The animated mark: a `size-orb` canvas (`useCanvasSurface` + `requestAnimationFrame`) of the solving particle sphere — grayscale dust on a transparent ground, bands twisting, no disc. `state` sets the tempo (idle is the canvas speed), paused when the tab is hidden or motion is reduced (still frame). Onboarding and chat use the same mark at `size-orb-md` / `size-orb-lg` |
 | `…/use-voice-input.ts` | hook | `MediaRecorder` (`audio/webm;codecs=opus`, else `audio/mp4`), 60 s auto-stop, 10 MB guard → `transcribeAudio`; hands the text to the caller, never sends it |
 | `…/use-run-lifecycle.ts` | hook | Around any run: refresh the page after a mutating step (debounced 500 ms) and at the end; auto-dismiss done after 8 s, cancelled after 4 s, failed never |
 | `apps/dashboard/src/lib/assistant/*.ts` | pure | `types.ts` (the pinned wire shapes), `island-state.ts` (`islandMode`, `islandWidthClass`, the status predicates), `step-label.ts` (`stepLabel` / `confirmLabel` → `{ key, values }` for `t`), `transcribe.ts` (`POST /assistant/transcribe`) |
 | `apps/dashboard/src/config/assistant.ts` | data | `scopeForPath` (`/` → `dashboard`, `/ai-spreadsheet` → `spreadsheet`, else hidden), the prompt cap, result timings, voice limits |
 | `apps/dashboard/src/components/workspace/workspace-provider.tsx` | client | `useWorkspace()` — fetches `workspace.list`, resolves the active workspace, persists the choice in localStorage |
-| `apps/dashboard/src/components/workspace/account-menu.tsx` | client | The sidebar's bottom block: avatar/name/email trigger (`user.me`) with a menu listing workspaces, "new workspace", a `/settings` link and a UI-only "Log out" |
+| `apps/dashboard/src/components/workspace/account-menu.tsx` | client | The sidebar's bottom block: avatar/name/email trigger (`user.me`) with a menu listing workspaces (each with a delete icon when more than one exists), "new workspace", a `/settings` link and "Log out" (`auth.logout` → `/login`) |
 | `apps/dashboard/src/components/workspace/create-workspace-dialog.tsx` | client | Name form → `workspace.create`; makes the new workspace active |
+| `apps/dashboard/src/components/workspace/delete-workspace-dialog.tsx` | client | Confirm → `workspace.remove`; switches the active workspace off the deleted one; names the CONFLICT (last workspace) refusal |
 | `apps/dashboard/src/components/workspace/workspace-header-title.tsx` | client | Portals the active workspace's name into the header title slot |
 | `apps/dashboard/src/config/nav.ts` | data | `navSections`, `APP_NAME`. Chrome never hardcodes a link |
 | `apps/dashboard/src/config/subscription.ts` | data | Stubbed plan/credits data for the sidebar credits block and `/settings` |
@@ -99,9 +100,10 @@ plan [030](../plans/030-assistant-island.md); feature
 Payloads: the contract header of `apps/api/src/__tests__/dashboard.api.test.ts`
 (and `spreadsheet.api.test.ts` for `rows`). The layout's `OnboardingGate`
 queries `user.me` before anything else mounts; `WorkspaceProvider` queries
-`workspace.list`; the account menu queries `user.me` and its create dialog
-calls `workspace.create` (invalidating `workspace.list` and
-`spreadsheet.list`). `GET /health` is not called here.
+`workspace.list`; the account menu queries `user.me`, its create dialog calls
+`workspace.create` and its delete dialog `workspace.remove` (both invalidating
+`workspace.list` and `spreadsheet.list`); "Log out" calls `auth.logout`.
+`GET /health` is not called here.
 
 ## Behaviour
 
