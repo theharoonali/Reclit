@@ -41,7 +41,7 @@
  * RunAiEmail = {                          // what an email (Mail) run sent
  *   to: string;                           // one of the row's email cells, as the row spells it
  *   subject: string; body: string;        // plain text, drafted by Gemini
- *   from: string;                         // RESEND_FROM, default "Reclit <noreply@reclit.com>"
+ *   from: string;                         // RESEND_FROM, default "Reclit <hello@reclit.com>"
  *   messageId: string;                    // Resend's id
  *   sentAt: string;                       // ISO time the send returned
  * }
@@ -2924,7 +2924,7 @@ describe("Resend client (pure)", () => {
         "Idempotency-Key": "run-123",
       },
       body: {
-        from: "Reclit <noreply@reclit.com>",
+        from: "Reclit <hello@reclit.com>",
         to: ["ada@example.test"],
         subject: "Demo on Friday",
         text: "Hi Ada",

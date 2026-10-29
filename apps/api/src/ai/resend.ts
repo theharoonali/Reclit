@@ -10,8 +10,9 @@ export const RESEND_API_URL = "https://api.resend.com/emails";
 export const RESEND_PROVIDER = "resend";
 /** A send is one small request; a run must not hang on it. */
 export const RESEND_TIMEOUT_MS = 30_000;
-/** The verified reclit.com sender, unless `RESEND_FROM` says otherwise. */
-export const DEFAULT_RESEND_FROM = "Reclit <noreply@reclit.com>";
+/** The verified reclit.com sender, unless `RESEND_FROM` says otherwise.
+ * Not a no-reply address — one-way senders score worse with spam filters. */
+export const DEFAULT_RESEND_FROM = "Reclit <hello@reclit.com>";
 
 export type OutgoingEmail = {
   to: string;

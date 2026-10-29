@@ -55,8 +55,14 @@ export function AccountMenu({ collapsed }: { collapsed: boolean }) {
   const logout = useMutation(
     trpc.auth.logout.mutationOptions({
       onSuccess: () => {
-        // Drop every cached query — the next sign-in must refetch it all.
-        queryClient.clear();
+        // Evict only the session entry, so /login does not read a stale
+        // "authenticated" and bounce back. Clearing the whole cache here
+        // would make the still-mounted user.me refetch without a session
+        // and log an UNAUTHORIZED; the login screen invalidates everything
+        // on the next sign-in instead.
+        queryClient.removeQueries({
+          queryKey: trpc.auth.session.queryKey(),
+        });
         router.replace("/login");
       },
     }),

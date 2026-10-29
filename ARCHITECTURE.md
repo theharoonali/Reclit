@@ -168,7 +168,7 @@ no Prisma code; `bunx turbo build` is the check.
 | `ELEVENLABS_API_KEY` | api, worker | ElevenLabs Speech-to-Text (`src/ai/elevenlabs.ts`): the worker transcribes audio cells (without it the prompt says the audio could not be transcribed); the api transcribes the header capsule's mic recording through `POST /assistant/transcribe` (without it the route answers 503) |
 | `ASSISTANT_MODEL` | api, worker | optional; the Gemini model the assistant's tool loop (worker) and its recommendation call (api) use (`src/ai/assistant-step.ts`), default `gemini-2.5-flash` |
 | `FIRECRAWL_API_KEY` | worker | Firecrawl for url cells (`src/ai/firecrawl.ts`, the `crawl-website` task); same two places; without it the prompt says the site could not be crawled |
-| `RESEND_API_KEY`, `RESEND_FROM` | worker | Resend for mail (`email`) cells (`src/ai/resend.ts`); `RESEND_FROM` is optional, default `Reclit <noreply@reclit.com>`; same two places; without the key a mail cell fails with the reason |
+| `RESEND_API_KEY`, `RESEND_FROM` | worker | Resend for mail (`email`) cells (`src/ai/resend.ts`); `RESEND_FROM` is optional, default `Reclit <hello@reclit.com>`; same two places; without the key a mail cell fails with the reason |
 | `NEXT_PUBLIC_API_URL` | dashboard | browser tRPC target (default `http://localhost:4001`) |
 | `API_INTERNAL_URL` | dashboard | optional SSR-side override |
 
