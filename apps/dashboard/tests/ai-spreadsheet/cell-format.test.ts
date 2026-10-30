@@ -14,8 +14,7 @@ import type { SheetLabels } from "@/lib/ai-spreadsheet/types";
 const LABELS = {
   boolTrue: "True",
   boolFalse: "False",
-  jsonCapsule: (count: number) => `${count} keys`,
-  jsonEmpty: "empty",
+  jsonMore: (count: number) => `+${count} more`,
   typeNames: {} as SheetLabels["typeNames"],
   runStatus: (status: string) => status,
 } satisfies SheetLabels;

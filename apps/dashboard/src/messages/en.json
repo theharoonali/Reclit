@@ -142,7 +142,6 @@
     "gridLabel": "{name} spreadsheet",
     "cellInput": "Cell editor",
     "addColumn": "Add a column",
-    "capsule": "{count, plural, one {# key} other {# keys}}",
     "boolean": {
       "true": "True",
       "false": "False"
@@ -203,6 +202,7 @@
       "add": "Add pair",
       "remove": "Remove pair",
       "empty": "No key/value pairs yet.",
+      "more": "+{count, plural, one {# more} other {# more}}",
       "title": "JSON value",
       "mailTitle": "Sent emails",
       "save": "Save",

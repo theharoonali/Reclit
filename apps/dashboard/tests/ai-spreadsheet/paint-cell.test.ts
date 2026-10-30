@@ -8,6 +8,7 @@ import {
   CELL_PAD_X,
   ROW_HEIGHT,
 } from "@/lib/ai-spreadsheet/geometry";
+import { rowHeightFor } from "@/lib/ai-spreadsheet/layout";
 import { AUDIO_LEADING, paintCell } from "@/lib/ai-spreadsheet/paint-cell";
 import { clearMetricsCache } from "@/lib/ai-spreadsheet/text-metrics";
 import type { CellValue, ColumnType } from "@/lib/ai-spreadsheet/types";
@@ -41,14 +42,6 @@ function paint(value: CellValue, type: ColumnType, playing = false) {
 beforeEach(clearMetricsCache);
 
 describe("capsule cells", () => {
-  test("a JSON object draws the neutral chip with its key count", () => {
-    const calls = paint({ a: 1, b: 2 }, "json");
-    expect(findCall(calls, "roundRect")).toBeDefined();
-    // `roundRect` only builds the path; the `fill` after it carries the colour.
-    expect(findCall(calls, "fill")?.style).toBe("accent");
-    expect(textCalls(calls)[0]?.text).toBe("2 keys");
-  });
-
   test("a file draws the neutral chip labelled with its file name", () => {
     const calls = paint("https://example.com/files/resume.pdf", "file");
     const chip = findCall(calls, "roundRect");
@@ -87,14 +80,80 @@ describe("capsule cells", () => {
   });
 
   test("every capsule starts at the same x, so the column reads as a column", () => {
-    const json = findCall(paint({ a: 1 }, "json"), "roundRect");
     const file = findCall(paint("https://e.com/a.pdf", "file"), "roundRect");
     const bool = findCall(paint(true, "boolean"), "roundRect");
     const audio = findCall(paint("https://e.com/a.mp3", "audio"), "roundRect");
-    expect(json?.args[0]).toBe(CELL_PAD_X);
     expect(file?.args[0]).toBe(CELL_PAD_X);
     expect(bool?.args[0]).toBe(CELL_PAD_X);
     expect(audio?.args[0]).toBe(CELL_PAD_X);
+  });
+});
+
+describe("json cells", () => {
+  const ROW_2_LINES = { x: 0, y: 0, w: 320, h: rowHeightFor(2) };
+
+  function paintJson(
+    value: CellValue,
+    rect = ROW_2_LINES,
+    node: "email" | null = null,
+  ) {
+    const { ctx, calls } = createRecordingContext();
+    paintCell({
+      ctx,
+      rect,
+      value,
+      type: "json",
+      node,
+      palette: TEST_PALETTE,
+      labels: TEST_LABELS,
+      formatters: FORMATTERS,
+      dpr: 1,
+    });
+    return calls;
+  }
+
+  test("an object paints one key/value row per entry, key muted", () => {
+    const calls = paintJson({ a: 1, b: "two" });
+    expect(textCalls(calls).map((call) => call.text)).toEqual([
+      "a",
+      "1",
+      "b",
+      "two",
+    ]);
+    expect(textCalls(calls)[0]?.style).toBe("mutedText");
+    expect(textCalls(calls)[1]?.style).toBe("text");
+    expect(findCall(calls, "roundRect")).toBeUndefined();
+  });
+
+  test("entries are separated by a gridline hairline, none after the last", () => {
+    const calls = paintJson({ a: 1, b: 2 });
+    const strokes = calls.filter((call) => call.op === "stroke");
+    expect(strokes).toHaveLength(1);
+    expect(strokes[0]?.style).toBe("gridline");
+  });
+
+  test("entries past the row budget collapse into a '+N more' line", () => {
+    const calls = paintJson({ a: 1, b: 2, c: 3, d: 4 });
+    const texts = textCalls(calls).map((call) => call.text);
+    expect(texts[0]).toBe("a");
+    expect(texts.at(-1)).toBe("+3 more");
+  });
+
+  test("a Mail FAILED value is painted in the invalid colour", () => {
+    const calls = paintJson(
+      { "a@b.com": "hello", "c@d.com": "FAILED" },
+      ROW_2_LINES,
+      "email",
+    );
+    const failed = textCalls(calls).find((call) => call.text === "FAILED");
+    expect(failed?.style).toBe("invalid");
+    const sent = textCalls(calls).find((call) => call.text === "hello");
+    expect(sent?.style).toBe("text");
+  });
+
+  test("a single-row cell shows the first entry only", () => {
+    const calls = paintJson({ a: 1, b: 2 }, RECT);
+    expect(textCalls(calls).map((call) => call.text)).toEqual(["a", "1"]);
   });
 });
 

@@ -5,7 +5,6 @@ import {
   isMistyped,
   isResourceUrl,
 } from "./cell-format";
-import { emailCellCounts } from "./email-cell";
 import {
   CAPSULE_DOT,
   CAPSULE_DOT_GAP,
@@ -17,12 +16,13 @@ import {
   type Rect,
   ROW_HEIGHT,
 } from "./geometry";
-import { CELL_PAD_Y, LINE_HEIGHT, wrapLines } from "./layout";
+import { CELL_PAD_Y, jsonCellLayout, LINE_HEIGHT, wrapLines } from "./layout";
 import { measureWidth, truncateToWidth } from "./text-metrics";
 import { withAlpha } from "./theme-colors";
 import type {
   CellValue,
   ColumnType,
+  JsonObject,
   NodeType,
   SheetFormatters,
   SheetLabels,
@@ -233,25 +233,64 @@ const audioStyle = (
 });
 
 /**
- * A Mail cell's count chip: a soft tinted pill with a status dot and the
- * count in the status colour — the boolean capsule's construction with the
- * run chip's borderless fill, green for sent and red for failed.
+ * A JSON (or Mail) cell: one row per entry — muted key, then value —
+ * separated by hairlines so the cell reads as a small table, then a muted
+ * "+N more" when the line budget ran out. The budget comes from the rect the
+ * same way the string path derives it, so it matches what the row-height
+ * pass measured through the same `jsonCellLayout`. Editing, deleting
+ * included, lives in the cell dialog that opens on double-click.
  */
-const EMAIL_CHIP_FILL_ALPHA = 0.12;
-const EMAIL_CHIP_GAP = 4;
-const emailCountStyle = (
-  tone: "sent" | "failed",
+function paintJsonCell(
+  ctx: CanvasRenderingContext2D,
+  rect: Rect,
+  value: JsonObject,
+  isEmail: boolean,
   palette: SheetPalette,
-): CapsuleStyle => {
-  const color = tone === "sent" ? palette.boolTrue : palette.invalid;
-  return {
-    fill: withAlpha(color, EMAIL_CHIP_FILL_ALPHA),
-    border: color,
-    borderWidth: 0,
-    text: color,
-    mark: { kind: "dot", color },
-  };
-};
+  labels: SheetLabels,
+  dpr: number,
+) {
+  const maxLines = Math.max(
+    1,
+    Math.floor((rect.h - CELL_PAD_Y * 2) / LINE_HEIGHT),
+  );
+  const cell = jsonCellLayout(ctx, value, rect.w, maxLines, isEmail);
+  const lineY = (top: number, index: number) =>
+    rect.y + CELL_PAD_Y + top + (index + 0.5) * LINE_HEIGHT;
+
+  for (const [index, entry] of cell.entries.entries()) {
+    ctx.fillStyle = palette.mutedText;
+    entry.keyLines.forEach((line, lineIndex) => {
+      ctx.fillText(line, rect.x + CELL_PAD_X, lineY(entry.top, lineIndex));
+    });
+    ctx.fillStyle = entry.failed ? palette.invalid : palette.text;
+    entry.valueLines.forEach((line, lineIndex) => {
+      ctx.fillText(line, rect.x + cell.valueX, lineY(entry.top, lineIndex));
+    });
+
+    // The hairline under the entry — what makes the cell read as a table.
+    // The last block's lower edge is the row's own gridline.
+    const isLastBlock =
+      index === cell.entries.length - 1 && cell.moreTop === null;
+    if (!isLastBlock) {
+      const sepY = rect.y + CELL_PAD_Y + entry.top + entry.lines * LINE_HEIGHT;
+      ctx.strokeStyle = palette.gridline;
+      ctx.lineWidth = 1 / dpr;
+      ctx.beginPath();
+      ctx.moveTo(rect.x, sepY);
+      ctx.lineTo(rect.x + rect.w, sepY);
+      ctx.stroke();
+    }
+  }
+
+  if (cell.moreTop !== null) {
+    ctx.fillStyle = palette.mutedText;
+    ctx.fillText(
+      labels.jsonMore(cell.moreCount),
+      rect.x + CELL_PAD_X,
+      lineY(cell.moreTop, 0),
+    );
+  }
+}
 
 /**
  * A working run's colour by status: grey while queued, green while running,
@@ -332,32 +371,18 @@ export function paintCell(args: CellPaintArgs) {
 
   if (value === null) return;
 
-  // A Mail cell: one green chip counting the sends that went out and, when
-  // any failed, a red chip counting those — the column's glanceable summary.
-  if (args.node === "email" && isJsonObject(value)) {
-    const counts = emailCellCounts(value);
-    if (counts) {
-      const sentLabel = String(counts.sent);
-      paintCapsule(ctx, rect, sentLabel, emailCountStyle("sent", palette));
-      if (counts.failed > 0) {
-        // The red chip starts where the green one ends; `paintCapsule` adds
-        // the same CELL_PAD_X inset to whatever rect it is given.
-        const chip = capsuleRect(ctx, rect, sentLabel, capsuleLeading("dot"));
-        const shifted = { ...rect, x: rect.x + chip.w + EMAIL_CHIP_GAP };
-        paintCapsule(
-          ctx,
-          shifted,
-          String(counts.failed),
-          emailCountStyle("failed", palette),
-        );
-      }
-      return;
-    }
-  }
-
+  // JSON and Mail cells (a Mail column is `type: "json"`, `node: "email"`)
+  // paint their entries as key/value rows rather than a summary chip.
   if (type === "json" && isJsonObject(value)) {
-    const label = labels.jsonCapsule(Object.keys(value).length);
-    paintCapsule(ctx, rect, label, chipStyle(palette, dpr));
+    paintJsonCell(
+      ctx,
+      rect,
+      value,
+      args.node === "email",
+      palette,
+      labels,
+      dpr,
+    );
     return;
   }
 

@@ -1,8 +1,9 @@
 import { formatCellText, isJsonObject, isResourceUrl } from "./cell-format";
-import { emailCellCounts, isEmailNode } from "./email-cell";
-import { measureWidth } from "./text-metrics";
+import { EMAIL_FAILED_VALUE, isEmailNode } from "./email-cell";
+import { measureWidth, truncateToWidth } from "./text-metrics";
 import type {
   CellValue,
+  JsonObject,
   SheetColumn,
   SheetFormatters,
   SheetLabels,
@@ -29,6 +30,16 @@ export const CAPSULE_DOT_GAP = 6;
 export const HEADER_GRIP_WIDTH = 8;
 /** Between the grip and whatever the column paints next. */
 export const HEADER_GRIP_GAP = 4;
+
+// A JSON (or Mail) cell paints one table-like row per entry: key | value.
+/** The key column's share of the text width, clamped to MIN..MAX below. */
+export const JSON_KEY_RATIO = 0.4;
+export const JSON_KEY_MIN = 40;
+export const JSON_KEY_MAX = 120;
+/** Between the key column and the value column. */
+export const JSON_KEY_GAP = 8;
+/** A key and a value each wrap to at most this many lines. */
+export const JSON_ENTRY_MAX_LINES = 2;
 
 /**
  * The sheet's variable geometry: per-column widths fitted to content between
@@ -278,10 +289,125 @@ export function caretPosition(
   return { line, x: measureWidth(ctx, text.slice(range.start, upTo)) };
 }
 
-/* ------------------------------------------------------------- building */
+/* ----------------------------------------------------------- json cells */
 
-const CAPSULE_CHROME =
-  CELL_PAD_X * 2 + CAPSULE_PAD_X * 2 + CAPSULE_DOT + CAPSULE_DOT_GAP;
+/** An entry's value as one line of text: strings raw, anything else JSON. */
+export function jsonEntryText(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  return JSON.stringify(raw) ?? "";
+}
+
+/** Wrapped to at most `max` lines; the last line ellipsized when clipped. */
+function clampLines(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  max: number,
+): string[] {
+  const lines = wrapLines(ctx, text, maxWidth, max + 1);
+  if (lines.length <= max) return lines;
+  const shown = lines.slice(0, max);
+  shown[max - 1] = truncateToWidth(ctx, `${shown[max - 1]} …`, maxWidth);
+  return shown;
+}
+
+export type JsonCellEntry = {
+  key: string;
+  /** The wrapped key, at most JSON_ENTRY_MAX_LINES, last line ellipsized. */
+  keyLines: string[];
+  /** Same for the value (`jsonEntryText`). */
+  valueLines: string[];
+  /** A Mail entry whose send failed — painted in the invalid colour. */
+  failed: boolean;
+  /** Pixels below the cell's first line (rect.y + CELL_PAD_Y). */
+  top: number;
+  /** max(keyLines, valueLines) — the lines this entry occupies. */
+  lines: number;
+};
+
+export type JsonCellLayout = {
+  entries: JsonCellEntry[];
+  /** Entries that did not fit the line budget. */
+  moreCount: number;
+  /** Pixel offset of the "+N more" line, or null when there is no room. */
+  moreTop: number | null;
+  /** Lines the cell uses in total — what drives its row height. */
+  lineCount: number;
+  keyWidth: number;
+  /** The value column's x offset from the cell's left edge. */
+  valueX: number;
+};
+
+/**
+ * Where a JSON cell's entries sit, shared by the painter, the row-height
+ * pass and the pointer hit-test — the `capsuleRect` contract: the icon you
+ * can click is by construction the icon that was drawn. The caller has set
+ * `ctx.font` to the cell font. Entries are never painted partially: when the
+ * next one would overflow `maxLines`, it and the rest become "+N more",
+ * which itself takes a line. Only the first entry is unconditional.
+ */
+export function jsonCellLayout(
+  ctx: CanvasRenderingContext2D,
+  value: JsonObject,
+  cellWidth: number,
+  maxLines: number,
+  isEmail: boolean,
+): JsonCellLayout {
+  const innerText = Math.max(0, cellWidth - CELL_PAD_X * 2);
+  const keyWidth = Math.max(
+    JSON_KEY_MIN,
+    Math.min(JSON_KEY_MAX, Math.round(innerText * JSON_KEY_RATIO)),
+  );
+  const valueWidth = Math.max(1, innerText - keyWidth - JSON_KEY_GAP);
+  const entryMax = Math.min(JSON_ENTRY_MAX_LINES, Math.max(1, maxLines));
+
+  const keys = Object.keys(value);
+  const entries: JsonCellEntry[] = [];
+  let used = 0;
+  let index = 0;
+  for (; index < keys.length; index++) {
+    const key = keys[index] as string;
+    const keyLines = clampLines(ctx, key, keyWidth, entryMax);
+    const valueLines = clampLines(
+      ctx,
+      jsonEntryText(value[key]),
+      valueWidth,
+      entryMax,
+    );
+    const lines = Math.max(keyLines.length, valueLines.length);
+    if (entries.length > 0 && used + lines > maxLines) break;
+    entries.push({
+      key,
+      keyLines,
+      valueLines,
+      failed: isEmail && value[key] === EMAIL_FAILED_VALUE,
+      top: used * LINE_HEIGHT,
+      lines,
+    });
+    used += lines;
+  }
+
+  let moreCount = keys.length - index;
+  // The "+N more" line needs a line of its own; free one by dropping shown
+  // entries from the end — never the first, which is always painted.
+  while (moreCount > 0 && used >= maxLines && entries.length > 1) {
+    const dropped = entries.pop() as JsonCellEntry;
+    used -= dropped.lines;
+    moreCount++;
+  }
+  const moreTop = moreCount > 0 && used < maxLines ? used * LINE_HEIGHT : null;
+
+  return {
+    entries,
+    moreCount,
+    moreTop,
+    lineCount: Math.max(1, used + (moreTop === null ? 0 : 1)),
+    keyWidth,
+    valueX: CELL_PAD_X + keyWidth + JSON_KEY_GAP,
+  };
+}
+
+/* ------------------------------------------------------------- building */
 
 /** True for the column types whose text wraps into extra lines. */
 const wrapsText = (column: SheetColumn) =>
@@ -328,15 +454,24 @@ export function buildLayout(inputs: LayoutInputs): SheetLayout {
   ctx.font = inputs.fonts.cell;
   const widthOf = (column: SheetColumn, value: CellValue): number => {
     if (value === null) return 0;
-    if (isEmailNode(column)) {
-      const counts = emailCellCounts(value);
-      if (counts) return CAPSULE_CHROME * 2 + 24; // two small count chips
-    }
     if (column.type === "json" && isJsonObject(value)) {
-      return (
-        measureWidth(ctx, labels.jsonCapsule(Object.keys(value).length)) +
-        CAPSULE_CHROME
-      );
+      // The widest entry at full (unwrapped) width: key — clamped to the key
+      // column's cap — plus the value's first line.
+      let widest = 0;
+      for (const [key, raw] of Object.entries(value)) {
+        const text = jsonEntryText(raw);
+        if ((key.length + text.length) * MIN_CHAR_WIDTH >= MAX_COL_WIDTH) {
+          return MAX_COL_WIDTH;
+        }
+        const keyW = Math.min(
+          measureWidth(ctx, key.split("\n", 1)[0] ?? key),
+          JSON_KEY_MAX,
+        );
+        const valueW = measureWidth(ctx, text.split("\n", 1)[0] ?? text);
+        widest = Math.max(widest, keyW + JSON_KEY_GAP + valueW);
+        if (widest >= MAX_COL_WIDTH) return MAX_COL_WIDTH;
+      }
+      return widest + CELL_PAD_X * 2;
     }
     if (
       (column.type === "file" || column.type === "audio") &&
@@ -357,6 +492,12 @@ export function buildLayout(inputs: LayoutInputs): SheetLayout {
 
   /** rowIndex -> tallest line count, collected during the width pass. */
   const textCells: { row: number; col: number; text: string }[] = [];
+  const jsonCells: {
+    row: number;
+    col: number;
+    value: JsonObject;
+    isEmail: boolean;
+  }[] = [];
   for (const [key, value] of cells) {
     if (value === null) continue;
     const splitAt = key.indexOf(":");
@@ -374,6 +515,13 @@ export function buildLayout(inputs: LayoutInputs): SheetLayout {
         textCells.push({ row, col, text: value });
       }
     }
+    if (
+      column.type === "json" &&
+      isJsonObject(value) &&
+      Object.keys(value).length > 0
+    ) {
+      jsonCells.push({ row, col, value, isEmail: isEmailNode(column) });
+    }
   }
 
   const colLefts: number[] = [0];
@@ -383,13 +531,23 @@ export function buildLayout(inputs: LayoutInputs): SheetLayout {
 
   /* ---- pass 2: row heights at the fitted widths ---- */
   const heightByRow = new Map<number, number>();
+  const growRow = (row: number, lines: number) => {
+    if (lines <= 1) return;
+    const height = rowHeightFor(lines);
+    const known = heightByRow.get(row) ?? ROW_HEIGHT;
+    if (height > known) heightByRow.set(row, height);
+  };
   for (const cell of textCells) {
     const inner = (widths[cell.col] as number) - CELL_PAD_X * 2;
-    const lines = wrapLines(ctx, cell.text, inner).length;
-    if (lines <= 1) continue;
-    const height = rowHeightFor(lines);
-    const known = heightByRow.get(cell.row) ?? ROW_HEIGHT;
-    if (height > known) heightByRow.set(cell.row, height);
+    growRow(cell.row, wrapLines(ctx, cell.text, inner).length);
+  }
+  for (const cell of jsonCells) {
+    const width = widths[cell.col] as number;
+    growRow(
+      cell.row,
+      jsonCellLayout(ctx, cell.value, width, MAX_CELL_LINES, cell.isEmail)
+        .lineCount,
+    );
   }
 
   const tallRows = [...heightByRow.keys()].sort((a, b) => a - b);

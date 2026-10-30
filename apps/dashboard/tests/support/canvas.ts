@@ -123,8 +123,7 @@ export const TEST_PALETTE: SheetPalette = {
 export const TEST_LABELS: SheetLabels = {
   boolTrue: "True",
   boolFalse: "False",
-  jsonCapsule: (count: number) => `${count} keys`,
-  jsonEmpty: "empty",
+  jsonMore: (count: number) => `+${count} more`,
   typeNames: {} as SheetLabels["typeNames"],
   runStatus: (status: string) => `run:${status}`,
 };

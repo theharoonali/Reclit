@@ -332,6 +332,8 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     if (cellDialog === null) return;
     setCell(cellDialog.row, cellDialog.columnId, value);
     setCellDialog(null);
+    // A JSON cell's entries drive its row height, so the save re-fits.
+    canvas.invalidateLayout();
     canvas.requestPaint();
   };
 

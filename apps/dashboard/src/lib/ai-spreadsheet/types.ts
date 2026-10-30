@@ -263,8 +263,8 @@ export type SheetPalette = {
 export type SheetLabels = {
   boolTrue: string;
   boolFalse: string;
-  jsonCapsule: (count: number) => string;
-  jsonEmpty: string;
+  /** The "+N more" line when a JSON cell's entries outgrow the row cap. */
+  jsonMore: (count: number) => string;
   typeNames: Record<ColumnType, string>;
   /** The label of a working run's capsule; known statuses are copy, a custom stage is data. */
   runStatus: (status: string) => string;

@@ -1,12 +1,7 @@
 "use client";
 
 import type { MouseEvent, PointerEvent } from "react";
-import {
-  fileLabel,
-  isJsonObject,
-  isResourceUrl,
-} from "@/lib/ai-spreadsheet/cell-format";
-import { isEmailNode } from "@/lib/ai-spreadsheet/email-cell";
+import { fileLabel, isResourceUrl } from "@/lib/ai-spreadsheet/cell-format";
 import {
   cellRect,
   containsPoint,
@@ -27,7 +22,6 @@ import type {
   CellValue,
   SheetFonts,
   SheetHit,
-  SheetLabels,
   SheetModel,
   Viewport,
 } from "@/lib/ai-spreadsheet/types";
@@ -42,7 +36,6 @@ export type SheetPointerArgs = {
   fontsRef: React.RefObject<SheetFonts>;
   /** Which column (if any) the pointer is over, for the header highlight. */
   hoverRef: React.RefObject<SheetHit>;
-  labels: SheetLabels;
   editor: CellEditorApi;
   /** The column-reorder drag; it gets first refusal on every header pointer event. */
   drag: ColumnDragApi;
@@ -52,7 +45,6 @@ export type SheetPointerArgs = {
   onGripHover: (col: number | null) => void;
   getCell: (row: number, columnId: string) => CellValue;
   requestPaint: () => void;
-  onOpenJson: (row: number, columnId: string) => void;
   onOpenColumn: (columnId?: string) => void;
   onRemoveColumn: (columnId: string) => void;
   onToggleAudio: (row: number, columnId: string, url: string) => void;
@@ -70,9 +62,9 @@ const CHECKBOX_HIT_PAD = 5;
  */
 export function createSheetPointerHandlers(args: SheetPointerArgs) {
   const { modelRef, viewportRef, ctxRef, fontsRef, hoverRef } = args;
-  const { labels, editor, drag, rangeDrag, onGripHover } = args;
+  const { editor, drag, rangeDrag, onGripHover } = args;
   const { getCell, requestPaint } = args;
-  const { onOpenJson, onOpenColumn, onRemoveColumn, onToggleAudio } = args;
+  const { onOpenColumn, onRemoveColumn, onToggleAudio } = args;
 
   /** Canvas-relative CSS pixels. DPR never enters this — see `geometry`. */
   const localPoint = (event: MouseEvent<HTMLElement>) => {
@@ -95,7 +87,6 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     x: number,
     y: number,
   ):
-    | { kind: "json"; columnId: string }
     | { kind: "file"; url: string }
     | { kind: "audio"; columnId: string; url: string }
     | null => {
@@ -124,13 +115,6 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     };
 
     const value = getCell(row, column.id);
-    // A Mail cell paints count chips, not the json chip, and its object is
-    // read-only — no JSON panel, so no chip target either.
-    if (isEmailNode(column)) return null;
-    if (column.type === "json" && isJsonObject(value)) {
-      const label = labels.jsonCapsule(Object.keys(value).length);
-      return hits(label) ? { kind: "json", columnId: column.id } : null;
-    }
     if (column.type === "file" && isResourceUrl(value)) {
       return hits(fileLabel(value)) ? { kind: "file", url: value } : null;
     }
@@ -207,14 +191,10 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
       rangeDrag.begin(event, "cells");
       return;
     }
-    if (target.kind === "json") {
-      onOpenJson(hit.row, target.columnId);
-      return;
-    }
 
-    // Both remaining chips act on the click itself, so both only act on the
-    // first of a burst: without the guard, double-clicking a file chip opens
-    // two tabs and double-clicking a audio chip starts then stops the note.
+    // Both chips act on the click itself, so both only act on the first of a
+    // burst: without the guard, double-clicking a file chip opens two tabs
+    // and double-clicking a audio chip starts then stops the note.
     if (event.detail > 1) return;
 
     if (target.kind === "audio") {

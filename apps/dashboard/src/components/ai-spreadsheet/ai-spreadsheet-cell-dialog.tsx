@@ -125,8 +125,8 @@ export function AiSpreadsheetCellDialog(props: {
                           update(entry.id, { value: event.target.value })
                         }
                         rows={Math.min(
-                          6,
-                          Math.max(1, entry.value.split("\n").length),
+                          10,
+                          Math.max(3, entry.value.split("\n").length),
                         )}
                         value={entry.value}
                       />

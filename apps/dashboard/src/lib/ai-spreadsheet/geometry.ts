@@ -34,6 +34,10 @@ export {
   COL_WIDTH,
   HEADER_GRIP_GAP,
   HEADER_GRIP_WIDTH,
+  JSON_KEY_GAP,
+  JSON_KEY_MAX,
+  JSON_KEY_MIN,
+  JSON_KEY_RATIO,
   ROW_HEIGHT,
 } from "./layout";
 
