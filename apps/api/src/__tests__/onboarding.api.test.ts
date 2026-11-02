@@ -6,7 +6,8 @@
  * user contract), one `Workspace` + its `Spreadsheet` with its `description`
  * and `purpose` (see the workspace and spreadsheet contracts), the imported
  * grid (spreadsheet contract, IMPORT), the extra columns and, at the end,
- * one run-ai batch (see the run-ai contract).
+ * one run-ai batch (see the run-ai contract) and one `DashboardGeneration`
+ * (see the dashboard-generation contract).
  *
  * MODELS
  *   OnboardingDescription = {        // POST /onboarding/describe
@@ -37,6 +38,11 @@
  *     user: UserProfile;             // onboardingCompleted now TRUE
  *     batchId: string | null;        // the run-ai batch; null when nothing could run
  *     cellCount: number; rowCount: number; columnCount: number;
+ *     generationId: string | null;   // the DashboardGeneration started for the sheet; null when none could be
+ *   }
+ *   OnboardingSkip = {               // onboarding.skip
+ *     user: UserProfile;             // onboardingCompleted now TRUE
+ *     workspace: WorkspaceSummary;   // the new, empty workspace (its sheet has no column and no row)
  *   }
  * Dates are ISO strings on the REST routes (plain JSON, no superjson).
  *
@@ -47,6 +53,7 @@
  * | POST /onboarding            | multipart file; name?: 1..200; description?: <= 1000; purpose?: <= 80; columns?: JSON text of OnboardingColumn[] (<= 10) | 200 OnboardingResult | 400 (no file) · 400 VALIDATION_FAILED (name, description, purpose, columns) · 400 SPREADSHEET_IMPORT_* · 409 SPREADSHEET_COLUMN_NAME_TAKEN · 409 ONBOARDING_ALREADY_COMPLETED |
  * | onboarding.suggestColumns   | mutation { name: 1..200; description: <= 1000; purpose: <= 80; columns: { name; type }[] (1..256); sampleRows: string[][] (<= 5) } | OnboardingSuggestions | BAD_REQUEST, SERVICE_UNAVAILABLE, BAD_GATEWAY |
  * | onboarding.finish           | mutation { workspaceId; rowLimit?: 1..1000 = 1000 }                                          | OnboardingFinish         | BAD_REQUEST, NOT_FOUND (workspace, sheet), CONFLICT (ONBOARDING_ALREADY_COMPLETED), BAD_GATEWAY (RUN_AI_DISPATCH_FAILED) |
+ * | onboarding.skip             | mutation { name: 1..200 }                                                                    | OnboardingSkip           | BAD_REQUEST, CONFLICT (ONBOARDING_ALREADY_COMPLETED) |
  *
  * NOTES
  * - The upload routes are REST only: multipart does not ride the tRPC link,
@@ -78,6 +85,18 @@
  *   still sets the flag. A dispatch failure propagates with the flag still
  *   false. A second `finish`, like a `POST /onboarding` once the flag is
  *   true, is a conflict.
+ * - After the flag, `finish` starts the sheet's dashboard generation
+ *   (`dashboardGeneration.start`, in-process) with `source: "onboarding"`
+ *   and `awaitBatchId` = `batchId`, so the worker waits for the AI columns
+ *   before analyzing; `generationId` is its id and the wizard then follows
+ *   `dashboardGeneration.onChange`. Best effort: without a Gemini key, or
+ *   when the worker cannot be reached, `generationId` is null and the
+ *   response is still 200 with the flag set — the dashboard page offers to
+ *   generate again.
+ * - `skip` is the wizard's "no file" exit: it creates a workspace named
+ *   `name` (trimmed, 1..200) with an empty sheet and sets the flag. Nothing
+ *   is run and no generation is started. Once the flag is true it is a
+ *   conflict, like `finish`.
  * - Without `GOOGLE_GENERATIVE_AI_API_KEY` on the api, `describe` is 503 and
  *   `suggestColumns` SERVICE_UNAVAILABLE; a model failure or an unusable
  *   answer is 502 / BAD_GATEWAY.
@@ -94,6 +113,7 @@ import {
 } from "bun:test";
 import type { DescribeGenerator, SuggestGenerator } from "../ai/onboarding-ai";
 import { pingDatabase, prisma } from "../db/prisma";
+import { dashboardGenerationControlService } from "../modules/dashboard-generation/dashboard-generation-control.service";
 import { OnboardingAiFailedError } from "../modules/onboarding/onboarding.errors";
 import { onboardingService } from "../modules/onboarding/onboarding.service";
 import {
@@ -171,6 +191,7 @@ describe.skipIf(!dbUp)("onboarding", () => {
   afterAll(async () => {
     if (savedKey === undefined) delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     else process.env.GOOGLE_GENERATIVE_AI_API_KEY = savedKey;
+    dashboardGenerationControlService.setDispatcher(null);
     for (const id of created) await removeWorkspace(id);
     await setFlag(originalFlag).catch(() => {});
     await server?.close();
@@ -678,30 +699,75 @@ describe.skipIf(!dbUp)("onboarding", () => {
       );
     });
 
-    it("runs every AI column over the stored rows as one pending batch and sets the flag", async () => {
-      const { workspaceId, sheetId } = await stage(2);
+    it("runs every AI column over the stored rows as one pending batch, sets the flag and starts the generation that waits for the batch", async () => {
+      const triggered: string[] = [];
+      dashboardGenerationControlService.setDispatcher({
+        trigger: async (generation) => {
+          triggered.push(generation.id);
+          return { id: `run_${generation.id}` };
+        },
+        cancel: async () => {},
+      });
+      try {
+        const { workspaceId, sheetId } = await stage(2);
+        const result = await caller.onboarding.finish({ workspaceId });
+        if (result.batchId) batches.push(result.batchId);
+        expect(result.batchId).toStartWith("batch-");
+        expect(result).toMatchObject({
+          cellCount: 6,
+          rowCount: 3,
+          columnCount: 2,
+        });
+        expect(result.user.onboardingCompleted).toBe(true);
+        expect((await caller.user.me()).onboardingCompleted).toBe(true);
+
+        const active = await caller.runAi.listActive({
+          spreadsheetId: sheetId,
+        });
+        expect(active).toHaveLength(6);
+        expect(new Set(active.map((run) => run.batchId))).toEqual(
+          new Set([result.batchId ?? ""]),
+        );
+        expect(active.every((run) => run.status === "pending")).toBe(true);
+
+        // The generation: for this sheet, from onboarding, waiting for the batch, handed to the worker.
+        if (!result.generationId) throw new Error("expected a generationId");
+        expect(triggered).toEqual([result.generationId]);
+        const generation = await caller.dashboardGeneration.byId({
+          id: result.generationId,
+        });
+        expect(generation).toMatchObject({
+          workspaceId,
+          spreadsheetId: sheetId,
+          source: "onboarding",
+          status: "pending",
+          phase: "queued",
+          awaitBatchId: result.batchId,
+        });
+        expect(
+          await caller.dashboardGeneration.active({ workspaceId }),
+        ).toEqual(generation);
+
+        await expectTRPCError(
+          caller.onboarding.finish({ workspaceId }),
+          "CONFLICT",
+        );
+      } finally {
+        dashboardGenerationControlService.setDispatcher(null);
+      }
+    });
+
+    it("answers generationId null without a Gemini key, the flag still set", async () => {
+      const { workspaceId } = await stage(1);
+      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       const result = await caller.onboarding.finish({ workspaceId });
       if (result.batchId) batches.push(result.batchId);
       expect(result.batchId).toStartWith("batch-");
-      expect(result).toMatchObject({
-        cellCount: 6,
-        rowCount: 3,
-        columnCount: 2,
-      });
+      expect(result.generationId).toBeNull();
       expect(result.user.onboardingCompleted).toBe(true);
-      expect((await caller.user.me()).onboardingCompleted).toBe(true);
-
-      const active = await caller.runAi.listActive({ spreadsheetId: sheetId });
-      expect(active).toHaveLength(6);
-      expect(new Set(active.map((run) => run.batchId))).toEqual(
-        new Set([result.batchId ?? ""]),
-      );
-      expect(active.every((run) => run.status === "pending")).toBe(true);
-
-      await expectTRPCError(
-        caller.onboarding.finish({ workspaceId }),
-        "CONFLICT",
-      );
+      expect(
+        await caller.dashboardGeneration.latest({ workspaceId }),
+      ).toBeNull();
     });
 
     it("honours rowLimit", async () => {
@@ -718,7 +784,7 @@ describe.skipIf(!dbUp)("onboarding", () => {
       });
     });
 
-    it("sets the flag without a batch when the sheet has no AI column", async () => {
+    it("sets the flag without a batch when the sheet has no AI column; the generation then waits for nothing", async () => {
       const { workspaceId, sheetId } = await stage(0);
       const result = await caller.onboarding.finish({ workspaceId });
       expect(result).toMatchObject({
@@ -731,6 +797,55 @@ describe.skipIf(!dbUp)("onboarding", () => {
       expect(await caller.runAi.listActive({ spreadsheetId: sheetId })).toEqual(
         [],
       );
+      if (!result.generationId) throw new Error("expected a generationId");
+      expect(
+        await caller.dashboardGeneration.byId({ id: result.generationId }),
+      ).toMatchObject({
+        source: "onboarding",
+        awaitBatchId: null,
+        status: "pending",
+      });
+    });
+  });
+
+  describe("onboarding.skip", () => {
+    it("creates the named workspace with an empty sheet and sets the flag; a second skip is a conflict", async () => {
+      await expectTRPCError(
+        caller.onboarding.skip({ name: "   " }),
+        "BAD_REQUEST",
+      );
+      await expectTRPCError(
+        caller.onboarding.skip({ name: "x".repeat(201) }),
+        "BAD_REQUEST",
+      );
+
+      const result = await caller.onboarding.skip({ name: "  Fresh start  " });
+      created.push(result.workspace.id);
+      expect(result.user).toMatchObject({
+        id: userId,
+        onboardingCompleted: true,
+      });
+      expect(result.workspace.name).toBe("Fresh start");
+      expect((await caller.user.me()).onboardingCompleted).toBe(true);
+
+      const sheetId = result.workspace.spreadsheetId;
+      if (!sheetId) throw new Error("expected the workspace's sheet");
+      expect(await caller.spreadsheet.byId({ id: sheetId })).toMatchObject({
+        totalColumns: 0,
+      });
+      expect((await caller.spreadsheet.rows({ id: sheetId })).rows).toEqual([]);
+      expect(
+        await caller.dashboardGeneration.latest({
+          workspaceId: result.workspace.id,
+        }),
+      ).toBeNull();
+
+      const before = await workspaceCount();
+      await expectTRPCError(
+        caller.onboarding.skip({ name: "Again" }),
+        "CONFLICT",
+      );
+      expect(await workspaceCount()).toBe(before);
     });
   });
 });

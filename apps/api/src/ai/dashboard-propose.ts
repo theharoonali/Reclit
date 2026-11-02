@@ -12,14 +12,14 @@ import type { AssistantUsage } from "../modules/assistant/assistant.schema";
 import { assistantModelId, toUsage } from "./assistant-step";
 import { gemini } from "./gemini";
 
-// The one-shot recommendation call: `generateText` with a JSON response
-// schema and no tools (Gemini refuses both in one request — search-output.ts).
-// The schema here is deliberately LENIENT: plain strings where the contract
-// wants an identifier pattern, no array caps. The Google provider drops
-// `pattern` and `maxItems` from a response schema, so a strict `Output.object`
-// would throw the whole answer away over one bad series key; the strict twin
-// (`recommendationCardSchema`, assistant-tools.ts) runs per card in the
-// service, and a bad card costs one card.
+// The propose call of the generate-dashboard task: `generateText` with a JSON
+// response schema and no tools (Gemini refuses both in one request —
+// search-output.ts). The schema here is deliberately LENIENT: plain strings
+// where the contract wants an identifier pattern, no array caps. The Google
+// provider drops `pattern` and `maxItems` from a response schema, so a strict
+// `Output.object` would throw the whole answer away over one bad series key;
+// the strict twin (`proposalCardSchema`, dashboard-generation.schema.ts) runs
+// per card in the pipeline, and a bad card costs one card.
 
 const scalar = z.union([z.string(), z.number(), z.boolean()]);
 
@@ -74,7 +74,7 @@ const querySchema = z.object({
 });
 
 /** What the model answers: cards in the shape of the createWidget tool, loosely typed. */
-export const recommendationOutputSchema = z.object({
+export const proposalOutputSchema = z.object({
   cards: z.array(
     z.object({
       name: z.string(),
@@ -95,20 +95,20 @@ export const recommendationOutputSchema = z.object({
   ),
 });
 
-export type RecommendationGeneration = {
-  /** The model's cards, each still to be parsed strictly and validated. */
+export type ProposalGeneration = {
+  /** The model's cards, each still to be parsed strictly and verified. */
   cards: unknown[];
   model: string;
   usage: AssistantUsage;
 };
 
-/** The model call, as the service takes it — a fake in the contract test. */
-export type RecommendationGenerator = (input: {
+/** The model call, as the pipeline takes it — a fake in the contract test. */
+export type ProposalGenerator = (input: {
   system: string;
   prompt: string;
-}) => Promise<RecommendationGeneration>;
+}) => Promise<ProposalGeneration>;
 
-export const generateWidgetRecommendations: RecommendationGenerator = async ({
+export const generateDashboardCards: ProposalGenerator = async ({
   system,
   prompt,
 }) => {
@@ -117,9 +117,9 @@ export const generateWidgetRecommendations: RecommendationGenerator = async ({
     model: gemini(modelId),
     system,
     prompt,
-    output: Output.object({ schema: recommendationOutputSchema }),
+    output: Output.object({ schema: proposalOutputSchema }),
   });
-  const output = recommendationOutputSchema.parse(result.output);
+  const output = proposalOutputSchema.parse(result.output);
   return {
     cards: output.cards,
     model: result.response.modelId || modelId,

@@ -20,7 +20,7 @@ apps/dashboard/src/
 │   └── (public)/…                 # a second route group = different chrome (none, here)
 ├── components/
 │   ├── layout/                    # app-shell · app-sidebar · sidebar-credits · app-header · header-actions
-│   ├── common/                    # cross-feature: page-shell · form-field · loading-state · error-state · error-fallback
+│   ├── common/                    # cross-feature: page-shell · form-field · loading-state · error-state · error-fallback · file-drop-zone · step-list
 │   ├── workspace/                 # workspace-provider (useWorkspace) · account-menu · create-workspace-dialog · workspace-header-title
 │   └── <feature>/                 # this feature's components AND its hooks (use-*.ts), kebab-case
 ├── config/                        # nav.ts (menu data, keys not text) · populate.ts · subscription.ts (stubs)
@@ -135,7 +135,9 @@ component that only forwards props is deleted.
 the spinner, `label` for screen readers), `error-state` (`message`),
 `error-fallback` (the error boundaries' body), `file-drop-zone` (dashed drop
 target + "choose" button; the public form and onboarding pick files through
-it). Reach for these before writing
+it), `step-list` (a live checklist — `items: { key, label, status }[]` with
+`pending` / `active` / `done` / `failed`; the onboarding wizard's AI panel and
+the dashboard's generation card share it). Reach for these before writing
 markup; the next shared piece (an `empty-state`, a `confirm-dialog`, a
 `data-table`) is born here the moment a second feature needs it.
 
@@ -157,7 +159,7 @@ that queries, and `<feature>-list.tsx` / `<feature>-form.tsx` that render.
 | `@reclit/ui/calendar` | `Calendar` | inline month over `react-day-picker`, no popover |
 | `@reclit/ui/capsule-select` | `CapsuleSelect` | single-choice pill row, radiogroup semantics; an option may be `locked` or carry an `icon` |
 | `@reclit/ui/card` | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` | the boxed surface; `CardTitle` is an `h3` in `text-subheading` |
-| `@reclit/ui/chart` | `ChartContainer`, `ChartTooltip`, `ChartTooltipContent`, `ChartLegend`, `ChartLegendContent`, `ChartStyle`, `ChartConfig` | shadcn charts on recharts; colours are `hsl(var(--chart-N))`; pass `isAnimationActive={false}` on every series |
+| `@reclit/ui/chart` | `ChartContainer`, `ChartTooltip`, `ChartTooltipContent`, `ChartLegend`, `ChartLegendContent`, `ChartStyle`, `ChartConfig` | shadcn charts on recharts; colours are `hsl(var(--chart-N))`; pass `isAnimationActive={false}` on every series; `ChartTooltipContent` takes `valueFormatter(value, key)` (a figure with its series' unit), `ChartLegendContent` a `formatter(label)` (a long label cut short, the full one in `title`); the dashboard's axis geometry (truncation, tick slant, compact figures, axis widths) is `lib/dashboard/axis.ts` |
 | `@reclit/ui/checkbox` | `Checkbox` | Radix |
 | `@reclit/ui/dialog` | `Dialog`, `DialogTrigger`, `DialogContent`, `DialogHeader`, `DialogFooter`, `DialogTitle`, `DialogDescription`, `DialogClose` | Radix, unanimated |
 | `@reclit/ui/dropdown-menu` | `DropdownMenu`, `…Trigger`, `…Content`, `…Item`, `…CheckboxItem`, `…RadioGroup`, `…RadioItem`, `…Label`, `…Separator`, `…Sub*` | Radix, unanimated |
@@ -241,9 +243,12 @@ Everything else derives from it:
 | `motion` | `duration-smooth`, `ease-smooth` — the one motion setting; the preset also derives the two enter animations from it, `animate-slide-up` (a list rising into place) and `animate-slide-in` (a screen arriving from the right); pair either with `motion-reduce:animate-none` |
 | `SHEET_HEADER_PX` | the canvas header height, shared by the DOM strip and the canvas geometry |
 
-- **Chart colours** are `chart-1` … `chart-5` (blues, a violet, and a quiet
-  neutral for targets/baselines). Data names a token, never a colour:
-  `bg-chart-1`, `hsl(var(--chart-1))`.
+- **Chart colours** are `chart-1` … `chart-5` — five distinct hues in fixed
+  order (blue, teal, amber, violet, rose), stepped per mode and validated for
+  colour-vision deficiency against the card surface; a heatmap uses one hue's
+  alpha ramp. Data names a token, never a colour: `bg-chart-1`,
+  `hsl(var(--chart-1))`. A trend is `text-success` / `text-destructive`,
+  never a chart hue.
 - **Add a colour** = one key in `light` (the type forces `dark` to match).
   **Add a size** = one key in `sizes`. Nothing else needs to learn the name:
   the preset exposes it and `cn()` reads the same object, so overrides dedupe.

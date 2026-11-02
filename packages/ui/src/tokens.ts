@@ -50,15 +50,20 @@ const light = {
   /** The dialog scrim; its alpha is `opacity.overlay`. */
   overlay: "0 0% 0%",
   /**
-   * Data-visualisation series, in order. Charts and dashboard widgets name
-   * these (`chart-1` … `chart-5`) instead of colours; `chart-5` is the quiet
-   * neutral for a comparison series (a target, a baseline).
+   * Data-visualisation series, in fixed order: blue, teal, amber, violet,
+   * rose — five distinct hues so a multi-series chart reads without a key,
+   * stepped per mode and validated for colour-vision deficiency (adjacent
+   * pairs) and lightness against the card surface. Charts and dashboard
+   * widgets name these (`chart-1` … `chart-5`) instead of colours; a
+   * heatmap uses one hue's alpha ramp. Amber sits just under 3:1 on the
+   * light card, so a chart never carries a figure in colour alone (the
+   * tooltip and legend name it).
    */
-  "chart-1": "225 90% 62%",
-  "chart-2": "218 92% 78%",
-  "chart-3": "230 55% 42%",
-  "chart-4": "262 70% 66%",
-  "chart-5": "0 0% 84%",
+  "chart-1": "222 80% 56%",
+  "chart-2": "172 65% 38%",
+  "chart-3": "38 100% 40%",
+  "chart-4": "266 60% 58%",
+  "chart-5": "345 68% 56%",
 };
 
 export type ColorToken = keyof typeof light;
@@ -86,11 +91,11 @@ const dark: Record<ColorToken, string> = {
   input: "0 0% 26%",
   ring: "20 90% 58%",
   overlay: "0 0% 0%",
-  "chart-1": "225 90% 66%",
-  "chart-2": "218 80% 72%",
-  "chart-3": "230 60% 56%",
-  "chart-4": "262 70% 70%",
-  "chart-5": "0 0% 40%",
+  "chart-1": "222 80% 62%",
+  "chart-2": "172 62% 41%",
+  "chart-3": "38 100% 40%",
+  "chart-4": "266 60% 63%",
+  "chart-5": "345 68% 61%",
 };
 
 export const colors = { light, dark };
@@ -222,10 +227,11 @@ export const sizes = {
   "cell-dialog-body": "24rem",
 
   // Dashboard widgets — the body height of a chart card (`height` in the
-  // dashboard JSON: sm | md | lg).
+  // dashboard JSON: sm | md | lg), and the heatmap's row-label column.
   "chart-sm": "10rem",
   "chart-md": "16rem",
   "chart-lg": "20rem",
+  "heat-label": "5rem",
 };
 
 export const opacity = {

@@ -5,7 +5,8 @@ import type { ResolvedWidget } from "@/lib/dashboard/widget-state";
 /**
  * A grid of tinted cells: one line per record (labelled by `categoryKey`),
  * one cell per series, darker for a higher value relative to the widget's
- * largest. Each cell names its value for hover and screen readers.
+ * largest. Each cell names its value for hover and screen readers; a long
+ * row label is cut at its column and named in full on hover.
  */
 export function HeatmapWidget({ widget }: { widget: ResolvedWidget }) {
   const { data, height } = widget;
@@ -26,7 +27,10 @@ export function HeatmapWidget({ widget }: { widget: ResolvedWidget }) {
             className="flex flex-1 items-center gap-2"
             key={`${label}-${index}`}
           >
-            <span className="w-16 shrink-0 text-caption text-muted-foreground">
+            <span
+              className="w-heat-label shrink-0 truncate text-caption text-muted-foreground"
+              title={label}
+            >
               {label}
             </span>
             {data.series.map((series) => {

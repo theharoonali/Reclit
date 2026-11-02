@@ -29,12 +29,6 @@ export type WidgetSource = Pick<
 /** A widget config with its computed data — what the renderers take. */
 export type ResolvedWidget = WidgetView & { data: WidgetData };
 
-/** The assistant's proposed cards (`assistant.recommendWidgets`). */
-export type AssistantRecommendations =
-  RouterOutputs["assistant"]["recommendWidgets"];
-export type AssistantRecommendation =
-  AssistantRecommendations["recommendations"][number];
-
 /** The `dashboard.widget.errors.*` message for an engine issue. */
 export type WidgetIssueKey = "unknownColumn" | "formula" | "query";
 

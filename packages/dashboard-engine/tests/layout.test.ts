@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { checkLayout, placeWidget, placeWidgets, toRows } from "../src/index";
+import {
+  checkLayout,
+  packDashboard,
+  placeWidget,
+  placeWidgets,
+  toRows,
+  type WidgetType,
+} from "../src/index";
 
 const widget = (id: string, row: number, sort: number, column = 4) => ({
   id,
@@ -89,5 +96,82 @@ describe("placeWidgets", () => {
       { row: 1, sort: 1 },
     ]);
     expect(placeWidgets([])).toEqual([]);
+  });
+});
+
+describe("packDashboard", () => {
+  const card = (type: WidgetType, column = 6) => ({ type, column });
+  const stats = (count: number) =>
+    Array.from({ length: count }, () => card("stat"));
+  const charts = (count: number) =>
+    Array.from({ length: count }, (_, index) =>
+      card(index % 2 === 0 ? "bar" : "line"),
+    );
+  /** The widths per row, in row and sort order. */
+  const widths = (packed: { row: number; sort: number; column: number }[]) =>
+    toRows(packed).map((row) => row.widgets.map((w) => w.column));
+
+  it("orders stats, charts, tables and fills every row", () => {
+    const packed = packDashboard([card("table", 6), ...charts(2), ...stats(4)]);
+    expect(packed.map((w) => w.type)).toEqual([
+      "stat",
+      "stat",
+      "stat",
+      "stat",
+      "bar",
+      "line",
+      "table",
+    ]);
+    expect(widths(packed)).toEqual([[3, 3, 3, 3], [6, 6], [12]]);
+    expect(packed.map(({ row, sort }) => [row, sort])).toEqual([
+      [0, 0],
+      [0, 1],
+      [0, 2],
+      [0, 3],
+      [1, 0],
+      [1, 1],
+      [2, 0],
+    ]);
+  });
+
+  it("gives three stats a third each", () => {
+    expect(widths(packDashboard(stats(3)))).toEqual([[4, 4, 4]]);
+  });
+
+  it("pairs a lone stat with the first chart", () => {
+    expect(widths(packDashboard([...stats(1), ...charts(1)]))).toEqual([
+      [6, 6],
+    ]);
+  });
+
+  it("widens the last 6-wide chart when the halves are odd", () => {
+    expect(widths(packDashboard([...stats(1), ...charts(2)]))).toEqual([
+      [6, 6],
+      [12],
+    ]);
+    expect(widths(packDashboard([...stats(2), ...charts(3)]))).toEqual([
+      [6, 6],
+      [6, 6],
+      [12],
+    ]);
+  });
+
+  it("keeps a chart that asks for the full row at 12", () => {
+    expect(
+      widths(packDashboard([card("bar", 12), card("line"), card("area")])),
+    ).toEqual([[12], [6, 6]]);
+  });
+
+  it("widens a bar rather than a trailing pie", () => {
+    const packed = packDashboard([card("bar"), card("bar"), card("pie")]);
+    expect(packed.map((w) => [w.type, w.column, w.row])).toEqual([
+      ["bar", 6, 0],
+      ["bar", 12, 1],
+      ["pie", 6, 0],
+    ]);
+  });
+
+  it("packs nothing into nothing", () => {
+    expect(packDashboard([])).toEqual([]);
   });
 });

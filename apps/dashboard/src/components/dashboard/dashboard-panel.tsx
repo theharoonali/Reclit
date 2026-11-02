@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import type { ReactNode } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import { useAssistantPageAction } from "@/components/assistant/use-page-action";
 import { ErrorState } from "@/components/common/error-state";
 import { LoadingState } from "@/components/common/loading-state";
@@ -10,12 +10,12 @@ import { PageShell } from "@/components/common/page-shell";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { useTRPC } from "@/trpc/client";
 import { DashboardEmpty } from "./dashboard-empty";
+import { DashboardGenerationProgress } from "./dashboard-generation-progress";
 import { DashboardGrid } from "./dashboard-grid";
 import { DashboardHeaderActions } from "./dashboard-header-actions";
-import { DashboardRecommendations } from "./dashboard-recommendations";
 import { DashboardWidgetCard } from "./dashboard-widget";
+import { useDashboardGeneration } from "./use-dashboard-generation";
 import { useDashboardLiveRows } from "./use-dashboard-live-rows";
-import { useDashboardRecommendations } from "./use-dashboard-recommendations";
 
 /**
  * The page body: the active workspace's dashboard config
@@ -25,8 +25,11 @@ import { useDashboardRecommendations } from "./use-dashboard-recommendations";
  * the URL never carries the workspace (docs/plans/013-workspaces.md).
  *
  * While the dashboard is empty the assistant island offers "AI
- * Recommendations" (the page's action pill); the proposed cards render here,
- * in place of the empty state, or under the grid once the first was added.
+ * Recommendations" (the page's action pill), which starts a dashboard
+ * generation; its progress renders here in place of the empty state, and a
+ * generation that found nothing worth charting leaves the "no value" copy.
+ * A failed or cancelled generation can be dismissed — the card gives way to
+ * the empty state until another generation starts.
  */
 export function DashboardPanel() {
   const t = useTranslations("dashboard");
@@ -48,22 +51,38 @@ export function DashboardPanel() {
   const isLoaded =
     workspaceId !== "" && !dashboard.isPending && !dashboard.isError;
 
-  const recommendations = useDashboardRecommendations(workspaceId);
-  const hasSet = recommendations.set !== null;
+  const generation = useDashboardGeneration(workspaceId);
+  const { start } = generation;
+  const startFromDashboard = useCallback(() => {
+    void start("dashboard");
+  }, [start]);
+  const isBusy = generation.isStarting || generation.isActive;
   useAssistantPageAction(
-    isLoaded && widgets.length === 0 && !hasSet
+    isLoaded && widgets.length === 0 && !generation.isActive
       ? {
-          label: t("recommendations.action"),
-          description: recommendations.isRecommending
-            ? t("recommendations.busy")
-            : t("recommendations.description"),
-          busy: recommendations.isRecommending,
-          errorMessage: recommendations.errorMessage,
-          onRun: recommendations.run,
-          onDismissError: recommendations.dismissError,
+          label: t("generation.action"),
+          description: isBusy
+            ? t("generation.busy")
+            : t("generation.description"),
+          busy: isBusy,
+          errorMessage: generation.errorKey
+            ? t(`generation.errors.${generation.errorKey}`)
+            : null,
+          onRun: startFromDashboard,
+          onDismissError: generation.dismissError,
         }
       : null,
   );
+
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const row = generation.generation;
+  const stopped =
+    row !== null && (row.status === "failed" || row.status === "cancelled");
+  const isEmpty = widgets.length === 0;
+  const showProgress =
+    row !== null &&
+    row.id !== dismissed &&
+    (generation.isActive || (stopped && isEmpty));
 
   let body: ReactNode;
   if (workspace.isError || dashboard.isError) {
@@ -73,25 +92,35 @@ export function DashboardPanel() {
     (workspaceId !== "" && dashboard.isPending)
   ) {
     body = <LoadingState className="h-chart-lg" label={t("loading")} />;
-  } else if (widgets.length === 0) {
-    body = hasSet ? (
-      <DashboardRecommendations recommendations={recommendations} />
-    ) : (
-      <DashboardEmpty workspaceId={workspaceId || null} />
+  } else if (showProgress) {
+    body = (
+      <DashboardGenerationProgress
+        generation={row}
+        isStarting={generation.isStarting}
+        onCancel={generation.cancel}
+        onDismiss={() => setDismissed(row.id)}
+        onRetry={startFromDashboard}
+      />
+    );
+  } else if (isEmpty) {
+    body = (
+      <DashboardEmpty
+        reason={
+          row?.status === "completed" && row.result?.reason === "no_value"
+            ? "noValue"
+            : undefined
+        }
+        workspaceId={workspaceId || null}
+      />
     );
   } else {
     body = (
-      <div className="space-y-8">
-        <DashboardGrid
-          renderCard={(widget) => (
-            <DashboardWidgetCard key={widget.id} widget={widget} />
-          )}
-          widgets={widgets}
-        />
-        {hasSet && (
-          <DashboardRecommendations recommendations={recommendations} />
+      <DashboardGrid
+        renderCard={(widget) => (
+          <DashboardWidgetCard key={widget.id} widget={widget} />
         )}
-      </div>
+        widgets={widgets}
+      />
     );
   }
 

@@ -61,6 +61,7 @@ model Workspace {
   spreadsheets  Spreadsheet[]
   dashboard     Dashboard?
   assistantRuns AssistantRun[]
+  dashboardGenerations DashboardGeneration[]
 
   @@index([ownerId])
   @@index([createdAt])
@@ -85,6 +86,7 @@ model Spreadsheet {
   cells            Cell[]
   dashboardWidgets DashboardWidget[]
   assistantRuns    AssistantRun[]
+  dashboardGenerations DashboardGeneration[]
 
   @@index([createdAt])
   @@index([workspaceId])
@@ -310,6 +312,49 @@ model AssistantRun {
   updatedAt     DateTime        @updatedAt
   workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   spreadsheet   Spreadsheet?    @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, updatedAt])
+  @@index([createdAt])
+}
+
+/// Where a dashboard generation was started from. Lowercase on the wire;
+/// dashboard-generation.schema.ts holds the 1:1 case mapping.
+enum DashboardGenerationSource {
+  ONBOARDING
+  DASHBOARD
+}
+
+/// One run of the generate-dashboard task: analyze → propose → lay out →
+/// verify (→ retry once) → apply (docs/plans/042-dashboard-generation-pipeline.md).
+/// `status` is free text, uppercase: PENDING | RUNNING | COMPLETED | FAILED |
+/// CANCELLED; the last three are terminal. `phase` is the stage the worker is
+/// in (QUEUED … DONE), `attempt` the proposal round (1 or 2), `log` one entry
+/// per phase per attempt (what the progress UI lists), `brief` the model's
+/// analysis, `result` what was applied and why, `awaitBatchId` the onboarding
+/// run-ai batch the task waits for before analyzing. The migration
+/// `add_dashboard_generation` adds a partial unique index (one non-terminal
+/// generation per workspace) and an AFTER INSERT OR UPDATE trigger that
+/// `pg_notify`s the row id on `dashboard_generation_changed`.
+model DashboardGeneration {
+  id            String                    @id @default(uuid())
+  workspaceId   String
+  spreadsheetId String
+  source        DashboardGenerationSource
+  status        String                    @default("PENDING")
+  phase         String                    @default("QUEUED")
+  attempt       Int                       @default(0)
+  awaitBatchId  String?
+  log           Json                      @default("[]")
+  brief         Json?
+  result        Json?
+  error         Json?
+  model         String?
+  usage         Json?
+  triggerRunId  String?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  workspace     Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  spreadsheet   Spreadsheet               @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, updatedAt])
   @@index([createdAt])

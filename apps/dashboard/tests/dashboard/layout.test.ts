@@ -1,6 +1,15 @@
 import { describe, expect, it } from "bun:test";
-import { formatFigure } from "@/lib/dashboard/format";
-import { heatLevel, toChartConfig } from "@/lib/dashboard/layout";
+import {
+  figureFormatter,
+  formatFigure,
+  seriesByKey,
+} from "@/lib/dashboard/format";
+import {
+  heatLevel,
+  toChartConfig,
+  WIDGET_HEIGHT,
+  WIDGET_MIN_HEIGHT,
+} from "@/lib/dashboard/layout";
 
 describe("toChartConfig", () => {
   it("maps series to labels and token colours", () => {
@@ -52,5 +61,45 @@ describe("formatFigure", () => {
     expect(formatFigure(null, { suffix: "%" })).toBe("");
     expect(formatFigure(undefined)).toBe("");
     expect(formatFigure("")).toBe("");
+  });
+
+  it("abbreviates a compact figure inside the same prefix and suffix", () => {
+    expect(formatFigure(53111, { prefix: "$" }, { compact: true })).toBe(
+      "$53.1K",
+    );
+    expect(
+      formatFigure(2_000_000, { suffix: " users" }, { compact: true }),
+    ).toBe("2M users");
+    expect(formatFigure(57, { suffix: "%" }, { compact: true })).toBe("57%");
+    expect(formatFigure("Ann", undefined, { compact: true })).toBe("Ann");
+  });
+});
+
+describe("seriesByKey and figureFormatter", () => {
+  const series = [
+    { key: "revenue", label: "Revenue", prefix: "$" },
+    { key: "share", label: "Share", suffix: "%" },
+  ];
+
+  it("indexes the series by key", () => {
+    expect(seriesByKey(series).get("share")?.label).toBe("Share");
+    expect(seriesByKey(series).has("other")).toBe(false);
+  });
+
+  it("formats a tooltip value with its own series' unit", () => {
+    const format = figureFormatter(series);
+    expect(format(53111, "revenue")).toBe("$53,111");
+    expect(format(57, "share")).toBe("57%");
+    expect(format(12, "unknown")).toBe("12");
+  });
+});
+
+describe("WIDGET_MIN_HEIGHT", () => {
+  it("mirrors every chart height as a floor", () => {
+    for (const height of Object.keys(WIDGET_HEIGHT) as Array<
+      keyof typeof WIDGET_HEIGHT
+    >) {
+      expect(WIDGET_MIN_HEIGHT[height]).toBe(`min-${WIDGET_HEIGHT[height]}`);
+    }
   });
 });

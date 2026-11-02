@@ -10,12 +10,15 @@ import { useTRPC } from "@/trpc/client";
  * The page before any dashboard exists for the workspace. One action: let the
  * API build a starter from the sheet's columns (`dashboard.createStarter`),
  * then reload the dashboard query. Without a workspace there is nothing to
- * build from, so the copy stands alone.
+ * build from, so the copy stands alone. With `reason="noValue"` the copy says
+ * the AI found nothing worth charting — the starter is still offered.
  */
 export function DashboardEmpty({
   workspaceId,
+  reason,
 }: {
   workspaceId: string | null;
+  reason?: "noValue";
 }) {
   const t = useTranslations("dashboard.empty");
   const trpc = useTRPC();
@@ -34,9 +37,11 @@ export function DashboardEmpty({
       <span className="flex size-avatar items-center justify-center rounded-sm bg-primary/10 text-primary">
         <LayoutGrid aria-hidden="true" className="size-icon" />
       </span>
-      <h2 className="mt-5 text-subheading">{t("title")}</h2>
+      <h2 className="mt-5 text-subheading">
+        {t(reason === "noValue" ? "noValueTitle" : "title")}
+      </h2>
       <p className="mt-2 max-w-sm text-muted-foreground text-subtitle">
-        {t("description")}
+        {t(reason === "noValue" ? "noValueDescription" : "description")}
       </p>
       {workspaceId !== null && (
         <Button

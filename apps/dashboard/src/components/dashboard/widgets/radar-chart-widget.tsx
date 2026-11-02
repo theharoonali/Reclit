@@ -9,6 +9,7 @@ import {
 } from "@reclit/ui/chart";
 import { cn } from "@reclit/ui/cn";
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart } from "recharts";
+import { figureFormatter } from "@/lib/dashboard/format";
 import { toChartConfig, WIDGET_HEIGHT } from "@/lib/dashboard/layout";
 import type { ResolvedWidget } from "@/lib/dashboard/widget-state";
 
@@ -26,7 +27,14 @@ export function RadarChartWidget({ widget }: { widget: ResolvedWidget }) {
       config={toChartConfig(data.series)}
     >
       <RadarChart data={data.rows}>
-        <ChartTooltip content={<ChartTooltipContent />} cursor={false} />
+        <ChartTooltip
+          content={
+            <ChartTooltipContent
+              valueFormatter={figureFormatter(data.series)}
+            />
+          }
+          cursor={false}
+        />
         <PolarAngleAxis dataKey={data.categoryKey} />
         <PolarGrid />
         {overlapping && <ChartLegend content={<ChartLegendContent />} />}

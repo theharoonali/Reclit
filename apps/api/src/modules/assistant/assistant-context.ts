@@ -47,6 +47,8 @@ export type AssistantContext = {
   /** Dashboard scope only: the columns profiled over the first `profiledRows` rows. */
   profile: ColumnProfile[] | null;
   profiledRows: number;
+  /** Dashboard scope only: the rows the profile was read from — what the generation verifies its cards against. */
+  payload: SheetPayload | null;
   /** Dashboard scope only; null when the workspace has none yet. */
   dashboard: DashboardDetail | null;
 };
@@ -79,6 +81,7 @@ export async function loadAssistantContext({
     sampleRows: payload.rows.slice(0, MAX_SAMPLE_ROWS),
     profile: forDashboard ? profileColumns(payload) : null,
     profiledRows: payload.rows.length,
+    payload: forDashboard ? payload : null,
     dashboard,
   };
 }

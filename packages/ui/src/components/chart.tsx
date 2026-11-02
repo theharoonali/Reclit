@@ -17,9 +17,11 @@ import { cn } from "../utils";
  * their runtime series colour through `style` (the one inline style here — the
  * colour is data, so no class can name it); `0` values are shown in the
  * tooltip; legend items are keyed by position too (radial legends carry no
- * `value`). Animation is off at the call site (`isAnimationActive={false}` on
- * each series) — `@reclit/ui` is unanimated. The `[&_.recharts-…]` selectors
- * are shadcn's and restyle recharts' own SVG, so they stay.
+ * `value`); the tooltip takes a `valueFormatter` (a figure with its series'
+ * unit) and the legend a `formatter` (a long label cut short, the full one in
+ * its `title`). Animation is off at the call site (`isAnimationActive={false}`
+ * on each series) — `@reclit/ui` is unanimated. The `[&_.recharts-…]`
+ * selectors are shadcn's and restyle recharts' own SVG, so they stay.
  */
 
 // Format: { THEME_NAME: CSS_SELECTOR }
@@ -128,6 +130,8 @@ const ChartTooltipContent = React.forwardRef<
       indicator?: "line" | "dot" | "dashed";
       nameKey?: string;
       labelKey?: string;
+      /** A row's figure from its value and series key; localised by default. */
+      valueFormatter?: (value: number | string, key: string) => string;
     }
 >(
   (
@@ -142,6 +146,7 @@ const ChartTooltipContent = React.forwardRef<
       labelFormatter,
       labelClassName,
       formatter,
+      valueFormatter,
       color,
       nameKey,
       labelKey,
@@ -259,7 +264,12 @@ const ChartTooltipContent = React.forwardRef<
                         </div>
                         {item.value != null && (
                           <span className="tabular-nums text-foreground">
-                            {item.value.toLocaleString()}
+                            {valueFormatter && !Array.isArray(item.value)
+                              ? valueFormatter(
+                                  item.value,
+                                  String(item.dataKey ?? item.name ?? ""),
+                                )
+                              : item.value.toLocaleString()}
                           </span>
                         )}
                       </div>
@@ -283,10 +293,19 @@ const ChartLegendContent = React.forwardRef<
     Pick<RechartsPrimitive.LegendProps, "payload" | "verticalAlign"> & {
       hideIcon?: boolean;
       nameKey?: string;
+      /** Shortens a text label; the full one stays in the item's `title`. */
+      formatter?: (label: string) => string;
     }
 >(
   (
-    { className, hideIcon = false, payload, verticalAlign = "bottom", nameKey },
+    {
+      className,
+      hideIcon = false,
+      payload,
+      verticalAlign = "bottom",
+      nameKey,
+      formatter,
+    },
     ref,
   ) => {
     const { config } = useChart();
@@ -309,6 +328,8 @@ const ChartLegendContent = React.forwardRef<
           .map((item, index) => {
             const key = `${nameKey || item.dataKey || "value"}`;
             const itemConfig = getPayloadConfigFromPayload(config, item, key);
+            const label = itemConfig?.label;
+            const text = typeof label === "string" ? label : undefined;
 
             return (
               <div
@@ -320,6 +341,7 @@ const ChartLegendContent = React.forwardRef<
                 className={cn(
                   "flex items-center gap-1.5 [&>svg]:size-3 [&>svg]:text-muted-foreground",
                 )}
+                title={text}
               >
                 {itemConfig?.icon && !hideIcon ? (
                   <itemConfig.icon />
@@ -331,7 +353,7 @@ const ChartLegendContent = React.forwardRef<
                     }}
                   />
                 )}
-                {itemConfig?.label}
+                {text !== undefined && formatter ? formatter(text) : label}
               </div>
             );
           })}

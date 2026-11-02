@@ -85,7 +85,6 @@ export type OnboardingErrorKey =
   | "errorTooLarge"
   | "errorName"
   | "errorColumnName"
-  | "errorWidgets"
   | "errorConflict"
   | "errorRun"
   | "aiUnavailable"
@@ -129,8 +128,6 @@ export function trpcErrorKey(code: string | undefined): OnboardingErrorKey {
       return "aiFailed";
     case "CONFLICT":
       return "errorConflict";
-    case "BAD_REQUEST":
-      return "errorWidgets";
     default:
       return "error";
   }

@@ -1,31 +1,76 @@
 import { describe, expect, test } from "bun:test";
+import type { DashboardGeneration } from "@/lib/dashboard/generation";
 import { type ProgressState, progressFor } from "@/lib/onboarding/progress";
 
 const idle: ProgressState = {
-  stage: "upload",
+  stage: "name",
   hasFile: false,
   isDescribing: false,
   isDescribed: false,
   isSuggesting: false,
   isCreating: false,
   isCreated: false,
-  isRecommending: false,
   isRunning: false,
+  hasGeneration: false,
+  generation: null,
+};
+
+const at = new Date("2026-01-01T00:00:00.000Z");
+
+const generation = (
+  overrides: Partial<DashboardGeneration> = {},
+): DashboardGeneration => ({
+  id: "gen-1",
+  workspaceId: "ws-1",
+  spreadsheetId: "sheet-1",
+  source: "onboarding",
+  status: "running",
+  phase: "analyzing",
+  attempt: 1,
+  awaitBatchId: "batch-1",
+  log: [],
+  brief: null,
+  result: null,
+  error: null,
+  model: null,
+  usage: null,
+  createdAt: at,
+  updatedAt: at,
+  ...overrides,
+});
+
+/** The wizard's state once the workspace exists and the last step has begun. */
+const finishing: ProgressState = {
+  ...idle,
+  stage: "finishing",
+  hasFile: true,
+  isDescribed: true,
+  isCreated: true,
 };
 
 const statuses = (state: ProgressState) =>
   progressFor(state).map((item) => `${item.key}:${item.status}`);
 
 describe("progressFor", () => {
-  test("starts with the upload active and everything else pending", () => {
-    expect(statuses(idle)).toEqual([
-      "upload:active",
-      "describe:pending",
-      "columns:pending",
-      "create:pending",
-      "cards:pending",
-      "run:pending",
+  test("lists the four wizard steps, the run and the four generation steps", () => {
+    expect(progressFor(idle).map((item) => item.key)).toEqual([
+      "upload",
+      "describe",
+      "columns",
+      "create",
+      "run",
+      "analyze",
+      "propose",
+      "verify",
+      "apply",
     ]);
+  });
+
+  test("everything is pending on the name screen; the upload is active on its own screen", () => {
+    expect(statuses(idle).every((item) => item.endsWith(":pending"))).toBe(
+      true,
+    );
+    expect(statuses({ ...idle, stage: "upload" })[0]).toBe("upload:active");
   });
 
   test("marks the file done and the description active while it is written", () => {
@@ -36,8 +81,11 @@ describe("progressFor", () => {
       "describe:active",
       "columns:pending",
       "create:pending",
-      "cards:pending",
       "run:pending",
+      "analyze:pending",
+      "propose:pending",
+      "verify:pending",
+      "apply:pending",
     ]);
   });
 
@@ -52,23 +100,95 @@ describe("progressFor", () => {
     expect(statuses(base)[2]).toBe("columns:done");
   });
 
-  test("the cards step follows the workspace, and run is only ever active", () => {
-    const widgets = {
-      ...idle,
-      stage: "widgets" as const,
-      hasFile: true,
-      isDescribed: true,
-      isCreated: true,
-    };
-    expect(statuses({ ...widgets, isRecommending: true }).slice(2)).toEqual([
-      "columns:done",
+  test("the run is active while finish is pending, then while the row is announced but not seen", () => {
+    expect(statuses({ ...finishing, isRunning: true }).slice(3)).toEqual([
       "create:done",
-      "cards:active",
-      "run:pending",
-    ]);
-    expect(statuses({ ...widgets, isRunning: true }).slice(4)).toEqual([
-      "cards:done",
       "run:active",
+      "analyze:pending",
+      "propose:pending",
+      "verify:pending",
+      "apply:pending",
+    ]);
+    expect(statuses({ ...finishing, hasGeneration: true })[4]).toBe(
+      "run:active",
+    );
+    expect(statuses(finishing)[4]).toBe("run:pending");
+  });
+
+  test("follows the generation: waiting for rows keeps the run active", () => {
+    const waiting = generation({ phase: "waiting_for_rows" });
+    expect(
+      statuses({
+        ...finishing,
+        hasGeneration: true,
+        generation: waiting,
+      }).slice(4),
+    ).toEqual([
+      "run:active",
+      "analyze:pending",
+      "propose:pending",
+      "verify:pending",
+      "apply:pending",
+    ]);
+  });
+
+  test("the run is done once the generation is past it, and when it had no batch", () => {
+    const analyzing = generation({ phase: "analyzing" });
+    expect(
+      statuses({
+        ...finishing,
+        hasGeneration: true,
+        generation: analyzing,
+      }).slice(4),
+    ).toEqual([
+      "run:done",
+      "analyze:active",
+      "propose:pending",
+      "verify:pending",
+      "apply:pending",
+    ]);
+    const noBatch = generation({ awaitBatchId: null, phase: "proposing" });
+    expect(
+      statuses({
+        ...finishing,
+        hasGeneration: true,
+        generation: noBatch,
+      }).slice(4),
+    ).toEqual([
+      "run:done",
+      "analyze:done",
+      "propose:active",
+      "verify:pending",
+      "apply:pending",
+    ]);
+  });
+
+  test("a completed generation is all done; a failed one marks its step failed", () => {
+    const completed = generation({ status: "completed", phase: "done" });
+    expect(
+      statuses({
+        ...finishing,
+        hasGeneration: true,
+        generation: completed,
+      }).slice(4),
+    ).toEqual([
+      "run:done",
+      "analyze:done",
+      "propose:done",
+      "verify:done",
+      "apply:done",
+    ]);
+    const failed = generation({ status: "failed", phase: "verifying" });
+    expect(
+      statuses({ ...finishing, hasGeneration: true, generation: failed }).slice(
+        4,
+      ),
+    ).toEqual([
+      "run:done",
+      "analyze:done",
+      "propose:done",
+      "verify:failed",
+      "apply:pending",
     ]);
   });
 });

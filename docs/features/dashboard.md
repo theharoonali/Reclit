@@ -119,9 +119,11 @@ sort)`, `DashboardWidget.spreadsheetId` · Relations: `Workspace.dashboard?`,
 ## Used by
 
 - `/` ([route doc](../routes/root.md)) — `byWorkspace` on load,
-  `createStarter` from the empty state, `createWidget` (without a slot) from
-  the AI recommendations' Add.
+  `createStarter` from the empty state.
 - The assistant's dashboard tools ([assistant.md](assistant.md)) —
   `createWidget`, `updateWidget`, `removeWidget`, `update`.
+- The `generate-dashboard` task
+  ([dashboard-generation.md](dashboard-generation.md)) — `replace` with the
+  packed, verified cards of the best attempt.
 - Nothing calls `replace` or `remove` from the UI: they are the surface an
   API caller rebuilds the dashboard through.

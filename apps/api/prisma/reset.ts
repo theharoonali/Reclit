@@ -19,6 +19,7 @@ if (process.env.NODE_ENV === "production") {
 const deleted = await prisma.$transaction([
   prisma.runAi.deleteMany(),
   prisma.assistantRun.deleteMany(),
+  prisma.dashboardGeneration.deleteMany(),
   prisma.externalApi.deleteMany(),
   prisma.dashboardWidget.deleteMany(),
   prisma.dashboard.deleteMany(),

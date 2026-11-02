@@ -1,23 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { profileColumns, type SheetPayloadLike } from "../src/index";
-import { payload, SHEET } from "./support/sheet";
-
-/** A payload over arbitrary columns; a null cell is absent, like the API's. */
-function sheet(
-  columns: { name: string; type: string }[],
-  rows: Record<string, unknown>[],
-): SheetPayloadLike {
-  return {
-    columns,
-    rows: rows.map((cells, index) => ({
-      id: `row.${index}`,
-      index,
-      columns: Object.entries(cells)
-        .filter(([, value]) => value !== null && value !== undefined)
-        .map(([name, value]) => ({ name, value })),
-    })),
-  };
-}
+import { payload, SHEET, sheet } from "./support/sheet";
 
 const byName = (payloadLike: SheetPayloadLike) =>
   Object.fromEntries(

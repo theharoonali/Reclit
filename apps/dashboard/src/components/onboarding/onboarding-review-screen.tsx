@@ -14,10 +14,10 @@ const DESCRIPTION_MAX = 1000;
 const PURPOSE_MAX = 80;
 
 /**
- * The second screen: the name, the label and the description the AI wrote
- * from the file, to review and edit — labels sit above the two fields —
- * with Back and Next under them. The fields fill themselves as the
- * description arrives.
+ * The third screen: the label ("We see it as") and the description the AI
+ * wrote from the file, to review and edit, with Back and Next under them.
+ * The fields fill themselves as the description arrives; the name was
+ * settled on the first screen.
  */
 export function OnboardingReviewScreen({
   details,
@@ -28,7 +28,6 @@ export function OnboardingReviewScreen({
   isBusy: boolean;
 }) {
   const t = useTranslations("onboarding");
-  const nameId = useId();
   const purposeId = useId();
   const described = details.described;
 
@@ -49,26 +48,15 @@ export function OnboardingReviewScreen({
       </div>
 
       <div className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <FormField htmlFor={nameId} label={t("nameLabel")}>
-            <Input
-              disabled={isBusy}
-              id={nameId}
-              maxLength={200}
-              onChange={(event) => details.setName(event.target.value)}
-              value={details.name}
-            />
-          </FormField>
-          <FormField htmlFor={purposeId} label={t("purposeLabel")}>
-            <Input
-              disabled={isBusy}
-              id={purposeId}
-              maxLength={PURPOSE_MAX}
-              onChange={(event) => details.setPurpose(event.target.value)}
-              value={details.purpose}
-            />
-          </FormField>
-        </div>
+        <FormField htmlFor={purposeId} label={t("purposeLabel")}>
+          <Input
+            disabled={isBusy}
+            id={purposeId}
+            maxLength={PURPOSE_MAX}
+            onChange={(event) => details.setPurpose(event.target.value)}
+            value={details.purpose}
+          />
+        </FormField>
         <Textarea
           aria-busy={details.isDescribing || undefined}
           aria-label={t("descriptionLabel")}

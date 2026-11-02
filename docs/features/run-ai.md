@@ -258,3 +258,6 @@ There is no REST face.
   `result.output` when a run completes.
 - The `run-ai-batch` and `run-ai-cell` Trigger.dev tasks are the writers of
   every transition after `pending`.
+- The `generate-dashboard` task
+  ([dashboard-generation.md](dashboard-generation.md)) reads `listByBatch`
+  while it waits for the onboarding batch to finish.

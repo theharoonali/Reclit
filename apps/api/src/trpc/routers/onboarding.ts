@@ -1,5 +1,6 @@
 import {
   finishOnboardingInput,
+  skipOnboardingInput,
   suggestColumnsInput,
 } from "../../modules/onboarding/onboarding.schema";
 import { onboardingWizardService } from "../../modules/onboarding/onboarding-wizard.service";
@@ -21,5 +22,12 @@ export const onboardingRouter = createTRPCRouter({
     .input(finishOnboardingInput)
     .mutation(({ input }) =>
       onboardingWizardService.finish(input).catch(mapDomainError),
+    ),
+
+  /** The upload skipped: an empty named workspace, and the flag. */
+  skip: publicProcedure
+    .input(skipOnboardingInput)
+    .mutation(({ input }) =>
+      onboardingWizardService.skip(input).catch(mapDomainError),
     ),
 });

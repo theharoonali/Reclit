@@ -10,7 +10,7 @@ every file and API behind the page and what it does today.
 | `/populate` | [populate.md](populate.md) | The public form link + the Populate API (endpoint and curl). Calls `populate.form` |
 | `/chat` | [chat.md](chat.md) | claude.ai-style chat UI: greeting, thread, message actions, composer with model chip. UI only, with fixture replies and no API |
 | `/settings` | [settings.md](settings.md) | Display-only user profile + stubbed subscription cards. Calls `user.me` |
-| `/onboarding` | [onboarding.md](onboarding.md) | First run: upload a CSV/XLSX to create the first workspace. Every `(app)` route is gated on `user.me` and sends a user who has not onboarded here. Calls `user.me`, `POST /onboarding` |
+| `/onboarding` | [onboarding.md](onboarding.md) | First run: name the workspace, upload a CSV/XLSX (or skip), review the AI's description and columns, then watch the AI fill the first rows and build the dashboard. Every `(app)` route is gated on `user.me` and sends a user who has not onboarded here. Calls `user.me`, `onboarding.skip`, `POST /onboarding`, `onboarding.finish`, `dashboardGeneration.onChange` |
 | `/form/[spreadsheetId]` | [form.md](form.md) | Public form that adds a row to a spreadsheet and runs its AI columns. Calls `populate.form`, `populate.submit`, `POST /files`, `DELETE /files` |
 | `/login` | [login.md](login.md) | Login screen for the env-backed dummy user; skipped when `DEV=TRUE`. Calls `auth.session`, `auth.login` |
 

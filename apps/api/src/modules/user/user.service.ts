@@ -39,7 +39,7 @@ export class UserService {
     });
   }
 
-  /** Only `onboardingService.complete` calls this; `update` cannot set the flag. */
+  /** Only `onboardingWizardService.finish` and `.skip` call this; `update` cannot set the flag. */
   async completeOnboarding(): Promise<UserProfile> {
     const { id } = await this.me();
     return prisma.user.update({

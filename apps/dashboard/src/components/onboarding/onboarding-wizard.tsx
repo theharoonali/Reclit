@@ -7,17 +7,19 @@ import { LoadingState } from "@/components/common/loading-state";
 import { APP_NAME } from "@/config/nav";
 import { OnboardingAiPanel } from "./onboarding-ai-panel";
 import { OnboardingColumnList } from "./onboarding-column-list";
+import { OnboardingFinishingScreen } from "./onboarding-finishing-screen";
+import { OnboardingNameScreen } from "./onboarding-name-screen";
 import { OnboardingReviewScreen } from "./onboarding-review-screen";
 import { OnboardingUploadScreen } from "./onboarding-upload-screen";
-import { OnboardingWidgetList } from "./onboarding-widget-list";
 import { useOnboardingWizard } from "./use-onboarding-wizard";
 
 /**
  * The onboarding page: two columns filling the viewport. Left, the current
- * screen, vertically centred and sliding in as the stage changes — the
- * upload, the review, the columns, the cards. Right, the AI canvas, large
- * on the first screen and small beside the live checklist after it. A
- * reload with a workspace already created resumes at the cards screen.
+ * screen, vertically centred and sliding in as the stage changes — the name,
+ * the upload, the review, the columns, the finishing. Right, the AI canvas,
+ * large on the first two screens and small beside the live checklist after
+ * them. A reload with a workspace already created resumes at the finishing
+ * screen.
  */
 export function OnboardingWizard() {
   const t = useTranslations("onboarding");
@@ -30,17 +32,20 @@ export function OnboardingWizard() {
     return <ErrorState className="h-dvh" message={t("loadError")} />;
   }
 
-  const { stage, details, columns, widgets } = wizard;
+  const { stage, details, columns, finishing } = wizard;
   const uploadError = details.errorKey ? t(details.errorKey) : null;
   const panelError =
     stage === "columns"
       ? columns.errorKey
-      : stage === "widgets"
-        ? widgets.errorKey
+      : stage === "finishing"
+        ? finishing.errorKey
         : null;
 
   let screen: React.ReactNode;
   switch (stage) {
+    case "name":
+      screen = <OnboardingNameScreen details={details} />;
+      break;
     case "upload":
       screen = (
         <OnboardingUploadScreen details={details} errorMessage={uploadError} />
@@ -54,8 +59,8 @@ export function OnboardingWizard() {
     case "columns":
       screen = <OnboardingColumnList columns={columns} details={details} />;
       break;
-    case "widgets":
-      screen = <OnboardingWidgetList widgets={widgets} />;
+    case "finishing":
+      screen = <OnboardingFinishingScreen finishing={finishing} />;
       break;
   }
 
@@ -85,7 +90,7 @@ export function OnboardingWizard() {
       <section className="min-h-0 overflow-y-auto bg-muted/40 p-6 lg:p-10">
         <OnboardingAiPanel
           errorMessage={panelError ? t(panelError) : null}
-          isHero={stage === "upload"}
+          isHero={stage === "name" || stage === "upload"}
           isWorking={wizard.isWorking}
           items={wizard.progress}
         />

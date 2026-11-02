@@ -3,8 +3,8 @@
 import { cn } from "@reclit/ui/cn";
 import { useTranslations } from "next-intl";
 import { AssistantOrb } from "@/components/assistant/assistant-orb";
+import { StepList } from "@/components/common/step-list";
 import type { ProgressItem } from "@/lib/onboarding/progress";
-import { OnboardingProgress } from "./onboarding-progress";
 
 type OnboardingAiPanelProps = {
   /** The first screen: the canvas alone, large. */
@@ -27,6 +27,7 @@ export function OnboardingAiPanel({
   errorMessage,
 }: OnboardingAiPanelProps) {
   const t = useTranslations("onboarding");
+  const tProgress = useTranslations("onboarding.progress");
   return (
     <div className="flex h-full flex-col items-center justify-center gap-8">
       <AssistantOrb
@@ -39,9 +40,14 @@ export function OnboardingAiPanel({
       {isHero ? (
         <p className="text-caption text-muted-foreground">{t("orbCaption")}</p>
       ) : (
-        <div className="animate-slide-up motion-reduce:animate-none">
-          <OnboardingProgress items={items} />
-        </div>
+        <StepList
+          className="animate-slide-up motion-reduce:animate-none"
+          items={items.map((item) => ({
+            key: item.key,
+            label: tProgress(item.key),
+            status: item.status,
+          }))}
+        />
       )}
       {errorMessage && (
         <p className="text-caption text-destructive" role="alert">

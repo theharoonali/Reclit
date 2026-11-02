@@ -24,12 +24,13 @@ apps/api (NestJS on Bun, port 4001)
         │
         ▼  services in src/modules/<feature>/ — the only DB callers
   src/db/prisma.ts (Prisma 7 + @prisma/adapter-pg)
-        │                       ▲ LISTEN run_ai_changed / assistant_run_changed
+        │                       ▲ LISTEN run_ai_changed / assistant_run_changed / dashboard_generation_changed
         ▼                       │ (src/common/live-feed.ts, one pg connection per channel per process)
-  PostgreSQL  (DATABASE_URL)  ──┘ triggers run_ai_notify on "RunAi", assistant_run_notify on "AssistantRun"
-        ▲
+  PostgreSQL  (DATABASE_URL)  ──┘ triggers run_ai_notify on "RunAi", assistant_run_notify on "AssistantRun",
+        ▲                         dashboard_generation_notify on "DashboardGeneration"
         │  runAiBatchService.runCells → dispatcher hook → src/jobs/run-ai-dispatch.ts → tasks.trigger
         │  assistantControlService.start/cancel/respond → src/jobs/assistant-dispatch.ts → trigger / runs.cancel / wait.completeToken
+        │  dashboardGenerationControlService.start/cancel → src/jobs/dashboard-generation-dispatch.ts → trigger / runs.cancel
         │
   Trigger.dev worker (src/trigger/, bundled by the Trigger CLI)
         ├── run-ai-batch: per runnable column (a wave) prepares the inputs, then batchTriggerAndWait →
@@ -39,9 +40,12 @@ apps/api (NestJS on Bun, port 4001)
         │                google_search column; drafting an email for an email column,
         │                then sending it through Resend) → writes the run + cell
         ├── crawl-website: one site through Firecrawl → ExternalApi, reused from any cell
-        └── assistant-run: the header capsule's prompt as a Gemini tool loop over the
-                           spreadsheet + dashboard services, one tool call at a time; a
-                           delete suspends on a waitpoint token until the user confirms
+        ├── assistant-run: the header capsule's prompt as a Gemini tool loop over the
+        │                  spreadsheet + dashboard services, one tool call at a time; a
+        │                  delete suspends on a waitpoint token until the user confirms
+        └── generate-dashboard: waits for the onboarding run-ai batch (wait.for), then
+                                analyze → propose → pack → verify → review → one retry
+                                with the mistakes fed back → dashboard.replace
 
 packages/ui               → shared primitives + Tailwind preset, consumed by the dashboard
 packages/dashboard-engine → the dashboard's formula + query engine (pure TS): the api
@@ -96,9 +100,15 @@ packages/dashboard-engine → the dashboard's formula + query engine (pure TS): 
   (one prompt from the header capsule: a step-by-step `generateText` loop
   whose tools are executed by the task through the services, with a
   waitpoint token before every delete and a cancel the api can send) —
-  [docs/features/assistant.md](docs/features/assistant.md). The assistant's
-  prompt (`assistant-prompt.ts`) and its one model call (`assistant-step.ts`)
-  live in `src/ai/` too.
+  [docs/features/assistant.md](docs/features/assistant.md) — and
+  `generate-dashboard` (one AI-built dashboard: three structured-output
+  Gemini calls — brief, cards, review — around the engine's `packDashboard`
+  and `verifyDashboard`, one retry, then `dashboard.replace`) —
+  [docs/features/dashboard-generation.md](docs/features/dashboard-generation.md).
+  The assistant's prompt (`assistant-prompt.ts`), its one model call
+  (`assistant-step.ts`) and the generation's prompts and calls
+  (`dashboard-prompt.ts`, `dashboard-brief.ts`, `dashboard-propose.ts`,
+  `dashboard-review.ts`) live in `src/ai/` too.
 
 ## Live updates (tRPC subscriptions over SSE)
 
@@ -164,9 +174,9 @@ no Prisma code; `bunx turbo build` is the check.
 | `ALLOWED_API_ORIGINS` | api | CORS allowlist (default `http://localhost:4000`) |
 | `SUPABASE_URL`, `SUPABASE_KEY` | api | Supabase Storage for `POST /files`; unset → 503 on upload |
 | `TRIGGER_SECRET_KEY` | api | Trigger.dev environment key the api enqueues with (`src/jobs/run-ai-dispatch.ts`); the Trigger CLI reads it too |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | api, worker | Gemini key for the Vercel AI SDK (`src/ai/gemini.ts`), including the `google_search` node's grounding; the local worker reads `apps/api/.env`, a deployed one its Trigger environment; the api answers `assistant.recommendWidgets` with it (without it the procedure is SERVICE_UNAVAILABLE) |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | api, worker | Gemini key for the Vercel AI SDK (`src/ai/gemini.ts`), including the `google_search` node's grounding; the local worker reads `apps/api/.env`, a deployed one its Trigger environment; the api checks it before starting a dashboard generation (`dashboardGeneration.start` is SERVICE_UNAVAILABLE without it) and uses it for the onboarding's describe / suggest calls |
 | `ELEVENLABS_API_KEY` | api, worker | ElevenLabs Speech-to-Text (`src/ai/elevenlabs.ts`): the worker transcribes audio cells (without it the prompt says the audio could not be transcribed); the api transcribes the header capsule's mic recording through `POST /assistant/transcribe` (without it the route answers 503) |
-| `ASSISTANT_MODEL` | api, worker | optional; the Gemini model the assistant's tool loop (worker) and its recommendation call (api) use (`src/ai/assistant-step.ts`), default `gemini-2.5-flash` |
+| `ASSISTANT_MODEL` | api, worker | optional; the Gemini model the assistant's tool loop and the dashboard generation's three calls (worker) use (`src/ai/assistant-step.ts`), default `gemini-2.5-flash` |
 | `FIRECRAWL_API_KEY` | worker | Firecrawl for url cells (`src/ai/firecrawl.ts`, the `crawl-website` task); same two places; without it the prompt says the site could not be crawled |
 | `RESEND_API_KEY`, `RESEND_FROM` | worker | Resend for mail (`email`) cells (`src/ai/resend.ts`); `RESEND_FROM` is optional, default `Reclit <hello@reclit.com>`; same two places; without the key a mail cell fails with the reason |
 | `NEXT_PUBLIC_API_URL` | dashboard | browser tRPC target (default `http://localhost:4001`) |

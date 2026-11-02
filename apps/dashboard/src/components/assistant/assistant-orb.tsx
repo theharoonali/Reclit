@@ -8,7 +8,7 @@ import { useLatestRef } from "@/hooks/use-latest-ref";
 export type OrbState = "idle" | "listening" | "running";
 
 /**
- * How fast the field plays, per state. Idle is the canvas's own tempo;
+ * How fast the cube plays, per state. Idle is the canvas's own tempo;
  * listening and running speed the same motion up.
  */
 const TEMPO: Record<OrbState, number> = {
@@ -23,38 +23,28 @@ const STILL_TIME = 1.15;
 /** The solving canvas's playback rate, applied on top of `TEMPO`. */
 const SPEED = 1.82 * 0.8;
 
-const MOVE_COUNT = 14;
-
-/** The 28px icon the field was tuned for. Larger canvases keep its spacing. */
+/** The 28px icon the cube was tuned for. Larger canvases scale that frame. */
 const ICON_PX = 28;
 
+const CELLS = 3;
+const CUBE = 0.72;
+const CELL = (2 * CUBE) / CELLS;
+const HALF_STICKER = (CELL * 0.92) / 2;
+
+const CORNERS = [
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+] as const;
+
 type Axis = 0 | 1 | 2;
+type Layer = -1 | 0 | 1;
 
 type Move = {
   axis: Axis;
-  lo: number;
-  hi: number;
+  layer: Layer;
   ang: number;
-};
-
-type Field = {
-  latRings: number;
-  lonDensity: number;
-  rBase: number;
-  rDepth: number;
-  rActive: number;
-  inkFar: number;
-  inkSpan: number;
-  rsPow: number;
-  rMin: number;
-};
-
-type Dot = {
-  x: number;
-  y: number;
-  z: number;
-  r: number;
-  white: number;
 };
 
 type Twist = {
@@ -62,52 +52,48 @@ type Twist = {
   active: number;
 };
 
-function hash(x: number, y: number) {
-  const n = 43758.5453 * Math.sin(12.9898 * x + 78.233 * y);
-  return n - Math.floor(n);
+type Point = [number, number, number];
+
+type Sticker = {
+  corners: Point[];
+  z: number;
+  white: number;
+};
+
+function layerOf(coord: number): Layer {
+  if (coord < -0.24) return -1;
+  if (coord > 0.24) return 1;
+  return 0;
 }
 
-function axisOf(i: number): Axis {
-  const axis = Math.min(2, Math.floor(3 * hash(i, 2.3)));
-  if (axis === 0 || axis === 1) return axis;
-  return 2;
+function axisAt(axis: Axis, step: number): Axis {
+  const next = (axis + step) % 3;
+  if (next === 1) return 1;
+  if (next === 2) return 2;
+  return 0;
 }
 
-function buildMoves(count: number): Move[] {
-  const list: Move[] = [];
-  for (let i = 0; i < count; i++) {
-    const lo = -1 + 0.5 * Math.min(3, Math.floor(4 * hash(i, 5.9)));
-    const dir = hash(i, 7.7) > 0.5 ? -1 : 1;
-    list.push({
-      axis: axisOf(i),
-      lo,
-      hi: lo + 0.5,
-      ang: (dir * Math.PI) / 2,
+function setAxis(point: Point, axis: Axis, value: number) {
+  if (axis === 0) point[0] = value;
+  else if (axis === 1) point[1] = value;
+  else point[2] = value;
+}
+
+function addAxis(point: Point, axis: Axis, value: number) {
+  if (axis === 0) point[0] += value;
+  else if (axis === 1) point[1] += value;
+  else point[2] += value;
+}
+
+const MOVES: Move[] = [];
+for (const axis of [0, 1, 2] as const) {
+  for (const layer of [-1, 0, 1] as const) {
+    MOVES.push({
+      axis,
+      layer,
+      ang: (layer === 0 ? -1 : 1) * (Math.PI / 2),
     });
   }
-  return list;
-}
-
-const MOVES = buildMoves(MOVE_COUNT);
-
-/**
- * Ring counts from the solving canvas (`count` 0.35), scaled so a canvas
- * larger than the 28px icon keeps the same dust instead of a sparse shell.
- */
-function fieldFor(size: number): Field {
-  const density = Math.sqrt(0.35) * (size / ICON_PX);
-  const sizeMul = 1.05;
-  return {
-    latRings: Math.max(2, Math.round(15 * density)),
-    lonDensity: Math.max(2, Math.round(40 * density)),
-    rBase: 0.6 * sizeMul,
-    rDepth: 1.7 * sizeMul,
-    rActive: 0.3 * sizeMul,
-    inkFar: 0.62,
-    inkSpan: 0.54,
-    rsPow: 0.6,
-    rMin: 0.3,
-  };
 }
 
 function project(yaw: number, pitch: number, size: number) {
@@ -151,82 +137,133 @@ function twist(time: number, count: number): Twist {
   return { amount, active };
 }
 
-function turn(
-  point: readonly [number, number, number],
-  cubes: readonly Move[],
-  state: Twist,
-): [number, number, number, boolean] {
+function spin(
+  axis: Axis,
+  c: number,
+  s: number,
+  px: number,
+  py: number,
+  pz: number,
+): Point {
+  if (axis === 0) return [px, py * c - pz * s, py * s + pz * c];
+  if (axis === 1) return [px * c + pz * s, py, -px * s + pz * c];
+  return [px * c - py * s, px * s + py * c, pz];
+}
+
+function turn(point: Point, state: Twist): Point {
   let x = point[0];
   let y = point[1];
   let z = point[2];
-  let hot = false;
-  for (let i = 0; i < cubes.length; i++) {
+  for (let i = 0; i < MOVES.length; i++) {
     const amount = state.amount[i] ?? 0;
     if (amount <= 0) continue;
-    const move = cubes[i];
+    const move = MOVES[i];
     if (!move) continue;
     const coord = move.axis === 0 ? x : move.axis === 1 ? y : z;
-    if (coord < move.lo || coord >= move.hi) continue;
-    if (i === state.active) hot = true;
+    if (layerOf(coord) !== move.layer) continue;
+    const ang = move.ang * amount;
+    const next = spin(move.axis, Math.cos(ang), Math.sin(ang), x, y, z);
+    x = next[0];
+    y = next[1];
+    z = next[2];
+  }
+  return [x, y, z];
+}
+
+function turnWith(point: Point, anchor: Point, state: Twist): Point {
+  let x = point[0];
+  let y = point[1];
+  let z = point[2];
+  let ax = anchor[0];
+  let ay = anchor[1];
+  let az = anchor[2];
+  for (let i = 0; i < MOVES.length; i++) {
+    const amount = state.amount[i] ?? 0;
+    if (amount <= 0) continue;
+    const move = MOVES[i];
+    if (!move) continue;
+    const coord = move.axis === 0 ? ax : move.axis === 1 ? ay : az;
+    if (layerOf(coord) !== move.layer) continue;
     const ang = move.ang * amount;
     const c = Math.cos(ang);
     const s = Math.sin(ang);
-    if (move.axis === 0) {
-      const nx = y * c - z * s;
-      z = y * s + z * c;
-      y = nx;
-    } else if (move.axis === 1) {
-      const nx = x * c + z * s;
-      z = -x * s + z * c;
-      x = nx;
-    } else {
-      const nx = x * c - y * s;
-      y = x * s + y * c;
-      x = nx;
-    }
+    const next = spin(move.axis, c, s, x, y, z);
+    x = next[0];
+    y = next[1];
+    z = next[2];
+    const nextAnchor = spin(move.axis, c, s, ax, ay, az);
+    ax = nextAnchor[0];
+    ay = nextAnchor[1];
+    az = nextAnchor[2];
   }
-  return [x, y, z, hot];
+  return [x, y, z];
 }
 
-function rubik(size: number, time: number, field: Field): Dot[] {
-  const cam = project(0.55 * time, 0.35 + 0.1 * Math.sin(0.9 * time), size);
-  const scale = (size / 300) ** field.rsPow;
-  const state = twist(time, MOVE_COUNT);
-  const dots: Dot[] = [];
-  for (let lat = 0; lat <= field.latRings; lat++) {
-    const phi = -Math.PI / 2 + (lat / field.latRings) * Math.PI;
-    const cy = Math.cos(phi);
-    const sy = Math.sin(phi);
-    const segs = Math.max(1, Math.round(Math.abs(cy) * field.lonDensity));
-    for (let lon = 0; lon < segs; lon++) {
-      const th = (lon / segs) * 2 * Math.PI;
-      const spun = turn(
-        [cy * Math.cos(th), sy, cy * Math.sin(th)],
-        MOVES,
-        state,
-      );
-      const p = cam(spun[0], spun[1], spun[2]);
-      const depth = (p[2] + 1) / 2;
-      dots.push({
-        x: p[0],
-        y: p[1],
-        z: p[2],
-        r:
-          (field.rBase + field.rDepth * depth + (spun[3] ? field.rActive : 0)) *
-          scale,
-        white: field.inkFar - field.inkSpan * depth - (spun[3] ? 0.14 : 0),
-      });
+function rubik(size: number, time: number): Sticker[] {
+  const yaw = 0.7 + 0.55 * time;
+  const pitch = 0.5 + 0.08 * Math.sin(0.9 * time);
+  const cam = project(yaw, pitch, size);
+  const toward: Point = [
+    -Math.sin(yaw) * Math.cos(pitch),
+    Math.sin(pitch),
+    Math.cos(yaw) * Math.cos(pitch),
+  ];
+  const state = twist(time, MOVES.length);
+  const stickers: Sticker[] = [];
+  for (const axis of [0, 1, 2] as const) {
+    for (const face of [0, 1] as const) {
+      for (let i = 0; i < CELLS; i++) {
+        for (let j = 0; j < CELLS; j++) {
+          const center: Point = [0, 0, 0];
+          setAxis(center, axis, face === 0 ? -CUBE : CUBE);
+          setAxis(center, axisAt(axis, 1), -CUBE + CELL * (i + 0.5));
+          setAxis(center, axisAt(axis, 2), -CUBE + CELL * (j + 0.5));
+          const corners: Point[] = [];
+          for (const [su, sv] of CORNERS) {
+            const corner: Point = [center[0], center[1], center[2]];
+            addAxis(corner, axisAt(axis, 1), su * HALF_STICKER);
+            addAxis(corner, axisAt(axis, 2), sv * HALF_STICKER);
+            const spun = turnWith(corner, center, state);
+            const projected = cam(spun[0], spun[1], spun[2]);
+            corners.push([projected[0], projected[1], projected[2]]);
+          }
+          const mid = turn(center, state);
+          const outward: Point = [0, 0, 0];
+          outward[axis] = face === 0 ? -1 : 1;
+          const turned = turnWith(
+            [
+              center[0] + outward[0],
+              center[1] + outward[1],
+              center[2] + outward[2],
+            ],
+            center,
+            state,
+          );
+          const facing =
+            (turned[0] - mid[0]) * toward[0] +
+            (turned[1] - mid[1]) * toward[1] +
+            (turned[2] - mid[2]) * toward[2];
+          if (facing <= 0) continue;
+          const p = cam(mid[0], mid[1], mid[2]);
+          const bit = axis * 18 + face * 9 + i * 3 + j;
+          stickers.push({
+            corners,
+            z: p[2],
+            white: 0.16 + (((bit * 19) % 54) / 53) * 0.7,
+          });
+        }
+      }
     }
   }
-  for (const dot of dots) dot.r = Math.max(field.rMin, dot.r);
-  dots.sort((a, b) => a.z - b.z);
-  return dots;
+  stickers.sort((a, b) => a.z - b.z);
+  return stickers;
 }
 
 /**
- * The solving field: a twisting particle sphere on a transparent ground.
- * Coordinates are CSS pixels. The component around it handles sizing,
- * timing and pausing. Ink is the canvas's own grayscale, not a theme token.
+ * The solving cube: grayscale stickers on a transparent ground, one shade
+ * per square, layers twisting. Coordinates are CSS pixels. The component
+ * around it handles sizing, timing and pausing. Ink is the canvas's own
+ * grayscale, not a theme token.
  */
 function paint(
   ctx: CanvasRenderingContext2D,
@@ -237,14 +274,23 @@ function paint(
   const size = Math.min(width, height);
   ctx.clearRect(0, 0, width, height);
   if (size <= 0) return;
+  const zoom = size / ICON_PX;
+  const stickers = rubik(ICON_PX, time);
   const ox = (width - size) / 2;
   const oy = (height - size) / 2;
-  const dots = rubik(size, time, fieldFor(size));
-  for (const dot of dots) {
-    const g = Math.round(Math.min(1, Math.max(0, dot.white)) * 255);
+  for (const sticker of stickers) {
+    const g = Math.round(Math.min(1, Math.max(0, sticker.white)) * 255);
     ctx.fillStyle = `rgba(${g},${g},${g},1)`;
     ctx.beginPath();
-    ctx.arc(dot.x + ox, dot.y + oy, dot.r, 0, Math.PI * 2);
+    for (let index = 0; index < sticker.corners.length; index++) {
+      const corner = sticker.corners[index];
+      if (!corner) continue;
+      const x = ox + corner[0] * zoom;
+      const y = oy + corner[1] * zoom;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
     ctx.fill();
   }
 }

@@ -258,12 +258,12 @@ export const ASSISTANT_TOOLS = {
 } satisfies Record<AssistantToolName, AssistantToolSpec>;
 
 /**
- * One proposed card, as `assistant.recommendWidgets` validates each item of
- * the model's answer: the strict twin of the lenient generation schema in
- * `src/ai/assistant-recommend.ts` (Gemini drops `pattern` and array caps from
+ * One proposed card, as the generate-dashboard pipeline validates each item
+ * of the model's answer: the strict twin of the lenient generation schema in
+ * `src/ai/dashboard-propose.ts` (Gemini drops `pattern` and array caps from
  * a response schema, so the strict checks run here, per card).
  */
-export const recommendationCardSchema = z.object({
+export const proposalCardSchema = z.object({
   name: widgetFields.name,
   description: widgetFields.description.optional(),
   type: widgetFields.type,
@@ -272,7 +272,7 @@ export const recommendationCardSchema = z.object({
   column: widgetFields.column.optional(),
   query: widgetFields.query,
 });
-export type RecommendationCard = z.infer<typeof recommendationCardSchema>;
+export type ProposalCard = z.infer<typeof proposalCardSchema>;
 
 /** A tool's parsed input, as its handler receives it. */
 export type ToolInput<N extends AssistantToolName> = z.infer<

@@ -34,6 +34,16 @@ export const WIDGET_HEIGHT: Record<WidgetHeight, string> = {
   lg: "h-chart-lg",
 };
 
+/**
+ * `height` → the same length as a floor: a stat card has no chart body, so
+ * its whole body is at least this tall and grows with the row it shares.
+ */
+export const WIDGET_MIN_HEIGHT: Record<WidgetHeight, string> = {
+  sm: "min-h-chart-sm",
+  md: "min-h-chart-md",
+  lg: "min-h-chart-lg",
+};
+
 /** A chart token as a CSS colour, for recharts and the chart config. */
 export const chartColor = (color: ChartColor = "chart-1") =>
   `hsl(var(--${color}))`;
@@ -54,8 +64,9 @@ export function toChartConfig(
 }
 
 /**
- * Heatmap cell fills: five intensity steps per chart colour, spelled out so
- * Tailwind emits them.
+ * Heatmap cell fills: five intensity steps per chart colour (one hue, light →
+ * dark — a sequential ramp of the series' own hue), spelled out so Tailwind
+ * emits them.
  */
 export const HEAT_CLASSES: Record<ChartColor, readonly string[]> = {
   "chart-1": [
