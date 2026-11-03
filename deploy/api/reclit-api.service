@@ -1,0 +1,23 @@
+# systemd unit for the API (docs/DEPLOYMENT.md). Installed to
+# /etc/systemd/system/reclit-api.service. Bun loads apps/api/.env from the
+# working directory, so secrets never appear in this file.
+[Unit]
+Description=Reclit API (NestJS on Bun)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/reclit/apps/api
+Environment=NODE_ENV=production
+Environment=PORT=4001
+ExecStart=/usr/local/bin/bun src/main.ts
+Restart=always
+RestartSec=3
+# Nest drains in-flight requests and closes the LISTEN clients on SIGTERM.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

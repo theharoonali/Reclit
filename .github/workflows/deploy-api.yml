@@ -1,0 +1,80 @@
+# Deploys the API on every push to main (docs/DEPLOYMENT.md):
+#   1. api     — SSH into the EC2 box and run deploy/api/deploy.sh there
+#                (pull main, bun install, prisma generate + migrate deploy,
+#                restart the systemd service, wait for /health).
+#   2. trigger — deploy the background tasks (src/trigger) to Trigger.dev's
+#                production environment, after the migrations ran.
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   EC2_HOST, EC2_USER, EC2_SSH_KEY (a key only CI uses), EC2_KNOWN_HOSTS
+#   (the server's pinned host key), TRIGGER_ACCESS_TOKEN (tr_pat_…).
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "packages/**"
+      - "package.json"
+      - "bun.lock"
+      - "deploy/api/**"
+      - ".github/workflows/deploy-api.yml"
+  workflow_dispatch:
+
+# One deploy at a time; a newer push waits rather than racing a migration.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  api:
+    name: API on EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "${{ secrets.EC2_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Deploy
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'cd ~/reclit && git fetch --quiet origin main && git reset --quiet --hard origin/main && bash deploy/api/deploy.sh'
+
+  trigger:
+    name: Tasks on Trigger.dev
+    needs: api
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: bun install
+
+      - name: Generate the Prisma client
+        working-directory: apps/api
+        run: bunx prisma generate
+
+      - name: Deploy to Trigger.dev (prod)
+        working-directory: apps/api
+        env:
+          TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}
+        run: |
+          if [ -z "$TRIGGER_ACCESS_TOKEN" ]; then
+            echo "::warning::TRIGGER_ACCESS_TOKEN is not set — tasks not deployed to Trigger.dev"
+            exit 0
+          fi
+          npx --yes trigger.dev@4.5.15 deploy --env prod
