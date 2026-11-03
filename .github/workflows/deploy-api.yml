@@ -72,4 +72,9 @@ jobs:
         working-directory: apps/api
         env:
           TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}
-        run: npx --yes trigger.dev@4.5.15 deploy --env prod
+        run: |
+          if [ -z "$TRIGGER_ACCESS_TOKEN" ]; then
+            echo "::warning::TRIGGER_ACCESS_TOKEN is not set — tasks not deployed to Trigger.dev"
+            exit 0
+          fi
+          npx --yes trigger.dev@4.5.15 deploy --env prod
