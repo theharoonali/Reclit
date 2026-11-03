@@ -1,5 +1,7 @@
 import { logger, schemaTask } from "@trigger.dev/sdk";
+import { ensureCompanyCache } from "../ai/gemini-cache";
 import { describeError } from "../common/errors";
+import { companyContextService } from "../modules/company/company-context.service";
 import { RunAiFinishedError } from "../modules/run-ai/run-ai.errors";
 import type {
   RunAiJobPayload,
@@ -43,12 +45,26 @@ const isCompleted = (output: unknown): boolean =>
   output !== null &&
   (output as { status?: unknown }).status === "completed";
 
+/**
+ * The explicit Gemini cache the wave's cells run on, or undefined (the
+ * implicit path). Asked per wave, so a batch that outlives the cache's hour
+ * gets a fresh one; between those it is one read that reuses the stored one.
+ */
+async function waveCache(spreadsheetId: string): Promise<string | undefined> {
+  const company = await companyContextService
+    .forSpreadsheet(spreadsheetId)
+    .catch(() => null);
+  if (!company) return undefined;
+  return (await ensureCompanyCache(company)) ?? undefined;
+}
+
 /** Builds every live cell's input; a cell that cannot be prepared stops its row. */
 async function prepareWave(
   wave: RunAiWave,
   cells: WaveCell[],
   lastRunIdByRow: Map<number, string>,
   stoppedBy: Map<number, string>,
+  cacheName: string | undefined,
 ): Promise<WaveItem[]> {
   const items: WaveItem[] = [];
   for (const cell of cells) {
@@ -57,7 +73,14 @@ async function prepareWave(
         cell.runId,
         lastRunIdByRow.get(cell.rowIndex),
       );
-      items.push({ cell, payload: { runId: cell.runId, input } });
+      items.push({
+        cell,
+        payload: {
+          runId: cell.runId,
+          input,
+          ...(cacheName && { cacheName }),
+        },
+      });
     } catch (error) {
       const failure = describeError(error);
       logger.error("cell could not be prepared", {
@@ -97,7 +120,7 @@ export const runAiBatchTask = schemaTask({
   id: "run-ai-batch",
   schema: runAiBatchJobSchema,
   retry: { maxAttempts: 1 },
-  run: async ({ batchId, waves }) => {
+  run: async ({ batchId, spreadsheetId, waves }) => {
     /** The last completed run of each row — the `previous` of its next cell. */
     const lastRunIdByRow = new Map<number, string>();
     /** Rows whose series stopped, with the column that stopped them. */
@@ -113,13 +136,22 @@ export const runAiBatchTask = schemaTask({
         );
       }
       const live = wave.cells.filter((cell) => !stoppedBy.has(cell.rowIndex));
-      const items = await prepareWave(wave, live, lastRunIdByRow, stoppedBy);
+      const cacheName =
+        live.length > 0 ? await waveCache(spreadsheetId) : undefined;
+      const items = await prepareWave(
+        wave,
+        live,
+        lastRunIdByRow,
+        stoppedBy,
+        cacheName,
+      );
       logger.info("wave", {
         batchId,
         column: wave.columnName,
         cells: items.length,
         skipped: skipped.length,
         mode: items.length === 1 ? "single" : "batch",
+        cache: cacheName ?? null,
       });
       if (items.length === 0) continue;
 

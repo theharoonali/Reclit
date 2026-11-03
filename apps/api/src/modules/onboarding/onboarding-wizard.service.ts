@@ -6,6 +6,7 @@ import {
 import { buildSuggestColumnsPrompt } from "../../ai/onboarding-prompt";
 import { describeError } from "../../common/errors";
 import { readAllRows } from "../assistant/assistant-context";
+import { companyContextService } from "../company/company-context.service";
 import { dashboardGenerationControlService } from "../dashboard-generation/dashboard-generation-control.service";
 import { MAX_RUN_AI_BATCH_CELLS } from "../run-ai/run-ai.schema";
 import { isRunnable, runAiBatchService } from "../run-ai/run-ai-batch.service";
@@ -65,7 +66,11 @@ export class OnboardingWizardService {
     if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
       throw new OnboardingAiUnavailableError();
     }
-    const messages = buildSuggestColumnsPrompt(input, MAX_SUGGESTED_COLUMNS);
+    const messages = buildSuggestColumnsPrompt(
+      input,
+      MAX_SUGGESTED_COLUMNS,
+      await companyContextService.forCurrentUser(),
+    );
     let generated: SuggestGeneration;
     try {
       generated = await deps.generate(messages);

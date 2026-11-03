@@ -5,6 +5,7 @@ import type {
   RunAiSearches,
 } from "../modules/run-ai/run-ai.schema";
 import { TYPE_RULES } from "./cell-prompt";
+import { type CompanyContext, withCompanyContext } from "./company-context";
 
 // Pure: the two halves of a `google_search` cell that need no SDK call — the
 // extraction call's prompt (what the model is asked once the grounded text
@@ -26,6 +27,7 @@ export const MAX_SEARCH_SOURCES = 20;
 export function buildSearchExtractMessages(
   input: RunAiInput,
   text: string,
+  company: CompanyContext | null = null,
 ): { system: string; prompt: string } {
   const system = [
     "You fill in one cell of a spreadsheet from a research note.",
@@ -43,7 +45,8 @@ export function buildSearchExtractMessages(
     "",
     `Fill the column "${input.target.name}".`,
   ].join("\n");
-  return { system, prompt };
+  // The company block first, like every other prompt (company-context.ts).
+  return { system: withCompanyContext(system, company), prompt };
 }
 
 /** `result.sources`, structurally: a document source has no `url` and is skipped. */

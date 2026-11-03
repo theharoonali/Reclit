@@ -5,22 +5,35 @@ import { useTranslations } from "next-intl";
 import { ErrorState } from "@/components/common/error-state";
 import { LoadingState } from "@/components/common/loading-state";
 import { APP_NAME } from "@/config/nav";
+import type { OnboardingStage } from "@/lib/onboarding/progress";
 import { OnboardingAiPanel } from "./onboarding-ai-panel";
 import { OnboardingColumnList } from "./onboarding-column-list";
+import { OnboardingDocumentsScreen } from "./onboarding-documents-screen";
 import { OnboardingFinishingScreen } from "./onboarding-finishing-screen";
 import { OnboardingNameScreen } from "./onboarding-name-screen";
+import { OnboardingPurposeScreen } from "./onboarding-purpose-screen";
 import { OnboardingReviewScreen } from "./onboarding-review-screen";
 import { OnboardingUploadScreen } from "./onboarding-upload-screen";
+import { OnboardingWebsiteScreen } from "./onboarding-website-screen";
 import { useOnboardingWizard } from "./use-onboarding-wizard";
 
 /**
  * The onboarding page: two columns filling the viewport. Left, the current
- * screen, vertically centred and sliding in as the stage changes — the name,
- * the upload, the review, the columns, the finishing. Right, the AI canvas,
- * large on the first two screens and small beside the live checklist after
- * them. A reload with a workspace already created resumes at the finishing
+ * screen, vertically centred and sliding in as the stage changes — the
+ * purpose, the website, the documents, the name, the upload, the review,
+ * the columns, the finishing. Right, the AI canvas, large on the screens up
+ * to the upload and small beside the live checklist after them. A reload with a workspace already created resumes at the finishing
  * screen.
  */
+/** The screens with the canvas alone, large — before there is anything to check off. */
+const HERO_STAGES = new Set<OnboardingStage>([
+  "purpose",
+  "website",
+  "documents",
+  "name",
+  "upload",
+]);
+
 export function OnboardingWizard() {
   const t = useTranslations("onboarding");
   const wizard = useOnboardingWizard();
@@ -32,7 +45,7 @@ export function OnboardingWizard() {
     return <ErrorState className="h-dvh" message={t("loadError")} />;
   }
 
-  const { stage, details, columns, finishing } = wizard;
+  const { stage, company, details, columns, finishing } = wizard;
   const uploadError = details.errorKey ? t(details.errorKey) : null;
   const panelError =
     stage === "columns"
@@ -43,6 +56,17 @@ export function OnboardingWizard() {
 
   let screen: React.ReactNode;
   switch (stage) {
+    case "purpose":
+      screen = <OnboardingPurposeScreen company={company} />;
+      break;
+    case "website":
+      screen = <OnboardingWebsiteScreen company={company} details={details} />;
+      break;
+    case "documents":
+      screen = (
+        <OnboardingDocumentsScreen company={company} details={details} />
+      );
+      break;
     case "name":
       screen = <OnboardingNameScreen details={details} />;
       break;
@@ -90,7 +114,7 @@ export function OnboardingWizard() {
       <section className="min-h-0 overflow-y-auto bg-muted/40 p-6 lg:p-10">
         <OnboardingAiPanel
           errorMessage={panelError ? t(panelError) : null}
-          isHero={stage === "name" || stage === "upload"}
+          isHero={HERO_STAGES.has(stage)}
           isWorking={wizard.isWorking}
           items={wizard.progress}
         />

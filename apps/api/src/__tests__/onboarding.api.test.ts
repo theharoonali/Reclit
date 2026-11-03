@@ -97,6 +97,10 @@
  *   `name` (trimmed, 1..200) with an empty sheet and sets the flag. Nothing
  *   is run and no generation is started. Once the flag is true it is a
  *   conflict, like `finish`.
+ * - `describe` and `suggestColumns` start their prompt with the user's
+ *   compiled company profile (`<company-context>`, company contract) when
+ *   there is one, so the description and the proposed columns reflect the
+ *   company and the use cases the user picked (`company.update`).
  * - Without `GOOGLE_GENERATIVE_AI_API_KEY` on the api, `describe` is 503 and
  *   `suggestColumns` SERVICE_UNAVAILABLE; a model failure or an unusable
  *   answer is 502 / BAD_GATEWAY.
@@ -111,7 +115,13 @@ import {
   expect,
   it,
 } from "bun:test";
+import { compileCompanyContext } from "../ai/company-prompt";
 import type { DescribeGenerator, SuggestGenerator } from "../ai/onboarding-ai";
+import {
+  buildDescribePrompt,
+  buildSuggestColumnsPrompt,
+  COMPANY_USE_CASE_RULE,
+} from "../ai/onboarding-prompt";
 import { pingDatabase, prisma } from "../db/prisma";
 import { dashboardGenerationControlService } from "../modules/dashboard-generation/dashboard-generation-control.service";
 import { OnboardingAiFailedError } from "../modules/onboarding/onboarding.errors";
@@ -853,5 +863,57 @@ describe.skipIf(!dbUp)("onboarding", () => {
 describe.skipIf(dbUp)("onboarding contract (no database configured)", () => {
   it("is skipped without a reachable DATABASE_URL", () => {
     expect(dbUp).toBe(false);
+  });
+});
+
+describe("onboarding prompts with a company profile (pure)", () => {
+  const company = compileCompanyContext({
+    companyId: "company-1",
+    name: "Acme",
+    website: null,
+    useCases: ["HIRING", "OTHER"],
+    useCaseOther: "Scoring partner agencies",
+    summary: null,
+    rules: null,
+    documents: [],
+  });
+  if (!company) throw new Error("fixture");
+  const upload = {
+    columns: [{ name: "Name", type: "string" }],
+    sampleRows: [["Ada"]],
+  };
+
+  it("describe starts with the company block, which names the use cases", () => {
+    const { system } = buildDescribePrompt(
+      { filename: "people.csv", rowCount: 1, ...upload },
+      company,
+    );
+    expect(system.startsWith(`${company.text}\n\n`)).toBe(true);
+    expect(system).toContain("- Hiring — screening candidates, CVs and fit");
+    expect(system).toContain("- Other: Scoring partner agencies");
+  });
+
+  it("suggest starts with the company block and asks for columns that serve the use cases", () => {
+    const { system } = buildSuggestColumnsPrompt(
+      { name: "People", description: "", purpose: "", ...upload },
+      5,
+      company,
+    );
+    expect(system.startsWith(`${company.text}\n\n`)).toBe(true);
+    expect(system).toContain(COMPANY_USE_CASE_RULE);
+  });
+
+  it("both prompts are as before without a profile", () => {
+    const describe = buildDescribePrompt({
+      filename: "people.csv",
+      rowCount: 1,
+      ...upload,
+    });
+    const suggest = buildSuggestColumnsPrompt(
+      { name: "People", description: "", purpose: "", ...upload },
+      5,
+    );
+    expect(describe.system).not.toContain("<company-context>");
+    expect(suggest.system).not.toContain(COMPANY_USE_CASE_RULE);
   });
 });

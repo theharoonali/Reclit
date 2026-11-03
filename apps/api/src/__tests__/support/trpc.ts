@@ -35,6 +35,19 @@ export async function nextTracked<T>(
   iterator: AsyncIterator<unknown>,
   timeoutMs = 10_000,
 ): Promise<TrackedItem<T>> {
+  const value = await nextValue<unknown>(iterator, timeoutMs);
+  if (isTrackedEnvelope(value)) return { id: value[0], data: value[1] as T };
+  return value as TrackedItem<T>;
+}
+
+/**
+ * The next item of a subscription that yields plain values (no `tracked()`),
+ * e.g. `company.onChange`. Fails rather than hangs when nothing arrives.
+ */
+export async function nextValue<T>(
+  iterator: AsyncIterator<unknown>,
+  timeoutMs = 10_000,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
@@ -45,9 +58,7 @@ export async function nextTracked<T>(
   try {
     const result = await Promise.race([iterator.next(), timeout]);
     if (result.done) throw new Error("the stream ended");
-    const value: unknown = result.value;
-    if (isTrackedEnvelope(value)) return { id: value[0], data: value[1] as T };
-    return value as TrackedItem<T>;
+    return result.value as T;
   } finally {
     clearTimeout(timer);
   }

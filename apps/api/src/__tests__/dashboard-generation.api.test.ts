@@ -18,7 +18,7 @@
  *   result         Json?                      GenerationResult, once completed
  *   error          Json?                      { name, message }, once failed
  *   model          String?                    the model id that answered
- *   usage          Json?                      { inputTokens, outputTokens, totalTokens }, every call summed
+ *   usage          Json?                      { inputTokens, outputTokens, totalTokens, cachedInputTokens? }, every call summed
  *   triggerRunId   String?                    the Trigger.dev run id — cancel's handle, never on the wire
  *   createdAt      DateTime                   now(), indexed
  *   updatedAt      DateTime                   @updatedAt; its ms value is the SSE event id
@@ -36,7 +36,7 @@
  *   attempt: number; awaitBatchId: string | null;
  *   log: GenerationStep[]; brief: DashboardBrief | null; result: GenerationResult | null;
  *   error: { name: string; message: string } | null;
- *   model: string | null; usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
+ *   model: string | null; usage: { inputTokens: number; outputTokens: number; totalTokens: number; cachedInputTokens?: number } | null;
  *   createdAt: Date; updatedAt: Date;
  * }
  * GenerationStep = {                      // one phase of one attempt, in order — the progress list
@@ -131,6 +131,9 @@
  * - `active` is the one generation that is not terminal, or null — what the
  *   page checks on load before subscribing. `latest` is the newest row,
  *   finished or not — what a reload shows.
+ * - The analyze, propose and review prompts start with the workspace
+ *   owner's compiled company profile (`<company-context>`, company contract)
+ *   when there is one, so the brief's questions are the company's.
  * - The stream is a generation, not a socket. `onChange` streams one
  *   workspace: with `lastEventId` it first replays every row whose
  *   `updatedAt >= lastEventId` (oldest first, at most 100), then sends a
@@ -151,6 +154,7 @@ import {
   UNTRUSTED_DATA_RULE,
   WIDGET_GRAMMAR,
 } from "../ai/assistant-prompt";
+import { compileCompanyContext } from "../ai/company-prompt";
 import type { BriefGenerator } from "../ai/dashboard-brief";
 import {
   buildAnalyzePrompt,
@@ -1336,6 +1340,35 @@ describe("the prompts", () => {
     expect(empty.prompt).toContain("(no cards survived the checks)");
     expect(empty.prompt).toContain("Automatic checks already found:\n(none)");
     expect(empty.prompt).toContain("(empty)");
+  });
+
+  it("starts all three prompts with the company block, byte-identical, when there is one", () => {
+    const company = compileCompanyContext({
+      companyId: "company-1",
+      name: "Acme",
+      website: null,
+      useCases: ["CUSTOMER_INSIGHTS"],
+      useCaseOther: null,
+      summary: "Acme sells widgets to logistics firms.",
+      rules: null,
+      documents: [],
+    });
+    if (!company) throw new Error("fixture");
+    const withCompany = { ...context, company };
+    const systems = [
+      buildAnalyzePrompt(withCompany).system,
+      buildProposePrompt(withCompany, brief, null).system,
+      buildReviewPrompt(brief, [], [], [], company).system,
+    ];
+    for (const system of systems) {
+      expect(system.startsWith(`${company.text}\n\n`)).toBe(true);
+    }
+    expect(buildAnalyzePrompt(context).system).toBe(
+      (systems[0] ?? "").slice(company.text.length + 2),
+    );
+    expect(buildReviewPrompt(brief, [], [], []).system).not.toContain(
+      "<company-context>",
+    );
   });
 });
 

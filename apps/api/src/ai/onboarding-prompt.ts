@@ -5,6 +5,7 @@ import {
   describeSheet,
   truncateValue,
 } from "./assistant-prompt";
+import { type CompanyContext, withCompanyContext } from "./company-context";
 
 // Pure: the onboarding wizard's two prompts from plain descriptions of the
 // upload — no service, no SDK, no database — so the contract test asserts
@@ -67,16 +68,26 @@ function describeUpload(input: {
   ];
 }
 
-/** The describe call: the file, its columns and first rows as `system`; the task as the user prompt. */
-export function buildDescribePrompt(input: DescribePromptInput): {
+/** With a company profile, the suggestions should serve what the user said they use Reclit for. */
+export const COMPANY_USE_CASE_RULE =
+  "Prefer columns that serve the company and the use cases named in <company-context>.";
+
+/** The describe call: the file, its columns and first rows as `system`; the task as the user prompt. The company block, when there is one, comes first. */
+export function buildDescribePrompt(
+  input: DescribePromptInput,
+  company: CompanyContext | null = null,
+): {
   system: string;
   prompt: string;
 } {
-  const system = [
-    ...DESCRIBE_RULES,
-    `<file>\nName: ${truncateValue(input.filename, 200)}\nRows: ${input.rowCount}\n</file>`,
-    ...describeUpload(input),
-  ].join("\n\n");
+  const system = withCompanyContext(
+    [
+      ...DESCRIBE_RULES,
+      `<file>\nName: ${truncateValue(input.filename, 200)}\nRows: ${input.rowCount}\n</file>`,
+      ...describeUpload(input),
+    ].join("\n\n"),
+    company,
+  );
   const prompt =
     'Describe this sheet as JSON: { "suggestedName", "description", "purpose" }. Answer with the JSON only.';
   return { system, prompt };
@@ -86,14 +97,19 @@ export function buildDescribePrompt(input: DescribePromptInput): {
 export function buildSuggestColumnsPrompt(
   input: SuggestPromptInput,
   max: number,
+  company: CompanyContext | null = null,
 ): { system: string; prompt: string } {
   const sheet = describeSheet(input);
-  const system = [
-    ...SUGGEST_RULES,
-    `Workspace "${truncateValue(input.name, 200)}".`,
-    ...(sheet ? [sheet] : []),
-    ...describeUpload(input),
-  ].join("\n\n");
+  const system = withCompanyContext(
+    [
+      ...SUGGEST_RULES,
+      ...(company ? [COMPANY_USE_CASE_RULE] : []),
+      `Workspace "${truncateValue(input.name, 200)}".`,
+      ...(sheet ? [sheet] : []),
+      ...describeUpload(input),
+    ].join("\n\n"),
+    company,
+  );
   const prompt = `Propose up to ${max} AI columns as JSON: { "columns": [{ "name", "type", "prompt" }], "needsMoreContext", "question" }. Fewer good columns beat more. Answer with the JSON only.`;
   return { system, prompt };
 }

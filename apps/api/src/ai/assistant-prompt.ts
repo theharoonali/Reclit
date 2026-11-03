@@ -1,4 +1,5 @@
 import type { ColumnProfile } from "@reclit/dashboard-engine";
+import { type CompanyContext, withCompanyContext } from "./company-context";
 
 // Pure: the assistant's system prompt from a plain description of the
 // workspace — no service, no SDK, no database — so the contract test asserts
@@ -58,6 +59,8 @@ export type AssistantPromptContext = {
     description: string | null;
     widgets: PromptWidget[];
   } | null;
+  /** The workspace owner's company profile; first in every prompt built from this context. */
+  company?: CompanyContext | null;
 };
 
 export const UNTRUSTED_DATA_RULE =
@@ -297,5 +300,8 @@ export function buildAssistantSystemPrompt(
     context.scope === "spreadsheet"
       ? SPREADSHEET_RULES
       : [WIDGET_GRAMMAR, CHART_SENSE_RULES];
-  return [...SHARED_RULES, ...rules, ...describeData(context)].join("\n\n");
+  return withCompanyContext(
+    [...SHARED_RULES, ...rules, ...describeData(context)].join("\n\n"),
+    context.company,
+  );
 }

@@ -60,21 +60,21 @@ Background jobs (outside the tRPC graph — [ARCHITECTURE.md](../../ARCHITECTURE
 | Path | Responsibility |
 | --- | --- |
 | `apps/api/trigger.config.ts` | Trigger.dev project config (`runtime: "bun"`, `dirs: ["./src/trigger"]`, `prismaExtension({ mode: "modern" })`) |
-| `apps/api/src/trigger/run-ai-batch.ts` | task `run-ai-batch` (`RunAiBatchJob`) — the skeleton of a Run click: per wave, `failPending` the cells of stopped rows → `prepare` the rest → `run-ai-cell` as `batchTriggerAndWait` (one cell: `triggerAndWait`) → a non-`completed` outcome stops the row; no retries; `onFailure` → `failPending` of every run |
-| `apps/api/src/trigger/run-ai-cell.ts` | task `run-ai-cell` (`{ runId, input }`): `markRunning` → `generateCellValue` (given the run's parsed cell address and a crawl resolver that `batchTriggerAndWait`s `crawl-website` for the row's url cells) or `generateSearchCellValue` or `generateEmailCellValue` (`input.target.node` decides) → `complete` / `fail` (a failed `complete` keeps the generator's extras, e.g. `result.emails`), returns `{ runId, status }`; no retries, `maxDuration` 300 s of CPU time (a transcription may precede the model call; the wait for crawls is free); `onFailure` fails the run |
-| `apps/api/src/trigger/crawl-website.ts` | task `crawl-website` (`{ cellId, url }` → `{ recordId, reused, pages, characters }`): the general Firecrawl crawl into `ExternalApi`, one at a time, retried with backoff ([external-api.md](external-api.md)) |
+| `apps/api/src/trigger/run-ai-batch.ts` | task `run-ai-batch` (`RunAiBatchJob`) — the skeleton of a Run click: per wave, `failPending` the cells of stopped rows → `prepare` the rest → `run-ai-cell` as `batchTriggerAndWait` (one cell: `triggerAndWait`) → a non-`completed` outcome stops the row; no retries; `onFailure` → `failPending` of every run. Before each wave it asks `ensureCompanyCache` for the sheet owner's company ([company.md](company.md)) and passes the name as `cacheName` in every cell payload |
+| `apps/api/src/trigger/run-ai-cell.ts` | task `run-ai-cell` (`{ runId, input, cacheName? }`): `markRunning` → the company context (`companyContextService.forSpreadsheet`, null on any error) → `generateCellValue` (given the run's parsed cell address and a crawl resolver that `batchTriggerAndWait`s `crawl-website` for the row's url cells) or `generateSearchCellValue` or `generateEmailCellValue` (`input.target.node` decides) → `complete` / `fail` (a failed `complete` keeps the generator's extras, e.g. `result.emails`), returns `{ runId, status }`; no retries, `maxDuration` 300 s of CPU time (a transcription may precede the model call; the wait for crawls is free); `onFailure` fails the run |
+| `apps/api/src/trigger/crawl-website.ts` | task `crawl-website` (`{ cellId, url }` → `{ recordId, reused, pages, characters }`): the general Firecrawl crawl into `ExternalApi`, one at a time on the shared `firecrawl` queue (`firecrawl-queue.ts`, also `crawl-company`), retried with backoff ([external-api.md](external-api.md)) |
 | `apps/api/src/jobs/run-ai-dispatch.ts` | the API-side client: `registerRunAiDispatcher()` → `tasks.trigger("run-ai-batch", …, { idempotencyKey: batchId })`, the only `@trigger.dev/sdk` import on the API side; called from `src/main.ts` |
 | `apps/api/src/ai/gemini.ts` | `gemini(modelId?)` — the one Gemini provider for the Vercel AI SDK |
 | `apps/api/src/ai/search-prompt.ts` | pure: `buildSearchExtractMessages` (the grounded text → the typed value), `searchRecordOf` (the grounded call's queries and pages, or `null` when it did not search), `MAX_SEARCH_SOURCES` |
 | `apps/api/src/ai/search-output.ts` | `generateSearchCellValue` — the `google_search` node: a grounded Gemini call with the `google_search` tool, the did-it-search check, then the typed extraction call |
-| `apps/api/src/ai/cell-prompt.ts` | pure: `buildCellMessages` (instruction + row as context + the previous step's output as the primary input; plus `SEARCH_RULES` for a `google_search` target), `cellOutputSchema` (answer shape per column type), `TYPE_RULES`, `formatCellLine`, `CellSourceNote` (attached / transcribed / failed) |
-| `apps/api/src/ai/cell-attachments.ts` | fetches the row's file cells into file parts (`collectAttachments`; ≤ 15 MB, 30 s each); a failure is recorded, never thrown. `isUrlCell`, `fetchAttachment`, `filenameOf` and `mediaTypeFor` are shared with the transcript and crawl paths |
+| `apps/api/src/ai/cell-prompt.ts` | pure: `buildCellMessages(input, notes, company?)` → `{ system, prompt, cachedPrompt }` (the company block, `CELL_PREAMBLE`, then the instruction + row as context + the previous step's output as the primary input; plus `SEARCH_RULES` for a `google_search` target; `cachedPrompt` is the instruction + row for a call on an explicit cache), `cachedCellSystem` (what that cache holds), `cellOutputSchema` (answer shape per column type), `TYPE_RULES`, `formatCellLine`, `CellSourceNote` (attached / transcribed / failed) |
+| `apps/api/src/ai/cell-attachments.ts` | fetches the row's file cells into file parts (`collectAttachments`; ≤ 15 MB, 30 s each); a failure is recorded, never thrown. `isUrlCell`, `fetchFile` / `fetchAttachment`, `filenameOf` and `mediaTypeFor` are shared (`fetchFile` and `mediaTypeFor` also with the company documents) with the transcript and crawl paths |
 | `apps/api/src/ai/cell-transcripts.ts` | resolves the row's audio cells to text through `ExternalApi` + ElevenLabs ([external-api.md](external-api.md)); a failure is recorded, never thrown |
 | `apps/api/src/ai/cell-crawls.ts` | resolves the row's url cells to crawled pages through `ExternalApi` + Firecrawl (`firecrawl.ts`, the `crawl-website` task — [external-api.md](external-api.md)); `formatCrawledPages` budgets what the prompt gets; a failure is recorded, never thrown |
 | `apps/api/src/ai/resend.ts` | `sendEmail` — the Resend send-email call (raw `fetch`, key read per call, `RESEND_FROM` defaulting to `Reclit <hello@reclit.com>`, `Idempotency-Key`) |
 | `apps/api/src/ai/email-prompt.ts` | pure: `findEmailAddresses` + `emailRecipients` (addresses from the prompt and any cell, target cell excluded, capped at `MAX_EMAIL_RECIPIENTS`), `emailDraftSchema` (a draft list), `resolveRecipient`, `emailCellValue` (`{address: "Subject: …" \| "FAILED"}`) |
 | `apps/api/src/ai/email-output.ts` | `generateEmailCellValue` — the `email` node: recipients → one draft-list call → per-draft checks → sequential sends with per-address idempotency, failures recorded as FAILED, run still completed |
-| `apps/api/src/ai/cell-output.ts` | `generateCellValue(input, address, deps)` — attachments, transcripts and crawls in parallel, then `generateTypedCellValue`, the one typed-output call both generators end on (`Output.object`, or `Output.json` for `json` columns, then `coerceCellValue` / `cellValueMatchesType`) |
+| `apps/api/src/ai/cell-output.ts` | `generateCellValue(input, address, deps, { company, cacheName })` — attachments, transcripts and crawls in parallel, then `cellCalls` (the implicit call, and the cached one when there is a cache) through `withCacheFallback` into `generateTypedCellValue`; `cellUsage` (adds `cachedInputTokens`); the one typed-output call both generators end on (`Output.object`, or `Output.json` for `json` columns, then `coerceCellValue` / `cellValueMatchesType`) |
 
 ## Procedures
 
@@ -194,6 +194,17 @@ There is no REST face.
   8,000 per page, the rest counted as omitted). Any path failing becomes a
   note in that line, and the completed run records all three without their
   content (`result.attachments`, `result.transcripts`, `result.crawls`).
+- **Company context and caching.** Every cell's system instruction starts
+  with the sheet owner's `<company-context>` block and `CELL_PREAMBLE`, the
+  same bytes for every cell of a profile version, so Gemini's implicit prefix
+  cache serves them. With a `cacheName` (an explicit cache of exactly that
+  prefix, [company.md](company.md)) the `ai` and `email` calls send no
+  `system` — Gemini answers 400 to a system instruction next to a cache —
+  and open the user message with the column's instruction
+  (`cachedPrompt`); any failure of the cached call is retried on the
+  implicit path, so a cache can never fail a cell. `google_search` cells use
+  the implicit path only (a tool cannot run on a cache). `result.usage`
+  carries `cachedInputTokens` from `usage.inputTokenDetails.cacheReadTokens`.
 - **The task owns every transition after `pending`** and has no retries: a
   retry after `fail` would revive a terminal row. `onFailure` covers the
   crash paths the catch cannot see (a `maxDuration` kill). The answer is

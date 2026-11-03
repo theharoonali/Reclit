@@ -7,6 +7,7 @@ import type {
   CellValue,
   ColumnTypeWire,
 } from "../modules/spreadsheet/spreadsheet.schema";
+import { type CompanyContext, withCompanyContext } from "./company-context";
 import { emailRecipients } from "./email-prompt";
 
 // Pure: turns a run's input into what the model is asked, and describes the
@@ -151,6 +152,35 @@ function crawledContentBlocks(
 }
 
 /**
+ * The first line of every cell's instruction, whichever node runs: the part
+ * an explicit Gemini cache holds after the company block (`cachedCellSystem`).
+ */
+export const CELL_PREAMBLE = "You fill in one cell of a spreadsheet row.";
+
+/**
+ * What an explicit cache's `systemInstruction` is (ai/gemini-cache.ts): the
+ * company block, then the preamble. Every cell's implicit `system` starts
+ * with exactly these bytes too, so both caching paths share one prefix.
+ */
+export function cachedCellSystem(company: CompanyContext): string {
+  return withCompanyContext(CELL_PREAMBLE, company);
+}
+
+/** Both shapes of one cell's prompt (see `buildCellMessages`). */
+export type CellMessages = {
+  /** The implicit path: company block, preamble, the column's instruction. */
+  system: string;
+  /** The row, then the target. */
+  prompt: string;
+  /**
+   * The explicit-cache path: the cache already holds the company block and
+   * the preamble, and Gemini refuses a `system` next to a cache — so the
+   * column's instruction opens the user message instead, then `prompt`.
+   */
+  cachedPrompt: string;
+};
+
+/**
  * The instruction (`system`) and the context (`prompt`). The column's prompt
  * *is* the instruction; the row goes in as one line per column in the
  * sheet's sort order, then the target is named so the model knows which
@@ -160,15 +190,15 @@ function crawledContentBlocks(
  * their website, in blocks after the row (cell-crawls.ts). From the second
  * AI column of a row on, the previous step's output is named as the primary
  * input. A `google_search` target gets `SEARCH_RULES` on top; everything
- * else is the same, so both nodes read the row the same way.
+ * else is the same, so both nodes read the row the same way. The company
+ * block (`company`) comes first of all; `cachedPrompt` is the same call for
+ * a request that runs on an explicit cache.
  */
 export function buildCellMessages(
   input: RunAiInput,
   notes: CellSourceNotes = new Map(),
-): {
-  system: string;
-  prompt: string;
-} {
+  company: CompanyContext | null = null,
+): CellMessages {
   const { prompt, target, row, previous } = input;
   const attached = [...notes.values()].some((n) => n.kind === "attached");
   const crawled = [...notes.values()].some((n) => n.kind === "crawled");
@@ -178,8 +208,7 @@ export function buildCellMessages(
     ...(crawled ? [", including the crawled website content"] : []),
     ".",
   ].join("");
-  const system = [
-    "You fill in one cell of a spreadsheet row.",
+  const instruction = [
     `The cell belongs to the column "${target.name}" (type: ${target.type}).`,
     "Instruction for this column:",
     prompt,
@@ -213,5 +242,9 @@ export function buildCellMessages(
       : []),
     `Fill the column "${target.name}".`,
   ].join("\n");
-  return { system, prompt: promptText };
+  return {
+    system: withCompanyContext(`${CELL_PREAMBLE}\n${instruction}`, company),
+    prompt: promptText,
+    cachedPrompt: `${instruction}\n\n${promptText}`,
+  };
 }

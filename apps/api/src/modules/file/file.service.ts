@@ -47,7 +47,28 @@ function getClient(): SupabaseClient {
   return client;
 }
 
+/**
+ * The public URL prefix every upload of this API starts with (ending in
+ * `/`), or null when storage is not configured. Computed locally by the
+ * client — no network.
+ */
+export function uploadBaseUrl(): string | null {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) return null;
+  const base = getClient().storage.from(BUCKET).getPublicUrl("").data.publicUrl;
+  return base.endsWith("/") ? base : `${base}/`;
+}
+
 export class FileService {
+  /**
+   * True when `url` is exactly what `upload` returns: this bucket, the
+   * `uploads/<uuid>/<name>` shape. What a feature checks before it lets a
+   * worker fetch a URL the client handed in (company documents).
+   */
+  ownsUrl(url: string): boolean {
+    const base = uploadBaseUrl();
+    return base !== null && uploadPathFromUrl(url, base) !== null;
+  }
+
   /** Uploads into the public bucket and returns its permanent public URL. */
   async upload(
     buffer: Uint8Array,
@@ -77,10 +98,7 @@ export class FileService {
    */
   async remove(url: string): Promise<DeletedFile> {
     const storage = getClient().storage.from(BUCKET);
-    const path = uploadPathFromUrl(
-      url,
-      storage.getPublicUrl("").data.publicUrl,
-    );
+    const path = uploadPathFromUrl(url, uploadBaseUrl() ?? "");
     if (path === null) throw new FileUrlNotDeletableError(url);
     const { data, error } = await storage.remove([path]);
     if (error) throw new FileDeleteFailedError(BUCKET, error.message);

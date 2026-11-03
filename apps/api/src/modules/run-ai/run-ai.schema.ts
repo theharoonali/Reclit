@@ -76,10 +76,15 @@ export const runAiInputSchema = z.object({
 export type RunAiInput = z.infer<typeof runAiInputSchema>;
 export type RunAiInputCell = RunAiInput["row"]["cells"][number];
 
-/** The Trigger.dev `run-ai-cell` payload: which run, and what it was given. */
+/**
+ * The Trigger.dev `run-ai-cell` payload: which run, and what it was given.
+ * `cacheName` is the batch's explicit Gemini cache (ai/gemini-cache.ts),
+ * absent when the batch runs on the implicit path.
+ */
 export const runAiJobPayloadSchema = z.object({
   runId: z.string().min(1),
   input: runAiInputSchema,
+  cacheName: z.string().min(1).optional(),
 });
 export type RunAiJobPayload = z.infer<typeof runAiJobPayloadSchema>;
 

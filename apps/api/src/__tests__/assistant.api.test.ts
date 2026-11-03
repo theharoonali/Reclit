@@ -16,7 +16,7 @@
  *   summary        String?          the model's closing message (≤ 2000)
  *   error          Json?            { name, message }
  *   model          String?          the model id that answered
- *   usage          Json?            { inputTokens, outputTokens, totalTokens }, every step summed
+ *   usage          Json?            { inputTokens, outputTokens, totalTokens, cachedInputTokens? }, every step summed
  *   transcript     Json?            the model conversation — audit only, NEVER on the wire
  *   triggerRunId   String?          the Trigger.dev run id — cancel's handle, never on the wire
  *   createdAt      DateTime         now(), indexed
@@ -31,7 +31,7 @@
  *   status: "pending" | "thinking" | "working" | "awaiting_confirmation" | "completed" | "failed" | "cancelled";
  *   steps: AssistantStep[]; pendingAction: PendingAction | null;
  *   summary: string | null; error: { name: string; message: string } | null;
- *   model: string | null; usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
+ *   model: string | null; usage: { inputTokens: number; outputTokens: number; totalTokens: number; cachedInputTokens?: number } | null;
  *   createdAt: Date; updatedAt: Date;
  * }
  * AssistantStep = {                       // one tool call, in call order
@@ -139,6 +139,10 @@
  *   `ELEVENLABS_API_KEY` on the api it is 503
  *   (`ASSISTANT_TRANSCRIPTION_UNAVAILABLE`); an upstream failure is 502
  *   (`ASSISTANT_TRANSCRIPTION_FAILED`). Error bodies are `{ code, message }`.
+ * - The model's system prompt starts with the workspace owner's compiled
+ *   company profile (`<company-context>`, company contract) when there is
+ *   one. `usage.cachedInputTokens` is the part of the input a Gemini cache
+ *   served (runs recorded before it was measured have none).
  * - Generating a whole dashboard from the sheet is not the assistant's: see
  *   the dashboard-generation contract (`dashboardGeneration.start`).
  * - Every procedure is public; there is no auth yet.
@@ -163,6 +167,7 @@ import {
   toUsage,
   trimTranscript,
 } from "../ai/assistant-step";
+import { compileCompanyContext } from "../ai/company-prompt";
 import { pingDatabase, prisma } from "../db/prisma";
 import {
   AssistantFinishedError,
@@ -1746,6 +1751,36 @@ describe("the prompt and the step helpers", () => {
     expect(bare).not.toContain("</sheet-description>");
   });
 
+  it("starts both scopes' prompts with the company block, byte-identical", () => {
+    const company = compileCompanyContext({
+      companyId: "company-1",
+      name: "Acme",
+      website: "https://acme.example",
+      useCases: ["CUSTOMER_INSIGHTS"],
+      useCaseOther: null,
+      summary: "Acme makes widgets.",
+      rules: "Be brief.",
+      documents: [],
+    });
+    if (!company) throw new Error("fixture");
+    const sheet = buildAssistantSystemPrompt({
+      ...context,
+      scope: "spreadsheet",
+      company,
+    });
+    const dashboard = buildAssistantSystemPrompt({
+      ...context,
+      scope: "dashboard",
+      dashboard: null,
+      company,
+    });
+    expect(sheet.startsWith(`${company.text}\n\n`)).toBe(true);
+    expect(dashboard.startsWith(`${company.text}\n\n`)).toBe(true);
+    expect(
+      buildAssistantSystemPrompt({ ...context, scope: "spreadsheet" }),
+    ).toBe(sheet.slice(company.text.length + 2));
+  });
+
   it("truncates values to one line", () => {
     expect(truncateValue("a\n b   c")).toBe("a b c");
     expect(truncateValue({ a: 1 })).toBe('{"a":1}');
@@ -1764,13 +1799,42 @@ describe("the prompt and the step helpers", () => {
       inputTokens: 3,
       outputTokens: 4,
       totalTokens: 7,
+      cachedInputTokens: 0,
     });
+    expect(
+      toUsage({
+        inputTokens: 1000,
+        outputTokens: 10,
+        totalTokens: 1010,
+        inputTokenDetails: {
+          noCacheTokens: 200,
+          cacheReadTokens: 800,
+          cacheWriteTokens: undefined,
+        },
+      } as never).cachedInputTokens,
+    ).toBe(800);
     expect(
       addUsage(
         { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
         { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
       ),
     ).toEqual({ inputTokens: 3, outputTokens: 4, totalTokens: 7 });
+    expect(
+      addUsage(
+        { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        {
+          inputTokens: 2,
+          outputTokens: 3,
+          totalTokens: 5,
+          cachedInputTokens: 2,
+        },
+      ),
+    ).toEqual({
+      inputTokens: 3,
+      outputTokens: 4,
+      totalTokens: 7,
+      cachedInputTokens: 2,
+    });
     expect(
       toolResultsMessage([
         {

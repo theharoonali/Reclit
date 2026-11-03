@@ -1,4 +1,5 @@
 import { prisma } from "../src/db/prisma";
+import { companyService } from "../src/modules/company/company.service";
 import type { CellValue } from "../src/modules/spreadsheet/spreadsheet.schema";
 import { spreadsheetCellsService } from "../src/modules/spreadsheet/spreadsheet-cells.service";
 import { spreadsheetColumnsService } from "../src/modules/spreadsheet/spreadsheet-columns.service";
@@ -85,6 +86,28 @@ if (existingUser) {
     onboardingCompleted: true,
   });
   console.log(`Seeded user "${USER_NAME}" (${user.id})`);
+}
+
+// A small company profile for the demo user (docs/features/company.md), so
+// every AI call has a <company-context> to start with. No website: setting
+// one scrapes it through Firecrawl, which a seed must not do.
+const owner = await userService.me();
+const existingCompany = await prisma.company.findUnique({
+  where: { ownerId: owner.id },
+  select: { id: true },
+});
+if (existingCompany) {
+  console.log(`Seed: company already exists (${existingCompany.id})`);
+} else {
+  const company = await companyService.update({
+    useCases: ["CUSTOMER_INSIGHTS", "EMAIL_OUTREACH"],
+    name: "Northwind Analytics",
+    summary:
+      "Northwind Analytics is a small B2B consultancy that helps subscription businesses understand and grow their customer base. It segments customers, scores churn risk and writes outreach for account managers.",
+    rules:
+      "Write in plain British English. Never promise discounts. Address customers by first name.",
+  });
+  console.log(`Seeded company "${company.name}" (${company.id})`);
 }
 
 // Both checks: a DB migrated with the 013 backfill has the workspace and the

@@ -2,7 +2,7 @@
 
 import { Button } from "@reclit/ui/button";
 import { Input } from "@reclit/ui/input";
-import { ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { type FormEvent, useId } from "react";
 import { FormField } from "@/components/common/form-field";
@@ -11,8 +11,8 @@ import type { OnboardingWizardApi } from "./use-onboarding-wizard";
 const NAME_MAX = 200;
 
 /**
- * The first screen: the workspace's name, one field with Next under it
- * (Enter submits too). The name is the source of truth from here on — the
+ * The workspace's name, after the company screens: one field with Back and
+ * Next under it (Enter submits too). The name is the source of truth from here on — the
  * skip creates a workspace with it, the upload path names the created one.
  */
 export function OnboardingNameScreen({
@@ -41,7 +41,16 @@ export function OnboardingNameScreen({
           value={details.name}
         />
       </FormField>
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-2">
+        <Button
+          disabled={!details.canGoBack}
+          onClick={details.back}
+          type="button"
+          variant="ghost"
+        >
+          <ArrowLeft />
+          {t("back")}
+        </Button>
         <Button
           disabled={!details.canSubmitName}
           type="submit"

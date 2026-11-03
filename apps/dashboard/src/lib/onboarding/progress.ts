@@ -11,6 +11,9 @@ import {
  * the hook hands it the flags and the live generation, the panel draws it.
  */
 export type OnboardingStage =
+  | "purpose"
+  | "website"
+  | "documents"
   | "name"
   | "upload"
   | "review"
@@ -18,6 +21,9 @@ export type OnboardingStage =
   | "finishing";
 
 export type ProgressKey =
+  | "purpose"
+  | "website"
+  | "documents"
   | "upload"
   | "describe"
   | "columns"
@@ -34,6 +40,16 @@ export type ProgressItem = { key: ProgressKey; status: ProgressStatus };
 
 export type ProgressState = {
   stage: OnboardingStage;
+  /** The company has at least one use case saved. */
+  hasUseCases: boolean;
+  /** The company has a website (scraped). */
+  hasWebsite: boolean;
+  /** `company.setWebsite` is in flight. */
+  isScraping: boolean;
+  /** The company has a document or rules. */
+  hasDocuments: boolean;
+  /** A document is uploading. */
+  isUploading: boolean;
   hasFile: boolean;
   isDescribing: boolean;
   isDescribed: boolean;
@@ -49,11 +65,14 @@ export type ProgressState = {
 };
 
 const STAGE_ORDER: Record<OnboardingStage, number> = {
-  name: 0,
-  upload: 1,
-  review: 2,
-  columns: 3,
-  finishing: 4,
+  purpose: 0,
+  website: 1,
+  documents: 2,
+  name: 3,
+  upload: 4,
+  review: 5,
+  columns: 6,
+  finishing: 7,
 };
 
 /** The generation's steps the wizard shows after its own `run` entry. */
@@ -88,7 +107,27 @@ export function progressFor(state: ProgressState): ProgressItem[] {
   const generation = generationSteps(state.generation);
   const generationStatus = (key: GenerationStepKey): ProgressStatus =>
     generation.find((step) => step.key === key)?.status ?? "pending";
+  // The company steps are done only when there is something to show for
+  // them: a skipped website or documents step stays pending.
   return [
+    {
+      key: "purpose",
+      status: status(state.hasUseCases, state.stage === "purpose"),
+    },
+    {
+      key: "website",
+      status: status(
+        state.hasWebsite && !state.isScraping,
+        state.isScraping || state.stage === "website",
+      ),
+    },
+    {
+      key: "documents",
+      status: status(
+        state.hasDocuments && !state.isUploading,
+        state.isUploading || state.stage === "documents",
+      ),
+    },
     { key: "upload", status: status(state.hasFile, state.stage === "upload") },
     {
       key: "describe",

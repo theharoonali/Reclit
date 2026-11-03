@@ -67,13 +67,30 @@
   },
   "settings": {
     "title": "Settings",
-    "description": "Your profile and subscription.",
+    "description": "Your profile, company and subscription.",
     "profile": {
       "title": "Profile",
       "nameLabel": "Name",
       "emailLabel": "Email",
       "loading": "Loading profile...",
       "loadError": "The profile could not be loaded."
+    },
+    "company": {
+      "title": "Company",
+      "description": "What every AI answer in Reclit knows about who you are and why you use it.",
+      "loading": "Loading company...",
+      "loadError": "The company profile could not be loaded.",
+      "noWebsite": "No website yet. Add one and the AI reads it.",
+      "websiteLabel": "Website",
+      "websitePlaceholder": "example.com",
+      "readWebsite": "Read website",
+      "rescan": "Re-scan website",
+      "useCasesTitle": "Use cases",
+      "rulesLabel": "Company rules",
+      "rulesPlaceholder": "e.g. Write in British English. Never quote a price without the current discount.",
+      "save": "Save rules",
+      "saving": "Saving…",
+      "documentsTitle": "Documents"
     },
     "subscription": {
       "title": "Subscription",
@@ -388,6 +405,22 @@
     "description": "Upload a sheet and let the AI set it up.",
     "loading": "Loading your account...",
     "loadError": "Your account could not be loaded. Refresh the page to try again.",
+    "purpose": {
+      "title": "What will you use Reclit for?",
+      "subtitle": "Pick all that apply. The AI shapes its suggestions around them."
+    },
+    "website": {
+      "title": "Where can we learn about your company?",
+      "subtitle": "We read your website once, so every AI answer knows who you are.",
+      "label": "Company website",
+      "placeholder": "example.com"
+    },
+    "documents": {
+      "title": "Anything else the AI should know?",
+      "subtitle": "Add price lists, playbooks or policies, and the rules every answer must follow.",
+      "rulesLabel": "Company rules",
+      "rulesPlaceholder": "e.g. Write in British English. Never quote a price without the current discount."
+    },
     "name": {
       "title": "Name your workspace",
       "label": "Workspace name",
@@ -417,6 +450,9 @@
       "columns": "{count, plural, one {# column} other {# columns}}"
     },
     "progress": {
+      "purpose": "Use cases picked",
+      "website": "Website read",
+      "documents": "Documents and rules added",
       "upload": "File uploaded",
       "describe": "Sheet described",
       "columns": "AI columns suggested",
@@ -476,7 +512,8 @@
     "errorRun": "The AI could not be started. Try again.",
     "errorGenerate": "The dashboard could not be built. You can try again from the dashboard.",
     "aiUnavailable": "AI is not configured on the server. Fill the fields in yourself.",
-    "aiFailed": "The AI could not answer. Try again."
+    "aiFailed": "The AI could not answer. Try again.",
+    "saving": "Saving…"
   },
   "chat": {
     "title": "Chat",
@@ -553,6 +590,70 @@
       "micDenied": "Allow microphone access to speak your request.",
       "micUnsupported": "This browser cannot record audio.",
       "unknown": "Something went wrong. Try again."
+    }
+  },
+  "company": {
+    "useCases": {
+      "leadResearch": {
+        "title": "Lead research",
+        "description": "Enrich companies and leads with web research and scoring"
+      },
+      "hiring": {
+        "title": "Hiring pipeline",
+        "description": "Screen candidates, read CVs and score fit"
+      },
+      "emailOutreach": {
+        "title": "Email outreach",
+        "description": "Write and send a personal email to every row"
+      },
+      "formIntake": {
+        "title": "Form intake",
+        "description": "Collect submissions and sort each one with AI"
+      },
+      "customerInsights": {
+        "title": "Customer insights",
+        "description": "Segment customers and track them on a dashboard"
+      },
+      "other": {
+        "title": "Other",
+        "description": "Something else"
+      },
+      "otherLabel": "What else will you use it for?",
+      "otherPlaceholder": "e.g. Tracking grant applications"
+    },
+    "card": {
+      "summaryLabel": "What the AI knows about you",
+      "summaryPlaceholder": "A few sentences about what your company does.",
+      "scraping": "Reading your website…",
+      "crawling": "Reading the rest of your site…",
+      "ready": "{count, plural, =0 {Read your homepage} one {Read # page of your site} other {Read # pages of your site}}",
+      "failed": "The rest of your site could not be read. The summary comes from your homepage."
+    },
+    "documents": {
+      "dropTitle": "Drag files here, or choose them",
+      "dropHint": "PDF, PNG, JPG, WEBP, TXT, MD or CSV. Up to 15 MB each, 10 files in all.",
+      "choose": "Choose files",
+      "empty": "No documents yet.",
+      "remove": "Remove {name}",
+      "status": {
+        "uploading": "Uploading",
+        "processing": "Reading",
+        "ready": "Ready",
+        "failed": "Failed"
+      }
+    },
+    "errors": {
+      "websiteInvalid": "That is not a website address. Try something like example.com.",
+      "scrapeFailed": "Your website could not be read. Check the address, or skip this step.",
+      "aiUnavailable": "Website reading is not configured on the server. Skip this step for now.",
+      "websiteMissing": "Add a website before re-scanning.",
+      "documentType": "Only PDF, PNG, JPG, WEBP, TXT, MD and CSV files can be added.",
+      "documentTooLarge": "That file is over 15 MB.",
+      "documentLimit": "You can add up to 10 documents. Remove one to add another.",
+      "documentNotFound": "That document was already removed.",
+      "uploadFailed": "The file could not be uploaded. Try again.",
+      "validation": "A field is too long.",
+      "error": "Something went wrong. Try again."
     }
   }
 }

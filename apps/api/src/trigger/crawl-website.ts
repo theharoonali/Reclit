@@ -5,6 +5,7 @@ import {
   crawlWebsiteJobSchema,
   websiteCrawlOutputSchema,
 } from "../modules/external-api/external-api.schema";
+import { firecrawlQueue } from "./firecrawl-queue";
 
 // The general crawl: one website → its pages, stored in `ExternalApi` under
 // the cell that holds the URL and reused from any cell that already has it.
@@ -16,7 +17,7 @@ import {
 // The store is checked before Firecrawl is called, so a retry after a
 // stored result — or a second caller for the same URL — never crawls twice.
 // The polling waits are Trigger.dev `wait.for`s: checkpointed, free, and
-// not counted against `maxDuration` (CPU time). One at a time (`queue`): the
+// not counted against `maxDuration` (CPU time). One at a time (`firecrawlQueue`, shared with `crawl-company`): the
 // Firecrawl free plan allows two crawl starts a minute, and a 429 — or any
 // transient failure — is retried with backoff.
 
@@ -30,7 +31,7 @@ export type CrawlWebsiteOutcome = {
 export const crawlWebsiteTask = schemaTask({
   id: "crawl-website",
   schema: crawlWebsiteJobSchema,
-  queue: { concurrencyLimit: 1 },
+  queue: firecrawlQueue,
   maxDuration: 300,
   retry: {
     maxAttempts: 4,

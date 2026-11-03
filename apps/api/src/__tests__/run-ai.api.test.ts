@@ -47,7 +47,7 @@
  *   sentAt?: string;                      // sent only; ISO time the send returned
  *   error?: string;                       // failed only; why the send failed
  * }                                        // (legacy runs may carry `email`, the pre-040 single-send record)
- * RunAiJobPayload = { runId: string; input: RunAiInput }       // the Trigger.dev `run-ai-cell` payload
+ * RunAiJobPayload = { runId: string; input: RunAiInput; cacheName?: string }  // the Trigger.dev `run-ai-cell` payload
  * RunAiBatchJob = {                        // the Trigger.dev `run-ai-batch` payload — one per Run click
  *   batchId: string; spreadsheetId: string;
  *   waves: { columnIndex; columnName; cells: { runId; rowIndex }[] }[];  // one wave per runnable column, in sort order
@@ -185,6 +185,20 @@
  *   failed mail run that carries it did send. Every Run is a new run and a
  *   new send; a mail column also sends from `runRow` (every public form
  *   submission) and from onboarding's final step.
+ * - **Every cell knows who it works for.** Whatever the node, the model's
+ *   instruction starts with the sheet owner's compiled `<company-context>`
+ *   block (company contract: company.api.test.ts), then "You fill in one
+ *   cell of a spreadsheet row." — byte-identical across every cell of one
+ *   profile version, so Gemini's implicit prefix cache serves it. Each wave
+ *   of a batch also gets an explicit Gemini cache of that prefix when it is
+ *   large enough (≥ 1024 tokens), reused across waves until it is 5 minutes
+ *   from expiry; `ai` and `email` cells then send no system instruction and
+ *   name the cache instead, with the column's instruction opening the user
+ *   message. A cache that fails is retried without it — it never fails a
+ *   cell. `google_search` cells use the implicit path only (a tool cannot be
+ *   combined with a cache). `result.usage` carries `cachedInputTokens` — the
+ *   input tokens a cache served — next to `inputTokens`, `outputTokens`,
+ *   `totalTokens` (undefined when the provider reports none).
  * - The stream is a generation, not a socket. A sheet should be streaming
  *   exactly while it has a run that is not `completed` / `failed`:
  *   `listActive` answers that on page load (non-empty → subscribe), the
@@ -239,9 +253,12 @@ import {
   resolveCrawlRecord,
   summariseCrawls,
 } from "../ai/cell-crawls";
+import { type CellCall, cellCalls, withCacheFallback } from "../ai/cell-output";
 import type { CellSourceNote } from "../ai/cell-prompt";
 import {
   buildCellMessages,
+  CELL_PREAMBLE,
+  cachedCellSystem,
   cellOutputSchema,
   EMAIL_RULES,
   formatCellLine,
@@ -254,6 +271,7 @@ import {
   isTranscribableCell,
   summariseTranscripts,
 } from "../ai/cell-transcripts";
+import { compileCompanyContext } from "../ai/company-prompt";
 import { type TranscribeFetch, transcribeAudio } from "../ai/elevenlabs";
 import { generateEmailCellValue } from "../ai/email-output";
 import {
@@ -3011,5 +3029,154 @@ describe("Resend client (pure)", () => {
     } finally {
       process.env.RESEND_API_KEY = "contract-test-key";
     }
+  });
+});
+
+describe("company context and the explicit cache (pure)", () => {
+  const company = compileCompanyContext({
+    companyId: "company-1",
+    name: "Acme",
+    website: "https://acme.example",
+    useCases: ["LEAD_RESEARCH"],
+    useCaseOther: null,
+    summary: "Acme makes widgets.",
+    rules: "Write in British English.",
+    documents: [],
+  });
+  if (!company) throw new Error("fixture");
+  const cell = (
+    name: string,
+    node: RunAiInput["target"]["node"],
+    rowIndex: number,
+  ): RunAiInput => ({
+    prompt: `Fill ${name}.`,
+    target: { id: "col.1", index: 1, name, type: "string", node },
+    row: {
+      id: `row.${rowIndex}`,
+      index: rowIndex,
+      cells: [
+        {
+          id: "col.0",
+          index: 0,
+          name: "Email",
+          type: "email",
+          value: `row${rowIndex}@acme.example`,
+        },
+      ],
+    },
+  });
+
+  it("puts the company block first, byte-identical across cells of every node", () => {
+    const prefix = cachedCellSystem(company);
+    expect(prefix).toBe(`${company.text}\n\n${CELL_PREAMBLE}`);
+    const systems = [
+      buildCellMessages(cell("Score", "ai", 0), new Map(), company).system,
+      buildCellMessages(cell("Notes", "ai", 7), new Map(), company).system,
+      buildCellMessages(cell("Site", "google_search", 3), new Map(), company)
+        .system,
+      buildCellMessages(cell("Mail", "email", 2), new Map(), company).system,
+    ];
+    for (const system of systems) {
+      expect(system.startsWith(`${prefix}\n`)).toBe(true);
+    }
+    expect(new Set(systems.map((s) => s.slice(0, prefix.length))).size).toBe(1);
+  });
+
+  it("leaves the prompt as it was without a company", () => {
+    const { system } = buildCellMessages(cell("Score", "ai", 0));
+    expect(system.startsWith(`${CELL_PREAMBLE}\n`)).toBe(true);
+    expect(system).not.toContain("<company-context>");
+  });
+
+  it("the cached shape opens the user message with the column's instruction", () => {
+    const messages = buildCellMessages(
+      cell("Score", "ai", 0),
+      new Map(),
+      company,
+    );
+    const instruction = messages.system.slice(
+      cachedCellSystem(company).length + 1,
+    );
+    expect(messages.cachedPrompt).toBe(`${instruction}\n\n${messages.prompt}`);
+    expect(messages.cachedPrompt).not.toContain("<company-context>");
+    expect(messages.cachedPrompt).not.toContain(CELL_PREAMBLE);
+  });
+
+  it("with a cache the call sends no system and names the cache; without one, only the implicit call exists", () => {
+    const messages = buildCellMessages(
+      cell("Score", "ai", 0),
+      new Map(),
+      company,
+    );
+    const file = {
+      data: new Uint8Array([1, 2]),
+      mediaType: "application/pdf",
+      filename: "cv.pdf",
+    };
+    const { implicit, cached } = cellCalls(
+      messages,
+      [file],
+      "cachedContents/abc",
+    );
+    expect(implicit.system).toBe(messages.system);
+    expect(implicit.providerOptions).toBeUndefined();
+    expect(cached).not.toBeNull();
+    expect(cached && "system" in cached).toBe(false);
+    expect(cached?.providerOptions).toEqual({
+      google: { cachedContent: "cachedContents/abc" },
+    });
+    expect(cached?.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: messages.cachedPrompt },
+          { type: "file", ...file },
+        ],
+      },
+    ]);
+    expect(cellCalls(messages, [], null).cached).toBeNull();
+    expect(cellCalls(messages, [], undefined).cached).toBeNull();
+  });
+
+  it("falls back to the implicit call when the cached one fails, and never otherwise", async () => {
+    const messages = buildCellMessages(
+      cell("Score", "ai", 0),
+      new Map(),
+      company,
+    );
+    const sent: CellCall[] = [];
+    const answer = await withCacheFallback(
+      cellCalls(messages, [], "cachedContents/expired"),
+      async (call) => {
+        sent.push(call);
+        if (call.providerOptions) throw new Error("404 cache not found");
+        return "value";
+      },
+    );
+    expect(answer).toBe("value");
+    expect(sent.map((call) => call.system ?? "cached")).toEqual([
+      "cached",
+      messages.system,
+    ]);
+
+    const once: CellCall[] = [];
+    await withCacheFallback(
+      cellCalls(messages, [], "cachedContents/live"),
+      async (call) => {
+        once.push(call);
+        return "value";
+      },
+    );
+    expect(once).toHaveLength(1);
+    expect(once[0]?.providerOptions).toBeDefined();
+  });
+
+  it("the search extraction prompt starts with the company block too", () => {
+    const { system } = buildSearchExtractMessages(
+      cell("Site", "google_search", 0),
+      "Acme's site is acme.example.",
+      company,
+    );
+    expect(system.startsWith(`${company.text}\n\n`)).toBe(true);
   });
 });

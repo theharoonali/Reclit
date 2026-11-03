@@ -4,6 +4,7 @@ import { generateCellValue } from "../ai/cell-output";
 import { generateEmailCellValue } from "../ai/email-output";
 import { generateSearchCellValue } from "../ai/search-output";
 import { describeError } from "../common/errors";
+import { companyContextService } from "../modules/company/company-context.service";
 import { externalApiService } from "../modules/external-api/external-api.service";
 import { RunAiInvalidCellIdError } from "../modules/run-ai/run-ai.errors";
 import {
@@ -80,7 +81,7 @@ export const runAiCellTask = schemaTask({
   schema: runAiJobPayloadSchema,
   maxDuration: 300,
   retry: { maxAttempts: 1 },
-  run: async ({ runId, input }): Promise<RunAiCellOutcome> => {
+  run: async ({ runId, input, cacheName }): Promise<RunAiCellOutcome> => {
     const run = await runAiService.byId(runId);
     if (isTerminalRunAiStatus(run.status)) {
       logger.warn("run already finished, nothing to do", {
@@ -92,6 +93,11 @@ export const runAiCellTask = schemaTask({
     const address = parseCellId(run.cellId);
     if (!address) throw new RunAiInvalidCellIdError(run.cellId);
     await runAiService.markRunning(runId);
+    // Whose work this is: the sheet's owner's company, first in every prompt.
+    // A profile that cannot be read costs the cell its context, not its run.
+    const company = await companyContextService
+      .forSpreadsheet(address.sheetId)
+      .catch(() => null);
     // What the generator produced, kept for the failure path: a mail cell
     // has already sent its emails by the time `complete` writes the cell, so
     // a refused write must still leave `result.emails` on the failed run.
@@ -102,12 +108,19 @@ export const runAiCellTask = schemaTask({
       // same whichever one runs.
       const { output, model, usage, attachments, ...extra } =
         input.target.node === "google_search"
-          ? await generateSearchCellValue(input)
+          ? await generateSearchCellValue(input, company)
           : input.target.node === "email"
-            ? await generateEmailCellValue(input, { runId })
-            : await generateCellValue(input, address, {
-                crawls: crawlViaTask(runId),
-              });
+            ? await generateEmailCellValue(input, {
+                runId,
+                company,
+                cacheName,
+              })
+            : await generateCellValue(
+                input,
+                address,
+                { crawls: crawlViaTask(runId) },
+                { company, cacheName },
+              );
       generated = { model, usage, attachments, ...extra };
       logger.info("cell generated", {
         runId,

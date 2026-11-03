@@ -4,11 +4,11 @@ import { Button } from "@reclit/ui/button";
 import { Check, Pencil, Sparkles, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { Chip } from "@/components/common/chip";
 import type {
   ColumnDraftIssue,
   ColumnDraftItem,
 } from "@/lib/onboarding/column-draft";
-import { OnboardingChip } from "./onboarding-chip";
 import { OnboardingColumnForm } from "./onboarding-column-form";
 
 type OnboardingColumnCardProps = {
@@ -45,12 +45,12 @@ export function OnboardingColumnCard({
             <span className="text-label">
               {draft.name.trim() || t("untitled")}
             </span>
-            <OnboardingChip>{typeNames(draft.type)}</OnboardingChip>
+            <Chip>{typeNames(draft.type)}</Chip>
             {isAi && (
-              <OnboardingChip tone="primary">
+              <Chip tone="primary">
                 <Sparkles aria-hidden="true" className="size-3" />
                 {t("aiChip")}
-              </OnboardingChip>
+              </Chip>
             )}
           </div>
           {!editing && isAi && (

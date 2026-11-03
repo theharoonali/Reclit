@@ -4,6 +4,11 @@ import { type ProgressState, progressFor } from "@/lib/onboarding/progress";
 
 const idle: ProgressState = {
   stage: "name",
+  hasUseCases: false,
+  hasWebsite: false,
+  isScraping: false,
+  hasDocuments: false,
+  isUploading: false,
   hasFile: false,
   isDescribing: false,
   isDescribed: false,
@@ -48,12 +53,73 @@ const finishing: ProgressState = {
   isCreated: true,
 };
 
+/** The company steps come first; most tests read the workspace steps after them. */
+const COMPANY_STEPS = 3;
+
 const statuses = (state: ProgressState) =>
-  progressFor(state).map((item) => `${item.key}:${item.status}`);
+  progressFor(state)
+    .slice(COMPANY_STEPS)
+    .map((item) => `${item.key}:${item.status}`);
+
+const companyStatuses = (state: ProgressState) =>
+  progressFor(state)
+    .slice(0, COMPANY_STEPS)
+    .map((item) => `${item.key}:${item.status}`);
+
+describe("progressFor — company steps", () => {
+  test("each company step is active on its own screen", () => {
+    expect(companyStatuses({ ...idle, stage: "purpose" })).toEqual([
+      "purpose:active",
+      "website:pending",
+      "documents:pending",
+    ]);
+    expect(companyStatuses({ ...idle, stage: "website" })[1]).toBe(
+      "website:active",
+    );
+    expect(companyStatuses({ ...idle, stage: "documents" })[2]).toBe(
+      "documents:active",
+    );
+  });
+
+  test("a step is done once there is something to show for it", () => {
+    expect(
+      companyStatuses({
+        ...idle,
+        hasUseCases: true,
+        hasWebsite: true,
+        hasDocuments: true,
+      }),
+    ).toEqual(["purpose:done", "website:done", "documents:done"]);
+  });
+
+  test("a skipped website or documents step stays pending past its screen", () => {
+    expect(companyStatuses({ ...idle, hasUseCases: true })).toEqual([
+      "purpose:done",
+      "website:pending",
+      "documents:pending",
+    ]);
+  });
+
+  test("reading the website and uploading keep their step active", () => {
+    expect(
+      companyStatuses({
+        ...idle,
+        stage: "documents",
+        hasWebsite: true,
+        isScraping: true,
+        hasDocuments: true,
+        isUploading: true,
+      }).slice(1),
+    ).toEqual(["website:active", "documents:active"]);
+  });
+});
 
 describe("progressFor", () => {
-  test("lists the four wizard steps, the run and the four generation steps", () => {
+  test("lists the three company steps, the four wizard steps, the run and the four generation steps", () => {
     expect(progressFor(idle).map((item) => item.key)).toEqual([
+      "purpose",
+      "website",
+      "documents",
       "upload",
       "describe",
       "columns",

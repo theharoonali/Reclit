@@ -55,16 +55,25 @@ export const toUsage = (usage: LanguageModelUsage): AssistantUsage => ({
   outputTokens: usage.outputTokens ?? 0,
   totalTokens:
     usage.totalTokens ?? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+  cachedInputTokens: usage.inputTokenDetails?.cacheReadTokens ?? 0,
 });
 
+/** Sums two usages; `cachedInputTokens` appears once either side reported it. */
 export const addUsage = (
   a: AssistantUsage,
   b: AssistantUsage,
-): AssistantUsage => ({
-  inputTokens: a.inputTokens + b.inputTokens,
-  outputTokens: a.outputTokens + b.outputTokens,
-  totalTokens: a.totalTokens + b.totalTokens,
-});
+): AssistantUsage => {
+  const cached =
+    a.cachedInputTokens === undefined && b.cachedInputTokens === undefined
+      ? undefined
+      : (a.cachedInputTokens ?? 0) + (b.cachedInputTokens ?? 0);
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    totalTokens: a.totalTokens + b.totalTokens,
+    ...(cached !== undefined && { cachedInputTokens: cached }),
+  };
+};
 
 export async function runAssistantStep({
   system,

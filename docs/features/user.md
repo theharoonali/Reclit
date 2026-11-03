@@ -18,7 +18,8 @@ responses, and error codes live in its header. Do not duplicate them here.
 | `createdAt` | `DateTime` | `@default(now())` |
 | `updatedAt` | `DateTime` | `@updatedAt` |
 
-Indexes: none · Relations: `workspaces Workspace[]` (cascade on user delete) ·
+Indexes: none · Relations: `workspaces Workspace[]` (cascade on user delete),
+`company Company?` (the profile, [company.md](company.md); cascade) ·
 Migrations: `apps/api/prisma/migrations/20260831000000_add_user_workspace/`,
 `apps/api/prisma/migrations/20260831120000_add_user_email/`,
 `apps/api/prisma/migrations/20260925120000_add_user_onboarding_completed/`

@@ -396,6 +396,7 @@ export class DashboardGenerationPipelineService {
           reviewCards,
           engineIssues,
           describeLayout(placed),
+          context.company,
         ),
       );
       reviewed = { model: answer.model, usage: answer.usage };

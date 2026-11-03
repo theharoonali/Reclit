@@ -1,8 +1,13 @@
 import { generateText, Output } from "ai";
 import { describeError } from "../common/errors";
 import type { RunAiEmail, RunAiInput } from "../modules/run-ai/run-ai.schema";
-import type { CellGeneration } from "./cell-output";
-import { coerceCellValue } from "./cell-output";
+import type { CellCacheOptions, CellGeneration } from "./cell-output";
+import {
+  cellCalls,
+  cellUsage,
+  coerceCellValue,
+  withCacheFallback,
+} from "./cell-output";
 import { buildCellMessages } from "./cell-prompt";
 import {
   emailCellValue,
@@ -31,7 +36,7 @@ import { sendEmail } from "./resend";
 // The draft call has no tools, so Gemini's "no tools with a JSON response
 // schema" rule (cell-output.ts) does not apply.
 
-export type EmailGenerationDeps = {
+export type EmailGenerationDeps = CellCacheOptions & {
   /** The run being executed: half of Resend's per-address idempotency key. */
   runId: string;
   fetchImpl?: SendEmailFetch;
@@ -49,13 +54,18 @@ export async function generateEmailCellValue(
     );
   }
   // `buildCellMessages` reads `target.node` and adds EMAIL_RULES itself.
-  const { system, prompt } = buildCellMessages(input);
-  const result = await generateText({
-    model: gemini(),
-    system,
-    messages: [{ role: "user", content: prompt }],
-    output: Output.object({ schema: emailDraftSchema }),
-  });
+  // With the batch's explicit cache the draft call runs on it, falling back
+  // to the implicit path if the cache fails (cell-output.ts).
+  const messages = buildCellMessages(input, new Map(), deps.company);
+  const result = await withCacheFallback(
+    cellCalls(messages, [], deps.cacheName),
+    (call) =>
+      generateText({
+        model: gemini(),
+        ...call,
+        output: Output.object({ schema: emailDraftSchema }),
+      }),
+  );
   const { emails: drafts } = emailDraftSchema.parse(result.output);
 
   // Keep only drafts the row can stand behind: an allowed, deduped address
@@ -110,11 +120,7 @@ export async function generateEmailCellValue(
   return {
     output: coerceCellValue(emailCellValue(emails), input.target.type),
     model: result.response.modelId,
-    usage: {
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
-      totalTokens: result.usage.totalTokens,
-    },
+    usage: cellUsage(result.usage),
     attachments: [],
     transcripts: [],
     crawls: [],

@@ -4,9 +4,10 @@ import type {
   RunAiInput,
   RunAiSearches,
 } from "../modules/run-ai/run-ai.schema";
-import type { CellGeneration } from "./cell-output";
-import { generateTypedCellValue } from "./cell-output";
+import type { CellGeneration, CellUsage } from "./cell-output";
+import { cellUsage, generateTypedCellValue } from "./cell-output";
 import { buildCellMessages } from "./cell-prompt";
+import type { CompanyContext } from "./company-context";
 import { gemini } from "./gemini";
 import { buildSearchExtractMessages, searchRecordOf } from "./search-prompt";
 
@@ -30,28 +31,31 @@ import { buildSearchExtractMessages, searchRecordOf } from "./search-prompt";
 // source is failed, not completed from memory — the one thing a node called
 // "Google Search" must never do.
 
-type Usage = CellGeneration["usage"];
-
 const add = (a: number | undefined, b: number | undefined) =>
   a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
 
-const sumUsage = (a: Usage, b: Usage): Usage => ({
+const sumUsage = (a: CellUsage, b: CellUsage): CellUsage => ({
   inputTokens: add(a.inputTokens, b.inputTokens),
   outputTokens: add(a.outputTokens, b.outputTokens),
   totalTokens: add(a.totalTokens, b.totalTokens),
+  cachedInputTokens: add(a.cachedInputTokens, b.cachedInputTokens),
 });
 
 /**
  * One Google Search cell, end to end. Returns the same `CellGeneration` shape
  * as `generateCellValue` — plus what it searched — so `run-ai-cell` only has
  * to pick a function. `attachments` and `transcripts` are always empty: the
- * row's file cells reach the model as text lines, nothing is fetched.
+ * row's file cells reach the model as text lines, nothing is fetched. Both
+ * calls start with the company block; neither uses an explicit cache — the
+ * grounded call has a tool, which Gemini refuses next to a cache, and the
+ * extraction call's prompt is its own.
  */
 export async function generateSearchCellValue(
   input: RunAiInput,
+  company: CompanyContext | null = null,
 ): Promise<CellGeneration & { searches: RunAiSearches }> {
   // `buildCellMessages` reads `target.node` and adds SEARCH_RULES itself.
-  const { system, prompt } = buildCellMessages(input);
+  const { system, prompt } = buildCellMessages(input, new Map(), company);
   const grounded = await generateText({
     model: gemini(),
     system,
@@ -71,23 +75,18 @@ export async function generateSearchCellValue(
       `The Google Search cell for column "${input.target.name}" searched but produced no text to read a value from`,
     );
   }
-  const extract = buildSearchExtractMessages(input, grounded.text);
+  const extract = buildSearchExtractMessages(input, grounded.text, company);
   const typed = await generateTypedCellValue({
-    system: extract.system,
-    messages: [{ role: "user", content: extract.prompt }],
+    call: {
+      system: extract.system,
+      messages: [{ role: "user", content: extract.prompt }],
+    },
     type: input.target.type,
   });
   return {
     output: typed.output,
     model: typed.model,
-    usage: sumUsage(
-      {
-        inputTokens: grounded.usage.inputTokens,
-        outputTokens: grounded.usage.outputTokens,
-        totalTokens: grounded.usage.totalTokens,
-      },
-      typed.usage,
-    ),
+    usage: sumUsage(cellUsage(grounded.usage), typed.usage),
     attachments: [],
     transcripts: [],
     crawls: [],

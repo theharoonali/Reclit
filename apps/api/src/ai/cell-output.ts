@@ -1,5 +1,6 @@
-import type { ModelMessage } from "ai";
+import type { LanguageModelUsage, ModelMessage } from "ai";
 import { generateText, Output } from "ai";
+import { describeError } from "../common/errors";
 import type { RunAiInput } from "../modules/run-ai/run-ai.schema";
 import type { CellAddress } from "../modules/spreadsheet/spreadsheet.ids";
 import type {
@@ -15,7 +16,7 @@ import type { AttachmentSummary, Attachments } from "./cell-attachments";
 import { collectAttachments, summariseAttachments } from "./cell-attachments";
 import type { CrawlResolver, CrawlSummary, Crawls } from "./cell-crawls";
 import { collectCrawls, summariseCrawls } from "./cell-crawls";
-import type { CellSourceNote } from "./cell-prompt";
+import type { CellMessages, CellSourceNote } from "./cell-prompt";
 import { buildCellMessages, cellOutputSchema } from "./cell-prompt";
 import type {
   TranscriptDeps,
@@ -23,6 +24,7 @@ import type {
   Transcripts,
 } from "./cell-transcripts";
 import { collectTranscripts, summariseTranscripts } from "./cell-transcripts";
+import type { CompanyContext } from "./company-context";
 import { gemini } from "./gemini";
 
 // The one model call behind an AI cell, and the typed-output call every
@@ -35,14 +37,113 @@ import { gemini } from "./gemini";
 // the spreadsheet applies on write, so a run never completes with a value
 // its cell would refuse.
 
+/** A cell's token counts; `cachedInputTokens` is the part of the input a Gemini cache served. */
+export type CellUsage = {
+  inputTokens: number | undefined;
+  outputTokens: number | undefined;
+  totalTokens: number | undefined;
+  cachedInputTokens: number | undefined;
+};
+
+export const cellUsage = (usage: LanguageModelUsage): CellUsage => ({
+  inputTokens: usage.inputTokens,
+  outputTokens: usage.outputTokens,
+  totalTokens: usage.totalTokens,
+  cachedInputTokens: usage.inputTokenDetails?.cacheReadTokens,
+});
+
+/**
+ * What one cell's model call is sent, apart from the model and the output:
+ * `system` on the implicit path; on the explicit-cache path no `system`
+ * (Gemini answers 400 "CachedContent can not be used with GenerateContent
+ * request setting system_instruction, tools or tool_config") and the cache
+ * named in `providerOptions.google.cachedContent`.
+ */
+export type CellCall = {
+  system?: string;
+  messages: ModelMessage[];
+  providerOptions?: { google: { cachedContent: string } };
+};
+
+/** What the company context and the batch's explicit cache add to a cell's call. */
+export type CellCacheOptions = {
+  company?: CompanyContext | null;
+  /** A `cachedContents/…` name from `ensureCompanyCache`; omitted = the implicit path. */
+  cacheName?: string | null;
+};
+
+export type CellFile = {
+  data: Uint8Array;
+  mediaType: string;
+  filename: string;
+};
+
+/** The user turn: the text, then every fetched file. */
+function userMessage(text: string, files: CellFile[]): ModelMessage {
+  return {
+    role: "user",
+    content: [
+      { type: "text", text },
+      ...files.map((file) => ({
+        type: "file" as const,
+        data: file.data,
+        mediaType: file.mediaType,
+        filename: file.filename,
+      })),
+    ],
+  };
+}
+
+/**
+ * Pure: both calls one cell could make — always the implicit one, and the
+ * cached one when the batch has a cache. The contract test asserts these
+ * shapes without a key.
+ */
+export function cellCalls(
+  messages: CellMessages,
+  files: CellFile[],
+  cacheName?: string | null,
+): { implicit: CellCall; cached: CellCall | null } {
+  return {
+    implicit: {
+      system: messages.system,
+      messages: [userMessage(messages.prompt, files)],
+    },
+    cached: cacheName
+      ? {
+          messages: [userMessage(messages.cachedPrompt, files)],
+          providerOptions: { google: { cachedContent: cacheName } },
+        }
+      : null,
+  };
+}
+
+/**
+ * Runs the cached call when there is one, and the implicit call when there
+ * is not — or when the cached one fails for any reason (expired, deleted,
+ * refused). A cache can make a cell cheaper; it can never fail one.
+ */
+export async function withCacheFallback<T>(
+  calls: { implicit: CellCall; cached: CellCall | null },
+  run: (call: CellCall) => Promise<T>,
+): Promise<T> {
+  if (calls.cached) {
+    try {
+      return await run(calls.cached);
+    } catch (error) {
+      console.warn(
+        "[gemini-cache] cached call failed, retrying without the cache:",
+        describeError(error).message,
+      );
+    }
+  }
+  return run(calls.implicit);
+}
+
 export type CellGeneration = {
   output: Exclude<CellValue, null>;
   model: string;
-  usage: {
-    inputTokens: number | undefined;
-    outputTokens: number | undefined;
-    totalTokens: number | undefined;
-  };
+  usage: CellUsage;
   /** What travelled with the prompt, and what could not — never the bytes. */
   attachments: AttachmentSummary[];
   /** What was transcribed, reused or not, and what could not — never the text. */
@@ -138,54 +239,31 @@ function notesOf(
   return notes;
 }
 
-/** The user turn: the row as text, then every fetched file. */
-function userMessage(prompt: string, attachments: Attachments): ModelMessage {
-  return {
-    role: "user",
-    content: [
-      { type: "text", text: prompt },
-      ...attachments.files.map((file) => ({
-        type: "file" as const,
-        data: file.data,
-        mediaType: file.mediaType,
-        filename: file.filename,
-      })),
-    ],
-  };
-}
-
 /**
  * One model call whose answer is shaped to a column type: `Output.object`
  * with `cellOutputSchema` for a typed column, `Output.json` for a `json`
- * column (Gemini rejects open objects), then `coerceCellValue`. Both
- * generators end on it. Never give this call `tools`: Gemini refuses a JSON
+ * column (Gemini rejects open objects), then `coerceCellValue`. Every
+ * generator ends on it. Never give this call `tools`: Gemini refuses a JSON
  * response schema alongside a tool in one request (400 INVALID_ARGUMENT —
  * docs/plans/021-google-search-node.md), which is why a search cell grounds
- * in one call and types its answer in this one.
+ * in one call and types its answer in this one. `call` is either shape of
+ * `CellCall` — with a `system`, or on an explicit cache without one.
  */
 export async function generateTypedCellValue({
-  system,
-  messages,
+  call,
   type,
 }: {
-  system: string;
-  messages: ModelMessage[];
+  call: CellCall;
   type: ColumnTypeWire;
 }): Promise<Pick<CellGeneration, "output" | "model" | "usage">> {
   const schema = cellOutputSchema(type);
   const model = gemini();
   const result =
     schema === null
-      ? await generateText({
-          model,
-          system,
-          messages,
-          output: Output.json(),
-        })
+      ? await generateText({ model, ...call, output: Output.json() })
       : await generateText({
           model,
-          system,
-          messages,
+          ...call,
           output: Output.object({ schema }),
         });
   const raw =
@@ -195,38 +273,36 @@ export async function generateTypedCellValue({
   return {
     output: coerceCellValue(raw, type),
     model: result.response.modelId,
-    usage: {
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
-      totalTokens: result.usage.totalTokens,
-    },
+    usage: cellUsage(result.usage),
   };
 }
 
 /**
  * `address` is the running cell's scoped address: its sheet and row are the
  * key the row's transcripts and crawls are cached under (cell-transcripts.ts,
- * cell-crawls.ts).
+ * cell-crawls.ts). `options` carries the company block and, in a batch, the
+ * explicit cache (`cellCalls`, `withCacheFallback`).
  */
 export async function generateCellValue(
   input: RunAiInput,
   address: CellAddress,
   deps: CellSourceDeps = {},
+  options: CellCacheOptions = {},
 ): Promise<CellGeneration> {
   const [attachments, transcripts, crawls] = await Promise.all([
     collectAttachments(input.row.cells),
     collectTranscripts(address, input.row.cells, deps.transcripts),
     collectCrawls(address, input.row.cells, deps.crawls),
   ]);
-  const { system, prompt } = buildCellMessages(
+  const messages = buildCellMessages(
     input,
     notesOf(attachments, transcripts, crawls),
+    options.company,
   );
-  const typed = await generateTypedCellValue({
-    system,
-    messages: [userMessage(prompt, attachments)],
-    type: input.target.type,
-  });
+  const typed = await withCacheFallback(
+    cellCalls(messages, attachments.files, options.cacheName),
+    (call) => generateTypedCellValue({ call, type: input.target.type }),
+  );
   return {
     ...typed,
     attachments: summariseAttachments(attachments),

@@ -27,7 +27,7 @@ here.
 | `brief` | `Json?` | the strict-parsed `DashboardBrief` (subject, questions, a use per column) |
 | `result` | `Json?` | `GenerationResult`: `cardCount`, `applied`, `attempts`, the applied attempt's `issues`, the `review`, `reason` (`ok` / `no_value`) |
 | `error` | `Json?` | `{ name, message }` via `describeError` |
-| `model` / `usage` | `String?` / `Json?` | the model id and the summed token usage of every call |
+| `model` / `usage` | `String?` / `Json?` | the model id and the summed token usage of every call (`cachedInputTokens` once any call reported it) |
 | `triggerRunId` | `String?` | the Trigger.dev run id, stored after `tasks.trigger`; what `cancel` hands to `runs.cancel`; never selected |
 | `createdAt` | `DateTime` | `@default(now())`, indexed |
 | `updatedAt` | `DateTime` | `@updatedAt`; its ms value is the SSE event id |
@@ -60,7 +60,7 @@ also holds what the Prisma schema cannot express:
 | `apps/api/src/modules/dashboard-generation/dashboard-generation.module.ts` | module | the feed's Nest lifecycle |
 | `apps/api/src/modules/assistant/assistant-context.ts` | reads | `loadAssistantContext` (dashboard scope: the first 2,000 rows profiled, kept as `payload` for the verify stage, empty AI columns marked pending) — shared with the assistant |
 | `apps/api/src/modules/assistant/assistant-tools.ts` | pure | `proposalCardSchema` (the strict shape of one proposed card), `defaultWidgetSpan` — shared with the assistant's tools |
-| `apps/api/src/ai/dashboard-prompt.ts` | pure | `buildAnalyzePrompt`, `buildProposePrompt(context, brief, feedback)` (`<brief>`, and `<previous-attempt>` with every issue and the reviewer's reasons on the retry), `buildReviewPrompt(brief, cards, issues, layout)` (`<cards>` with the first 3 computed rows each), `describeBrief`; over the assistant prompt's `describeData`, `WIDGET_GRAMMAR`, `CHART_SENSE_RULES` |
+| `apps/api/src/ai/dashboard-prompt.ts` | pure | all three start with the context's `company` block when there is one ([company.md](company.md)); `buildAnalyzePrompt`, `buildProposePrompt(context, brief, feedback)` (`<brief>`, and `<previous-attempt>` with every issue and the reviewer's reasons on the retry), `buildReviewPrompt(brief, cards, issues, layout, company?)` (`<cards>` with the first 3 computed rows each), `describeBrief`; over the assistant prompt's `describeData`, `WIDGET_GRAMMAR`, `CHART_SENSE_RULES` |
 | `apps/api/src/ai/dashboard-brief.ts`, `dashboard-propose.ts`, `dashboard-review.ts` | model | `generateDashboardBrief`, `generateDashboardCards`, `generateDashboardReview` — one `generateText` + `Output.object` each over a deliberately lenient schema, no tools; `BriefGenerator` / `ProposalGenerator` / `ReviewGenerator` (the injectable types) |
 | `apps/api/src/trigger/generate-dashboard.ts` | task | `generate-dashboard` (`{ generationId }`): the wait and the pipeline — see Behaviour |
 | `apps/api/src/jobs/dashboard-generation-dispatch.ts` | job client | `registerDashboardGenerationDispatcher()` → `tasks.trigger("generate-dashboard", …, { idempotencyKey: generationId })`, `runs.cancel`; the only `@trigger.dev/sdk` importer for this feature; called from `src/main.ts` |

@@ -184,6 +184,8 @@ export const assistantUsageSchema = z.object({
   inputTokens: z.number(),
   outputTokens: z.number(),
   totalTokens: z.number(),
+  /** The part of `inputTokens` a Gemini cache served; absent on runs recorded before it was measured. */
+  cachedInputTokens: z.number().optional(),
 });
 export type AssistantUsage = z.infer<typeof assistantUsageSchema>;
 

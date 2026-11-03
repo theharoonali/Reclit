@@ -17,6 +17,7 @@ the doc is insufficient, then fix the doc.
 | dashboard | [dashboard.md](dashboard.md) | `Dashboard`, `DashboardWidget` | `dashboard` | `apps/api/src/__tests__/dashboard.api.test.ts` |
 | assistant | [assistant.md](assistant.md) | `AssistantRun` | `assistant` (+ REST `POST /assistant/transcribe`) | `apps/api/src/__tests__/assistant.api.test.ts` |
 | dashboard-generation | [dashboard-generation.md](dashboard-generation.md) | `DashboardGeneration` | `dashboardGeneration` | `apps/api/src/__tests__/dashboard-generation.api.test.ts` |
+| company | [company.md](company.md) | `Company`, `CompanyPage`, `CompanyDocument` | `company` | `apps/api/src/__tests__/company.api.test.ts` |
 | auth | [auth.md](auth.md) | — (env credentials, signed cookie) | `auth` | `apps/api/src/__tests__/auth.api.test.ts` |
 
 New feature? Copy [`_template.md`](_template.md), fill it in, add a row here.

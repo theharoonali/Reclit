@@ -120,39 +120,49 @@ export type FetchLike = (
   arrayBuffer(): Promise<ArrayBuffer>;
 }>;
 
-/** One cell's file, or why it could not be fetched. Never throws. */
-export async function fetchAttachment(
-  cell: RunAiInputCell & { value: string },
+/**
+ * One URL's bytes under the attachment cap and timeout, or why not. Never
+ * throws. Shared by the cell attachments below and the company documents
+ * (trigger/process-company-document.ts).
+ */
+export async function fetchFile(
+  url: string,
   fetchImpl: FetchLike = fetch,
-): Promise<Attachment | AttachmentFailure> {
-  const url = cell.value;
-  const failure = (error: string): AttachmentFailure => ({
-    columnId: cell.id,
-    url,
-    error,
-  });
+): Promise<
+  { filename: string; mediaType: string; data: Uint8Array } | { error: string }
+> {
   try {
     const response = await fetchImpl(url, {
       signal: AbortSignal.timeout(ATTACHMENT_TIMEOUT_MS),
     });
-    if (!response.ok) return failure(`HTTP ${response.status}`);
+    if (!response.ok) return { error: `HTTP ${response.status}` };
     const length = Number(response.headers.get("content-length") ?? 0);
     if (length > MAX_ATTACHMENT_BYTES) {
-      return failure(`larger than ${MAX_ATTACHMENT_BYTES} bytes`);
+      return { error: `larger than ${MAX_ATTACHMENT_BYTES} bytes` };
     }
     const data = new Uint8Array(await response.arrayBuffer());
     if (data.byteLength > MAX_ATTACHMENT_BYTES) {
-      return failure(`larger than ${MAX_ATTACHMENT_BYTES} bytes`);
+      return { error: `larger than ${MAX_ATTACHMENT_BYTES} bytes` };
     }
     return {
-      columnId: cell.id,
       filename: filenameOf(url),
       mediaType: mediaTypeFor(url, response.headers.get("content-type")),
       data,
     };
   } catch (error) {
-    return failure(describeError(error).message);
+    return { error: describeError(error).message };
   }
+}
+
+/** One cell's file, or why it could not be fetched. Never throws. */
+export async function fetchAttachment(
+  cell: RunAiInputCell & { value: string },
+  fetchImpl: FetchLike = fetch,
+): Promise<Attachment | AttachmentFailure> {
+  const file = await fetchFile(cell.value, fetchImpl);
+  return "error" in file
+    ? { columnId: cell.id, url: cell.value, error: file.error }
+    : { columnId: cell.id, ...file };
 }
 
 /** Every attachable cell of the row, fetched in parallel, in row order. */

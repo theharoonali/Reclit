@@ -7,6 +7,7 @@ import { toCreateColumns } from "@/lib/onboarding/column-draft";
 import { type OnboardingStage, progressFor } from "@/lib/onboarding/progress";
 import { useTRPC } from "@/trpc/client";
 import { useOnboardingColumns } from "./use-onboarding-columns";
+import { useOnboardingCompany } from "./use-onboarding-company";
 import { useOnboardingCreate } from "./use-onboarding-create";
 import { useOnboardingDescribe } from "./use-onboarding-describe";
 import { useOnboardingFinish } from "./use-onboarding-finish";
@@ -24,14 +25,21 @@ type Created = {
 type EditableStage = Exclude<OnboardingStage, "finishing">;
 
 const PREVIOUS: Record<EditableStage, EditableStage> = {
-  name: "name",
+  purpose: "purpose",
+  website: "purpose",
+  documents: "website",
+  name: "documents",
   upload: "name",
   review: "upload",
   columns: "review",
 };
 
 /**
- * The wizard's state machine. Five screens: `name` (the workspace name, the
+ * The wizard's state machine. First the company profile — `purpose` (the
+ * use cases), `website` (read at once, crawled behind), `documents` (files
+ * and rules); see `useOnboardingCompany`. A company with no use cases
+ * starts at `purpose`; one with use cases starts at `name`. Then five
+ * screens: `name` (the workspace name, the
  * source of truth from here on), `upload` (the file, described as soon as it
  * is picked — or Skip, which creates the named empty workspace and leaves),
  * `review` (the AI's label and description, edited), `columns` (the AI's
@@ -45,7 +53,11 @@ export function useOnboardingWizard() {
   const trpc = useTRPC();
   const workspaces = useQuery(trpc.workspace.list.queryOptions());
 
-  const [stage, setStage] = useState<EditableStage>("name");
+  // `null` until the user moves: the start follows the company's state.
+  const [chosenStage, setStage] = useState<EditableStage | null>(null);
+  const company = useOnboardingCompany(setStage);
+  const stage: EditableStage =
+    chosenStage ?? (company.hasUseCases ? "name" : "purpose");
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -150,6 +162,7 @@ export function useOnboardingWizard() {
   };
 
   const isWorking =
+    company.isWorking ||
     describe.isPending ||
     columns.isPending ||
     skip.isPending ||
@@ -158,6 +171,13 @@ export function useOnboardingWizard() {
     finish.isActive;
   const progress = progressFor({
     stage: currentStage,
+    hasUseCases: company.hasUseCases,
+    hasWebsite: Boolean(company.company?.website),
+    isScraping: company.isScraping,
+    hasDocuments:
+      (company.company?.documents.length ?? 0) > 0 ||
+      Boolean(company.company?.rules),
+    isUploading: company.documents.isUploading,
     hasFile: file !== null || active !== null,
     isDescribing: describe.isPending,
     isDescribed: described !== null || active !== null,
@@ -171,8 +191,8 @@ export function useOnboardingWizard() {
 
   return {
     stage: currentStage,
-    isResuming: workspaces.isPending,
-    resumeError: workspaces.isError,
+    isResuming: workspaces.isPending || company.isPending,
+    resumeError: workspaces.isError || company.isError,
     isWorking,
     progress,
     details: {
@@ -204,14 +224,20 @@ export function useOnboardingWizard() {
       errorKey: describe.errorKey ?? skip.errorKey,
       canContinue: file !== null && described !== null && !describe.isPending,
       continue: continueReview,
-      /** One screen back: upload → name, review → upload, columns → review. Not past a created workspace. */
-      back: () => setStage(PREVIOUS[stage]),
+      /** One screen back, to the previous stage. Not past a created workspace. */
+      back: () => {
+        company.resetErrors();
+        setStage(PREVIOUS[stage]);
+      },
       canGoBack:
         currentStage !== "finishing" &&
+        !company.isSaving &&
+        !company.isScraping &&
         !columns.isPending &&
         !create.isPending &&
         !skip.isPending,
     },
+    company,
     columns: {
       ...columns,
       moreContext,

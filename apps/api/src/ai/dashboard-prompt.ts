@@ -17,6 +17,7 @@ import {
   UNTRUSTED_DATA_RULE,
   WIDGET_GRAMMAR,
 } from "./assistant-prompt";
+import { type CompanyContext, withCompanyContext } from "./company-context";
 
 // Pure: the three prompts of the generate-dashboard task — analyze (a brief),
 // propose (the cards, with the previous attempt's mistakes when retrying) and
@@ -71,10 +72,13 @@ export function buildAnalyzePrompt(context: AssistantPromptContext): {
   system: string;
   prompt: string;
 } {
-  const system = [
-    UNTRUSTED_DATA_RULE,
-    ...describeData({ ...context, scope: "dashboard" }),
-  ].join("\n\n");
+  const system = withCompanyContext(
+    [
+      UNTRUSTED_DATA_RULE,
+      ...describeData({ ...context, scope: "dashboard" }),
+    ].join("\n\n"),
+    context.company,
+  );
   const prompt = [
     `Write a brief for a dashboard over this sheet, as JSON: ${BRIEF_SHAPE}.`,
     "subject: one line saying what one row is ('one customer order', 'one job applicant').",
@@ -157,14 +161,17 @@ export function buildProposePrompt(
   brief: DashboardBrief,
   feedback: ProposalFeedback | null,
 ): { system: string; prompt: string } {
-  const system = [
-    UNTRUSTED_DATA_RULE,
-    WIDGET_GRAMMAR,
-    CHART_SENSE_RULES,
-    ...describeData({ ...context, scope: "dashboard" }),
-    describeBrief(brief),
-    ...(feedback ? [describeFeedback(feedback)] : []),
-  ].join("\n\n");
+  const system = withCompanyContext(
+    [
+      UNTRUSTED_DATA_RULE,
+      WIDGET_GRAMMAR,
+      CHART_SENSE_RULES,
+      ...describeData({ ...context, scope: "dashboard" }),
+      describeBrief(brief),
+      ...(feedback ? [describeFeedback(feedback)] : []),
+    ].join("\n\n"),
+    context.company,
+  );
   const task = `Propose the dashboard's cards for this sheet, as JSON: { "cards": [{ name, description, type, variant, height, column, query }] }.`;
   const retry = feedback
     ? "This is your second and last attempt. Fix every issue listed in <previous-attempt>: drop the cards marked to drop, replace or reconfigure every card with an error, keep the cards that had no issue exactly as they were, and fill the layout so every row sums to 12."
@@ -201,8 +208,12 @@ export function buildReviewPrompt(
   cards: ReviewCard[],
   issues: VerifyIssue[],
   layout: string[],
+  company: CompanyContext | null = null,
 ): { system: string; prompt: string } {
-  const system = [UNTRUSTED_DATA_RULE, describeBrief(brief)].join("\n\n");
+  const system = withCompanyContext(
+    [UNTRUSTED_DATA_RULE, describeBrief(brief)].join("\n\n"),
+    company,
+  );
   const findings =
     issues.length === 0
       ? "(none)"

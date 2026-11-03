@@ -29,7 +29,7 @@ Migrations: `apps/api/prisma/migrations/20260925120000_add_user_onboarding_compl
 | `apps/api/src/modules/onboarding/onboarding.errors.ts` | errors | `OnboardingAlreadyCompletedError`, `OnboardingAiUnavailableError` (503), `OnboardingAiFailedError` (502) |
 | `apps/api/src/modules/onboarding/onboarding.service.ts` | service | the REST half (imports the parsers, never enters the tRPC graph): `describe` (parse → one model call, writes nothing), `create` (guard → parse → workspace → grid → columns → meta, rollback on failure, no flag) |
 | `apps/api/src/modules/onboarding/onboarding-wizard.service.ts` | service | the tRPC half, parser-free and prisma-free: `suggestColumns` (one model call → strict per-item parse → taken names dropped → cap 5), `finish` (runnable columns × first rows → one `runCells` batch → the flag → the dashboard generation, best effort), `skip` (an empty named workspace → the flag), `rowBudget` |
-| `apps/api/src/ai/onboarding-prompt.ts` | pure | `buildDescribePrompt`, `buildSuggestColumnsPrompt` (rules + the untrusted `<file>`, `<sheet-description>`, `<columns>`, `<sample-rows>` blocks, over the assistant prompt's `describeColumns` / `describeRows` / `describeSheet`), `toSampleRows`, `ONBOARDING_UNTRUSTED_RULE` |
+| `apps/api/src/ai/onboarding-prompt.ts` | pure | `buildDescribePrompt(input, company?)`, `buildSuggestColumnsPrompt(input, max, company?)` (the user's `<company-context>` block first when there is one — the suggest prompt then adds `COMPANY_USE_CASE_RULE`; then rules + the untrusted `<file>`, `<sheet-description>`, `<columns>`, `<sample-rows>` blocks, over the assistant prompt's `describeColumns` / `describeRows` / `describeSheet`), `toSampleRows`, `ONBOARDING_UNTRUSTED_RULE` |
 | `apps/api/src/ai/onboarding-ai.ts` | model | `generateSheetDescription`, `generateColumnSuggestions` — one `generateText` + `Output.object` each over a deliberately lenient schema; `DescribeGenerator` / `SuggestGenerator` (the injectable types) |
 | `apps/api/src/modules/onboarding/onboarding.controller.ts` | REST | `POST /onboarding/describe` (multipart `file`), `POST /onboarding` (multipart `file` + `name`, `description`, `purpose`, `columns`) |
 | `apps/api/src/modules/onboarding/onboarding.module.ts` | Nest | registers the controller in `app.module.ts` |
@@ -53,6 +53,11 @@ through `user.me`.
 
 ## Behaviour
 
+- **Both calls know the company.** `describe` and `suggestColumns` read
+  `companyContextService.forCurrentUser()` ([company.md](company.md)) after
+  the key check and pass it to the builders, so the block — including the
+  use cases the wizard's purpose screen wrote through `company.update` —
+  comes first and the proposed columns serve them.
 - **Two model calls, in the wizard's order.** `describe` runs on the upload
   (so the user sees and edits the description before anything else);
   `suggestColumns` runs on the user's final name, description and purpose

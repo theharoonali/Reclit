@@ -46,6 +46,103 @@ model User {
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
   workspaces          Workspace[]
+  company             Company?
+}
+
+/// What the user will use Reclit for; several may be picked
+/// (docs/plans/043-company-profile.md).
+enum UseCase {
+  LEAD_RESEARCH
+  HIRING
+  EMAIL_OUTREACH
+  FORM_INTAKE
+  CUSTOMER_INSIGHTS
+  OTHER
+}
+
+/// The website half of a company profile: IDLE (no website yet) → SCRAPING
+/// (the homepage, synchronously) → CRAWLING (the background crawl) → READY,
+/// or FAILED with `crawlError` (the scrape summary is kept).
+enum CompanyCrawlStatus {
+  IDLE
+  SCRAPING
+  CRAWLING
+  READY
+  FAILED
+}
+
+enum CompanyDocumentStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+/// The account-level company profile: one per user, created on first read.
+/// Compiled into one `<company-context>` block placed first in every Gemini
+/// system prompt (modules/company/company-context.service.ts). `contextHash`
+/// is the sha256 of that block; the three `geminiCache*` columns record the
+/// explicit Gemini cache built from it (ai/gemini-cache.ts). Those four are
+/// bookkeeping and are written without moving `updatedAt`. The migration
+/// `add_company` adds a trigger that `pg_notify`s the company id on
+/// `company_changed` for every write to this table and to CompanyDocument.
+model Company {
+  id                   String             @id @default(uuid())
+  ownerId              String             @unique
+  useCases             UseCase[]
+  useCaseOther         String?
+  website              String?
+  name                 String?
+  iconUrl              String?
+  summary              String?
+  rules                String?
+  crawlStatus          CompanyCrawlStatus @default(IDLE)
+  crawlError           String?
+  crawledAt            DateTime?
+  contextHash          String?
+  geminiCacheName      String?
+  geminiCacheHash      String?
+  geminiCacheExpiresAt DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  owner                User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  pages                CompanyPage[]
+  documents            CompanyDocument[]
+}
+
+/// One page of the company website's background crawl. A crawl replaces
+/// every page of the company. (`ExternalApi` cannot hold these: its `cellId`
+/// is a required foreign key.)
+model CompanyPage {
+  id        String   @id @default(uuid())
+  companyId String
+  url       String
+  title     String?
+  markdown  String
+  createdAt DateTime @default(now())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+}
+
+/// A document the user uploaded through `POST /files` for the company
+/// profile, digested once by Gemini into `digest` (markdown) by the
+/// `process-company-document` task.
+model CompanyDocument {
+  id        String                @id @default(uuid())
+  companyId String
+  url       String
+  name      String
+  mimeType  String
+  size      Int
+  status    CompanyDocumentStatus @default(PENDING)
+  digest    String?
+  error     String?
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+  company   Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
 }
 
 /// A workspace owns spreadsheets. The relation is one-to-many for future
