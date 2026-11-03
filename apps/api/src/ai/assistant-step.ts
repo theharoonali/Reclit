@@ -11,18 +11,18 @@ import {
   MAX_ASSISTANT_TRANSCRIPT_BYTES,
 } from "../modules/assistant/assistant.schema";
 import type { AssistantToolSpec } from "../modules/assistant/assistant-tools";
-import { GEMINI_DEFAULT_MODEL, gemini } from "./gemini";
+import { aiModel, defaultModelId } from "./model";
 
 // The assistant's one model call per step. The tools are declared without
 // `execute`, so the SDK hands the calls back instead of running them: the
 // task executes them one at a time (persisting each, asking the user before a
 // delete, checking for a cancel), appends the results, and calls again. No
-// `output` schema: Gemini rejects tools and a JSON response schema in one
+// `output` schema: the model rejects tools and a JSON response schema in one
 // request (search-output.ts).
 
-/** `ASSISTANT_MODEL` in the environment (the worker's loop, the api's recommendation call) overrides the default Gemini model. */
+/** `ASSISTANT_MODEL` in the environment (the worker's loop, the api's recommendation call) overrides the default model. */
 export const assistantModelId = (): string =>
-  process.env.ASSISTANT_MODEL || GEMINI_DEFAULT_MODEL;
+  process.env.ASSISTANT_MODEL || defaultModelId();
 
 export type AssistantToolCall = {
   toolCallId: string;
@@ -88,7 +88,7 @@ export async function runAssistantStep({
 }): Promise<AssistantStepResult> {
   const modelId = assistantModelId();
   const result = await generateText({
-    model: gemini(modelId),
+    model: aiModel(modelId),
     system,
     messages,
     tools,

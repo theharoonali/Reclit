@@ -3,7 +3,7 @@
 // keeping it dependency-free means the size cap, the timeout and the response
 // parsing are ours (same reasoning as the fetching in cell-attachments.ts).
 //
-// The key is read per call and never at import time (same idiom as gemini.ts),
+// The key is read per call and never at import time (same idiom as model.ts),
 // so the API and the test suite boot without it; only a transcription fails.
 
 export const ELEVENLABS_STT_URL = "https://api.elevenlabs.io/v1/speech-to-text";

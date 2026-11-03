@@ -26,27 +26,26 @@ apps/api (NestJS on Bun, port 4001)
   src/db/prisma.ts (Prisma 7 + @prisma/adapter-pg)
         │                       ▲ LISTEN run_ai_changed / assistant_run_changed / dashboard_generation_changed / company_changed
         ▼                       │ (src/common/live-feed.ts, one pg connection per channel per process)
-  PostgreSQL  (DATABASE_URL)  ──┘ triggers run_ai_notify on "RunAi", assistant_run_notify on "AssistantRun",
-        ▲                         dashboard_generation_notify on "DashboardGeneration",
-        │                         company_notify / company_document_notify on "Company" / "CompanyDocument"
+  PostgreSQL  (DATABASE_URL)  ──┘ triggers ai_run_notify on "AiRun" (one channel per kind: CELL / ASSISTANT /
+        ▲                         DASHBOARD), user_company_notify / company_document_notify on "User" / "CompanyDocument"
         │  runAiBatchService.runCells → dispatcher hook → src/jobs/run-ai-dispatch.ts → tasks.trigger
         │  assistantControlService.start/cancel/respond → src/jobs/assistant-dispatch.ts → trigger / runs.cancel / wait.completeToken
         │  dashboardGenerationControlService.start/cancel → src/jobs/dashboard-generation-dispatch.ts → trigger / runs.cancel
         │  companyService (setWebsite/recrawl/addDocument) → src/jobs/company-dispatch.ts → trigger
         │
   Trigger.dev worker (src/trigger/, bundled by the Trigger CLI)
-        ├── run-ai-batch: per runnable column (a wave) ensures the owner's explicit Gemini cache,
+        ├── run-ai-batch: per runnable column (a wave) ensures the owner's explicit prompt cache,
         │                prepares the inputs, then batchTriggerAndWait →
         ├── run-ai-cell: calls the same services → the row's audio through ElevenLabs,
         │                its url cells through crawl-website (both cached in ExternalApi)
-        │                → Gemini via src/ai/ (grounded with the google_search tool for a
+        │                → the model via src/ai/ (grounded with the google_search tool for a
         │                google_search column; drafting an email for an email column,
         │                then sending it through Resend) → writes the run + cell
         ├── crawl-website: one site through Firecrawl → ExternalApi, reused from any cell
-        ├── crawl-company: the company website through Firecrawl → CompanyPage → refined summary
+        ├── crawl-company: the company website through Firecrawl → page count → refined summary
         │                  (both crawls share the one-at-a-time `firecrawl` queue)
-        ├── process-company-document: one uploaded company document → Gemini digest
-        ├── assistant-run: the header capsule's prompt as a Gemini tool loop over the
+        ├── process-company-document: one uploaded company document → model digest
+        ├── assistant-run: the header capsule's prompt as a model tool loop over the
         │                  spreadsheet + dashboard services, one tool call at a time; a
         │                  delete suspends on a waitpoint token until the user confirms
         └── generate-dashboard: waits for the onboarding run-ai batch (wait.for), then
@@ -89,7 +88,9 @@ packages/dashboard-engine → the dashboard's formula + query engine (pure TS): 
   API enqueues through a hook a service exposes (`setDispatcher`) that
   `src/jobs/<feature>-dispatch.ts` registers from `src/main.ts` — not from
   `bootstrap.ts`, so the test suite stays network-free.
-- `src/ai/` holds the model providers (`gemini.ts` for the Vercel AI SDK,
+- `src/ai/` holds the model providers (`model.ts` for the Vercel AI SDK:
+  `aiModel()`, `defaultModelId()`, `isAiConfigured()`, the web-search and
+  prompt-cache hooks, and the **only** file that may name the AI vendor;
   `elevenlabs.ts` for Speech-to-Text, `firecrawl.ts` for crawling, `resend.ts`
   for sending a mail cell's email) and the
   helpers a task composes: the prompt (`cell-prompt.ts`), the row's
@@ -108,7 +109,7 @@ packages/dashboard-engine → the dashboard's formula + query engine (pure TS): 
   waitpoint token before every delete and a cancel the api can send) —
   [docs/features/assistant.md](docs/features/assistant.md) — and
   `generate-dashboard` (one AI-built dashboard: three structured-output
-  Gemini calls — brief, cards, review — around the engine's `packDashboard`
+  model calls — brief, cards, review — around the engine's `packDashboard`
   and `verifyDashboard`, one retry, then `dashboard.replace`) —
   [docs/features/dashboard-generation.md](docs/features/dashboard-generation.md).
   The company profile's tasks are `crawl-company` and
@@ -119,26 +120,26 @@ packages/dashboard-engine → the dashboard's formula + query engine (pure TS): 
   (`dashboard-prompt.ts`, `dashboard-brief.ts`, `dashboard-propose.ts`,
   `dashboard-review.ts`) live in `src/ai/` too.
 
-## Company context and Gemini caching
+## Company context and prompt caching
 
-- Every Gemini prompt starts with one `<company-context>` block compiled
+- Every model prompt starts with one `<company-context>` block compiled
   from the signed-in user's company profile (`compileCompanyContext`,
-  memoised per process by `Company.updatedAt` in `companyContextService`).
+  memoised per process by `User.companyUpdatedAt` in `companyContextService`).
   The builders take it as a parameter and put it first
   (`withCompanyContext`); loaders and tasks fetch it — by spreadsheet for
   cells, the assistant and dashboard generation, by user for onboarding.
 - **Implicit cache:** the block is byte-identical for every call of one
   profile version, and every cell's system instruction continues with the
-  same `CELL_PREAMBLE`, so Gemini's prefix cache serves that prefix.
+  same `CELL_PREAMBLE`, so the provider's prefix cache serves that prefix.
 - **Explicit cache:** `run-ai-batch` asks `ensureCompanyCache`
-  (`src/ai/gemini-cache.ts`, raw REST `cachedContents`) once per wave: it
-  reuses the cache stored on `Company` when it was built from the same
-  model and block and has > 5 min left, else creates one (TTL 1 h) and
-  deletes the old one; null below 1024 tokens or on any error. The name
-  rides in each `run-ai-cell` payload; ai and mail calls then send
-  `providerOptions.google.cachedContent` and no `system` (Gemini refuses
-  both together), falling back to the implicit call on any failure. Usage
-  records `cachedInputTokens`.
+  (`src/ai/prompt-cache.ts`, raw REST against `promptCacheApi` from
+  `src/ai/model.ts`) once per wave: it reuses the cache stored in the user's
+  `promptCache*` columns when it was built from the same model and block and
+  has > 5 min left, else creates one (TTL 1 h) and deletes the old one; null
+  below 1024 tokens or on any error. The name rides in each `run-ai-cell`
+  payload; ai and mail calls then send `cachedContentOptions(cacheName)` and
+  no `system` (the provider refuses both together), falling back to the
+  implicit call on any failure. Usage records `cachedInputTokens`.
 
 ## Live updates (tRPC subscriptions over SSE)
 
@@ -150,7 +151,13 @@ packages/dashboard-engine → the dashboard's formula + query engine (pure TS): 
   `pg` `LISTEN` connection per channel per API process (a `LiveFeed` from
   `src/common/live-feed.ts`, instantiated in `<feature>.feed.ts`) receives
   them, and a `<feature>-changes.service.ts` resolves ids into rows once per
-  process and yields per-scope events. A row written by the Trigger.dev
+  process and yields per-scope events. Cell runs, assistant runs and
+  dashboard generations share the `AiRun` table, but `ai_run_notify` keeps a
+  channel per kind (`run_ai_changed`, `assistant_run_changed`,
+  `dashboard_generation_changed`), so each feed hears only its own rows;
+  `company_changed` carries a user id (`user_company_notify` fires only when
+  `companyUpdatedAt` moves; `company_document_notify` on every document
+  write). A row written by the Trigger.dev
   worker, another replica or psql reaches the sheet the same way as one
   written by the api itself.
 - The dashboard's `src/trpc/client.tsx` routes `op.type === "subscription"`
@@ -206,9 +213,10 @@ no Prisma code; `bunx turbo build` is the check.
 | `ALLOWED_API_ORIGINS` | api | CORS allowlist (default `http://localhost:4000`) |
 | `SUPABASE_URL`, `SUPABASE_KEY` | api | Supabase Storage for `POST /files`; unset → 503 on upload |
 | `TRIGGER_SECRET_KEY` | api | Trigger.dev environment key the api enqueues with (`src/jobs/run-ai-dispatch.ts`); the Trigger CLI reads it too |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | api, worker | Gemini key for the Vercel AI SDK (`src/ai/gemini.ts`), including the `google_search` node's grounding and the explicit `cachedContents` cache (`src/ai/gemini-cache.ts`); the local worker reads `apps/api/.env`, a deployed one its Trigger environment; the api checks it before starting a dashboard generation (`dashboardGeneration.start` is SERVICE_UNAVAILABLE without it) and uses it for the onboarding's describe / suggest calls and `company.setWebsite`'s summary (`COMPANY_AI_UNAVAILABLE` without it) |
+| `AI_API_KEY` | api, worker | the AI provider's key for the Vercel AI SDK (`src/ai/model.ts`; the provider SDK's own variable is still read as a fallback, `AI_KEY_ENV`), including the `google_search` node's grounding and the explicit prompt cache (`src/ai/prompt-cache.ts`); the local worker reads `apps/api/.env`, a deployed one its Trigger environment; the api checks it before starting a dashboard generation (`dashboardGeneration.start` is SERVICE_UNAVAILABLE without it) and uses it for the onboarding's describe / suggest calls and `company.setWebsite`'s summary (`COMPANY_AI_UNAVAILABLE` without it) |
 | `ELEVENLABS_API_KEY` | api, worker | ElevenLabs Speech-to-Text (`src/ai/elevenlabs.ts`): the worker transcribes audio cells (without it the prompt says the audio could not be transcribed); the api transcribes the header capsule's mic recording through `POST /assistant/transcribe` (without it the route answers 503) |
-| `ASSISTANT_MODEL` | api, worker | optional; the Gemini model the assistant's tool loop and the dashboard generation's three calls (worker) use (`src/ai/assistant-step.ts`), default `gemini-2.5-flash` |
+| `AI_MODEL` | api, worker | optional; the model every AI call uses (`defaultModelId()`, `src/ai/model.ts`), default the provider's default model there |
+| `ASSISTANT_MODEL` | api, worker | optional; the model the assistant's tool loop and the dashboard generation's three calls (worker) use (`src/ai/assistant-step.ts`), default `AI_MODEL` |
 | `FIRECRAWL_API_KEY` | api, worker | Firecrawl (`src/ai/firecrawl.ts`): the worker crawls url cells (`crawl-website`; without it the prompt says the site could not be crawled) and the company website (`crawl-company`); the api scrapes the company homepage in `company.setWebsite` (`COMPANY_AI_UNAVAILABLE` without it); same two places |
 | `RESEND_API_KEY`, `RESEND_FROM` | worker | Resend for mail (`email`) cells (`src/ai/resend.ts`); `RESEND_FROM` is optional, default `Reclit <hello@reclit.com>`; same two places; without the key a mail cell fails with the reason |
 | `NEXT_PUBLIC_API_URL` | dashboard | browser tRPC target (default `http://localhost:4001`) |

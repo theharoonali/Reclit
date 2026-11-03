@@ -78,7 +78,7 @@ export type RunAiInputCell = RunAiInput["row"]["cells"][number];
 
 /**
  * The Trigger.dev `run-ai-cell` payload: which run, and what it was given.
- * `cacheName` is the batch's explicit Gemini cache (ai/gemini-cache.ts),
+ * `cacheName` is the batch's explicit prompt cache (ai/prompt-cache.ts),
  * absent when the batch runs on the implicit path.
  */
 export const runAiJobPayloadSchema = z.object({
@@ -191,7 +191,6 @@ export const runAiSchema = z.object({
   spreadsheetId: z.string(),
   batchId: z.string(),
   status: z.string(),
-  credit: z.number().int(),
   result: runAiResultSchema.nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
@@ -221,7 +220,6 @@ const spreadsheetId = z
   .trim()
   .min(1, "spreadsheetId is required")
   .max(200);
-const credit = z.number().int().min(0);
 
 /** Router input for `listByBatch`; `byId` uses the shared `idInput`. */
 export const runAiBatchInput = z.object({ batchId });
@@ -256,7 +254,6 @@ export const runAiCellsInput = idInput.extend({
 export const createRunAiInput = z.object({
   cellId,
   batchId,
-  credit: credit.default(0),
   /** A working status to start in; defaults to `pending`. Never terminal. */
   status: runAiStatusWire
     .refine((status) => !isTerminalRunAiStatus(status), {
@@ -269,11 +266,9 @@ export const createRunAiInput = z.object({
 export const setRunAiStatusInput = z.object({
   status: runAiStatusWire,
   result: runAiResultSchema.optional(),
-  credit: credit.optional(),
 });
 export const completeRunAiInput = z.object({
   result: runAiResultSchema,
-  credit: credit.optional(),
 });
 export const failRunAiInput = z.object({
   result: runAiResultSchema.optional(),
@@ -281,7 +276,7 @@ export const failRunAiInput = z.object({
 
 export type RunAiChangesInput = z.infer<typeof runAiChangesInput>;
 export type RunAiCellsInput = z.infer<typeof runAiCellsInput>;
-/** `z.input`: `credit` is optional for callers and defaults in the service. */
+/** `z.input`: a `result` may still lack its defaulted fields. */
 export type CreateRunAiInput = z.input<typeof createRunAiInput>;
 export type SetRunAiStatusInput = z.infer<typeof setRunAiStatusInput>;
 export type CompleteRunAiInput = z.infer<typeof completeRunAiInput>;

@@ -1,4 +1,5 @@
 import { Prisma } from "../../../generated/prisma/client";
+import { present } from "../../common/ai-run";
 import {
   isRecordNotFound,
   isUniqueViolation,
@@ -37,9 +38,13 @@ import {
 // and every transition. The API creates a generation and may cancel it; the
 // Trigger.dev task owns every other transition. The database enforces one
 // active generation per workspace (partial unique index
-// `DashboardGeneration_active_workspace_key`). Starting and cancelling — the
-// parts that reach the worker — live in dashboard-generation-control.service.ts;
-// the live stream in dashboard-generation-changes.service.ts.
+// `AiRun_active_dashboard_key`). Starting and cancelling — the parts that
+// reach the worker — live in dashboard-generation-control.service.ts; the live
+// stream in dashboard-generation-changes.service.ts. Generations are the
+// `DASHBOARD` kind of the shared `AiRun` table: every query below carries
+// `KIND`, and the log is stored in its `steps` column.
+
+const KIND = { kind: "DASHBOARD" } as const;
 
 const generationSelect = {
   id: true,
@@ -50,7 +55,7 @@ const generationSelect = {
   phase: true,
   attempt: true,
   awaitBatchId: true,
-  log: true,
+  steps: true,
   brief: true,
   result: true,
   error: true,
@@ -64,27 +69,27 @@ const generationSelect = {
 const REPLAY_LIMIT = 100;
 
 /** The `where` half of "still active": any status but the terminal three. */
-const ACTIVE: Prisma.StringFilter<"DashboardGeneration"> = {
+const ACTIVE: Prisma.StringFilter<"AiRun"> = {
   notIn: [...GENERATION_TERMINAL_STATUSES_DB],
 };
 
-type GenerationRecord = Prisma.DashboardGenerationGetPayload<{
+type GenerationRecord = Prisma.AiRunGetPayload<{
   select: typeof generationSelect;
 }>;
 
 function toGeneration(record: GenerationRecord): DashboardGeneration {
   return {
     id: record.id,
-    workspaceId: record.workspaceId,
-    spreadsheetId: record.spreadsheetId,
-    source: toWireGenerationSource(record.source),
+    workspaceId: present(record.workspaceId, "workspaceId", record.id),
+    spreadsheetId: present(record.spreadsheetId, "spreadsheetId", record.id),
+    source: toWireGenerationSource(present(record.source, "source", record.id)),
     status: toWireGenerationStatus(record.status),
-    phase: toWireGenerationPhase(record.phase),
-    attempt: record.attempt,
+    phase: toWireGenerationPhase(present(record.phase, "phase", record.id)),
+    attempt: present(record.attempt, "attempt", record.id),
     awaitBatchId: record.awaitBatchId,
     // The service is the only writer of these columns and every write passed
     // the schema (the `ExternalApi.output` precedent).
-    log: (record.log ?? []) as GenerationStep[],
+    log: (record.steps ?? []) as GenerationStep[],
     brief: (record.brief ?? null) as DashboardBrief | null,
     result: (record.result ?? null) as GenerationResult | null,
     error: (record.error ?? null) as AssistantError | null,
@@ -117,12 +122,16 @@ function closeOpenStep(
 export class DashboardGenerationService {
   async create(input: CreateGenerationInput): Promise<DashboardGeneration> {
     try {
-      const record = await prisma.dashboardGeneration.create({
+      const record = await prisma.aiRun.create({
         data: {
+          ...KIND,
           workspaceId: input.workspaceId,
           spreadsheetId: input.spreadsheetId,
           source: toDbGenerationSource(input.source),
           awaitBatchId: input.awaitBatchId,
+          phase: toDbGenerationPhase("queued"),
+          attempt: 0,
+          steps: [],
         },
         select: generationSelect,
       });
@@ -137,8 +146,8 @@ export class DashboardGenerationService {
 
   /** A generation, or null. The stream uses this: a row deleted between a notify and its read is not an event. */
   async find(id: string): Promise<DashboardGeneration | null> {
-    const record = await prisma.dashboardGeneration.findUnique({
-      where: { id },
+    const record = await prisma.aiRun.findUnique({
+      where: { id, ...KIND },
       select: generationSelect,
     });
     return record ? toGeneration(record) : null;
@@ -152,8 +161,8 @@ export class DashboardGenerationService {
 
   /** The workspace's one active generation — the index allows at most one. */
   async active(workspaceId: string): Promise<DashboardGeneration | null> {
-    const record = await prisma.dashboardGeneration.findFirst({
-      where: { workspaceId, status: ACTIVE },
+    const record = await prisma.aiRun.findFirst({
+      where: { ...KIND, workspaceId, status: ACTIVE },
       orderBy: { createdAt: "desc" },
       select: generationSelect,
     });
@@ -162,8 +171,8 @@ export class DashboardGenerationService {
 
   /** The workspace's newest generation, active or not — what the page shows after a reload. */
   async latest(workspaceId: string): Promise<DashboardGeneration | null> {
-    const record = await prisma.dashboardGeneration.findFirst({
-      where: { workspaceId },
+    const record = await prisma.aiRun.findFirst({
+      where: { ...KIND, workspaceId },
       orderBy: { createdAt: "desc" },
       select: generationSelect,
     });
@@ -175,8 +184,8 @@ export class DashboardGenerationService {
     workspaceId: string,
     since: Date,
   ): Promise<DashboardGeneration[]> {
-    const records = await prisma.dashboardGeneration.findMany({
-      where: { workspaceId, updatedAt: { gte: since } },
+    const records = await prisma.aiRun.findMany({
+      where: { ...KIND, workspaceId, updatedAt: { gte: since } },
       orderBy: { updatedAt: "asc" },
       take: REPLAY_LIMIT,
       select: generationSelect,
@@ -186,8 +195,8 @@ export class DashboardGenerationService {
 
   /** The workspace's newest `updatedAt` in ms — the snapshot's event id; "0" with no generations. */
   async latestEventId(workspaceId: string): Promise<string> {
-    const latest = await prisma.dashboardGeneration.findFirst({
-      where: { workspaceId },
+    const latest = await prisma.aiRun.findFirst({
+      where: { ...KIND, workspaceId },
       orderBy: { updatedAt: "desc" },
       select: { updatedAt: true },
     });
@@ -198,8 +207,8 @@ export class DashboardGenerationService {
   async controlInfo(
     id: string,
   ): Promise<{ status: GenerationStatus; triggerRunId: string | null }> {
-    const record = await prisma.dashboardGeneration.findUnique({
-      where: { id },
+    const record = await prisma.aiRun.findUnique({
+      where: { id, ...KIND },
       select: { status: true, triggerRunId: true },
     });
     if (!record) throw new DashboardGenerationNotFoundError(id);
@@ -241,7 +250,7 @@ export class DashboardGenerationService {
       status: "RUNNING",
       phase: toDbGenerationPhase(phase),
       attempt,
-      log: toJsonInput([...closeOpenStep(generation.log, "done"), step]),
+      steps: toJsonInput([...closeOpenStep(generation.log, "done"), step]),
     });
   }
 
@@ -258,7 +267,7 @@ export class DashboardGenerationService {
     return this.updateActive(id, {
       status: "COMPLETED",
       phase: toDbGenerationPhase("done"),
-      log: toJsonInput(closeOpenStep(generation.log, "done")),
+      steps: toJsonInput(closeOpenStep(generation.log, "done")),
       result: toJsonInput(input.result),
       model: input.model,
       usage: input.usage ? toJsonInput(input.usage) : Prisma.DbNull,
@@ -269,7 +278,7 @@ export class DashboardGenerationService {
     const generation = await this.byId(id);
     return this.updateActive(id, {
       status: "FAILED",
-      log: toJsonInput(closeOpenStep(generation.log, "failed")),
+      steps: toJsonInput(closeOpenStep(generation.log, "failed")),
       error: toJsonInput(error),
     });
   }
@@ -279,17 +288,17 @@ export class DashboardGenerationService {
     const generation = await this.byId(id);
     return this.updateActive(id, {
       status: "CANCELLED",
-      log: toJsonInput(closeOpenStep(generation.log, "failed")),
+      steps: toJsonInput(closeOpenStep(generation.log, "failed")),
     });
   }
 
   /** A guarded write: only an active generation changes; a finished one is reported, never revived. */
   private async updateActive(
     id: string,
-    data: Prisma.DashboardGenerationUpdateManyMutationInput,
+    data: Prisma.AiRunUpdateManyMutationInput,
   ): Promise<DashboardGeneration> {
-    const { count } = await prisma.dashboardGeneration.updateMany({
-      where: { id, status: ACTIVE },
+    const { count } = await prisma.aiRun.updateMany({
+      where: { id, ...KIND, status: ACTIVE },
       data,
     });
     if (count === 0) {
@@ -302,11 +311,11 @@ export class DashboardGenerationService {
   /** One statement, no read-then-write: a miss surfaces as P2025. */
   private async update(
     id: string,
-    data: Prisma.DashboardGenerationUpdateInput,
+    data: Prisma.AiRunUpdateInput,
   ): Promise<DashboardGeneration> {
     try {
-      const record = await prisma.dashboardGeneration.update({
-        where: { id },
+      const record = await prisma.aiRun.update({
+        where: { id, ...KIND },
         data,
         select: generationSelect,
       });

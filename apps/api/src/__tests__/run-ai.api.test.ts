@@ -2,25 +2,26 @@
  * CONTRACT — run-ai
  * Feature doc: docs/features/run-ai.md · Rules: docs/rules/TESTING.md
  *
- * TABLE `RunAi`
+ * TABLE `AiRun`, kind CELL (the table every AI run shares — docs/features/run-ai.md)
  *   id             String    pk, uuid
- *   cellId         String    scoped Cell pk "<sheetId>.cell.<r>.<c>"; plain string (no fk), indexed
- *   spreadsheetId  String    the sheet half of cellId, derived on create; indexed with updatedAt
- *   batchId        String    required, indexed
+ *   kind           AiRunKind "CELL" for every row this feature reads or writes
+ *   cellId         String?   scoped Cell pk "<sheetId>.cell.<r>.<c>"; plain string (no fk), indexed;
+ *                            required for CELL (CHECK)
+ *   spreadsheetId  String?   the sheet half of cellId, derived on create; indexed with kind, updatedAt
+ *   batchId        String?   required for CELL, indexed
  *   status         String    uppercase; PENDING | RUNNING | COMPLETED | FAILED or a custom stage
  *                            (ANALYZING, …); default PENDING. COMPLETED / FAILED are terminal.
- *   credit         Int       default 0
  *   result         Json?     object or null; `result.output` is the cell value the run produced
  *   createdAt      DateTime  now(), indexed
  *   updatedAt      DateTime  @updatedAt
- *   Partial unique index `RunAi_active_cell_key` (cellId WHERE status NOT IN
- *   terminal): one working run per cell. Trigger `run_ai_notify` publishes
- *   every insert/update id on channel `run_ai_changed`.
+ *   (the assistant's and dashboard generation's columns stay null on a CELL row)
+ *   Partial unique index `AiRun_active_cell_key` (cellId WHERE kind = CELL AND
+ *   status NOT IN terminal): one working run per cell. Trigger `ai_run_notify`
+ *   publishes every CELL insert/update id on channel `run_ai_changed`.
  *
  * MODEL  RunAi = {
  *   id: string; cellId: string; spreadsheetId: string; batchId: string;
  *   status: string;                       // lowercase: "pending" | "running" | "completed" | "failed" | "<custom>"
- *   credit: number;
  *   result: ({ input?: RunAiInput; output?: CellValue;
  *              searches?: RunAiSearches                 // google_search only
  *              emails?: RunAiEmail[] }                  // email only: one entry per recipient
@@ -40,7 +41,7 @@
  * }
  * RunAiEmail = {                          // one recipient of an email (Mail) run
  *   to: string;                           // an allowed address, as the prompt/row spells it
- *   subject: string; body: string;        // plain text, personalized per recipient by Gemini
+ *   subject: string; body: string;        // plain text, personalized per recipient by the model
  *   status: "sent" | "failed";
  *   from?: string;                        // sent only; RESEND_FROM, default "Reclit <hello@reclit.com>"
  *   messageId?: string;                   // sent only; Resend's id
@@ -100,7 +101,7 @@
  *   produced — then runs the wave as one Trigger.dev batch of `run-ai-cell`
  *   (a single run when the wave has one cell) and waits for it. Each cell
  *   (`src/trigger/run-ai-cell.ts`) moves its run to `running`, resolves the
- *   row's media, asks Gemini with the column prompt as the instruction, the
+ *   row's media, asks the model with the column prompt as the instruction, the
  *   previous output as the primary input and the row as context, and
  *   `complete`s with
  *   `result: { input, output, model, usage, attachments, transcripts, crawls }`
@@ -141,14 +142,14 @@
  *   ("the official website of this company", "top 10 companies working on
  *   SAP with their URLs"). A blank row still prepares; whether the row
  *   matters is the prompt's business.
- * - The cell task runs a `google_search` cell as TWO Gemini calls: a grounded
+ * - The cell task runs a `google_search` cell as TWO model calls: a grounded
  *   call with the provider's `google_search` tool and no output schema
- *   (Gemini refuses a tool and a JSON response schema in one request —
+ *   (the provider refuses a tool and a JSON response schema in one request —
  *   "Function calling with a response mime type: 'application/json' is
  *   unsupported"), whose text is the answer written from live Google
  *   results; then an extraction call with no tools that shapes that text
  *   into the column's type through the same `cellOutputSchema` an `ai` cell
- *   uses. Gemini decides whether to search and cannot be forced, so the
+ *   uses. The model decides whether to search and cannot be forced, so the
  *   grounded call's metadata is checked: a cell whose model recorded no query
  *   and no web source FAILS (`result.error.message` says so) instead of
  *   completing from memory. The queries and pages are `result.searches`;
@@ -165,7 +166,7 @@
  *   then in ANY cell's content (objects stringified), in row order — deduped
  *   case-insensitively keeping the first spelling, capped at 10, the target
  *   cell itself skipped (a re-run must not read old sends back). The cell
- *   task asks Gemini once (structured output, no tools) for
+ *   task asks the model once (structured output, no tools) for
  *   `{ emails: [{ to, subject, body }] }` — one personalized email per
  *   recipient worth contacting; the previous step's output, when there is
  *   one, is the primary input and is copied verbatim when the prompt says to
@@ -189,8 +190,8 @@
  *   instruction starts with the sheet owner's compiled `<company-context>`
  *   block (company contract: company.api.test.ts), then "You fill in one
  *   cell of a spreadsheet row." — byte-identical across every cell of one
- *   profile version, so Gemini's implicit prefix cache serves it. Each wave
- *   of a batch also gets an explicit Gemini cache of that prefix when it is
+ *   profile version, so the provider's implicit prefix cache serves it. Each wave
+ *   of a batch also gets an explicit prompt cache of that prefix when it is
  *   large enough (≥ 1024 tokens), reused across waves until it is 5 minutes
  *   from expiry; `ai` and `email` cells then send no system instruction and
  *   name the cache instead, with the column's instruction opening the user
@@ -395,7 +396,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await runAiFeed.stop();
   if (createdIds.length > 0) {
-    await prisma.runAi
+    await prisma.aiRun
       .deleteMany({ where: { id: { in: createdIds } } })
       .catch(() => {});
   }
@@ -412,7 +413,6 @@ describe.skipIf(!dbUp)("runAi.byId", () => {
       spreadsheetId: "contract-sheet",
       batchId: created.batchId,
       status: "pending",
-      credit: 0,
       result: null,
     });
     expectDate(run.createdAt);
@@ -422,14 +422,12 @@ describe.skipIf(!dbUp)("runAi.byId", () => {
   it("reads back a run created with the full payload", async () => {
     const created = await makeRun({
       cellId: "contract-sheet.cell.3.2",
-      credit: 3,
       status: "Analyzing",
     });
     const run = await caller.runAi.byId({ id: created.id });
     expect(run).toMatchObject({
       cellId: "contract-sheet.cell.3.2",
       spreadsheetId: "contract-sheet",
-      credit: 3,
       status: "analyzing",
     });
   });
@@ -451,31 +449,22 @@ describe.skipIf(!dbUp)("runAi.byId", () => {
     const run = await caller.runAi.byId({ id: created.id });
     expect(run.status).toBe("web_search");
     expect(run.result).toEqual({ query: "reclit" });
-    const stored = await prisma.runAi.findUnique({
+    const stored = await prisma.aiRun.findUnique({
       where: { id: created.id },
-      select: { status: true },
+      select: { status: true, kind: true },
     });
+    expect(stored?.kind).toBe("CELL");
     expect(stored?.status).toBe("WEB_SEARCH");
   });
 
-  it("reflects complete with a result and a credit", async () => {
+  it("reflects complete with a result", async () => {
     const created = await makeRun();
     await runAiService.complete(created.id, {
       result: { text: "hello", usage: { totalTokens: 12 } },
-      credit: 2,
     });
     const run = await caller.runAi.byId({ id: created.id });
     expect(run.status).toBe("completed");
     expect(run.result).toEqual({ text: "hello", usage: { totalTokens: 12 } });
-    expect(run.credit).toBe(2);
-  });
-
-  it("complete without a credit leaves the credit intact", async () => {
-    const created = await makeRun({ credit: 5 });
-    await runAiService.complete(created.id, { result: { text: "kept" } });
-    const run = await caller.runAi.byId({ id: created.id });
-    expect(run.status).toBe("completed");
-    expect(run.credit).toBe(5);
   });
 
   it("reflects fail with a result", async () => {
@@ -957,7 +946,9 @@ describe.skipIf(!dbUp)("runAi.runCells", () => {
   afterAll(async () => {
     runAiBatchService.setDispatcher(null);
     if (sheet) {
-      await prisma.runAi.deleteMany({ where: { spreadsheetId: sheet } });
+      await prisma.aiRun.deleteMany({
+        where: { kind: "CELL", spreadsheetId: sheet },
+      });
       const workspace = await prisma.spreadsheet.findUnique({
         where: { id: sheet },
         select: { workspaceId: true },
@@ -997,7 +988,6 @@ describe.skipIf(!dbUp)("runAi.runCells", () => {
         spreadsheetId: sheet,
         batchId: first.batchId,
         status: "pending",
-        credit: 0,
         result: null,
       });
       expectDate(run.createdAt);
@@ -1071,9 +1061,11 @@ describe.skipIf(!dbUp)("runAi.runCells", () => {
         }),
         "BAD_REQUEST",
       );
-      expect(await prisma.runAi.count({ where: { spreadsheetId: wide } })).toBe(
-        0,
-      );
+      expect(
+        await prisma.aiRun.count({
+          where: { kind: "CELL", spreadsheetId: wide },
+        }),
+      ).toBe(0);
     } finally {
       await removeWorkspace(workspace.id);
     }
@@ -1105,7 +1097,9 @@ describe.skipIf(!dbUp)("runAi.runCells", () => {
     if (!first) throw new Error("no run");
     await expectTRPCError(runCells([4, 5]), "CONFLICT");
     expect(
-      await prisma.runAi.count({ where: { cellId: cellOf(5, aiColumn) } }),
+      await prisma.aiRun.count({
+        where: { kind: "CELL", cellId: cellOf(5, aiColumn) },
+      }),
     ).toBe(0);
     const error = await expectError(
       runAiBatchService.runCells({
@@ -1138,7 +1132,7 @@ describe.skipIf(!dbUp)("runAi.runCells", () => {
     });
     await expectTRPCError(runCells([2], [aiColumn, toneColumn]), "BAD_GATEWAY");
     runAiBatchService.setDispatcher(null);
-    const runs = await prisma.runAi.findMany({
+    const runs = await prisma.aiRun.findMany({
       where: { cellId: { in: [cellOf(2, aiColumn), cellOf(2, toneColumn)] } },
     });
     expect(runs).toHaveLength(2);

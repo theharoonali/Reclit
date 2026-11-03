@@ -1,3 +1,4 @@
+import { isAiConfigured } from "../../ai/model";
 import { describeError } from "../../common/errors";
 import { SpreadsheetNotFoundError } from "../spreadsheet/spreadsheet.errors";
 import { workspaceService } from "../workspace/workspace.service";
@@ -43,7 +44,7 @@ export class DashboardGenerationControlService {
    * first so its trigger reaches the page before the worker is asked; a
    * dispatch that throws fails the row and surfaces as
    * `DASHBOARD_GENERATION_DISPATCH_FAILED`. The key is checked here because
-   * `gemini()` in the worker would only throw a plain Error later.
+   * `aiModel()` in the worker would only throw a plain Error later.
    */
   async start(
     input: StartGenerationServiceInput,
@@ -52,7 +53,7 @@ export class DashboardGenerationControlService {
     if (workspace.spreadsheetId === null) {
       throw new SpreadsheetNotFoundError(`of workspace ${input.workspaceId}`);
     }
-    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    if (!isAiConfigured()) {
       throw new DashboardGenerationUnavailableError();
     }
     const generation = await dashboardGenerationService.create({

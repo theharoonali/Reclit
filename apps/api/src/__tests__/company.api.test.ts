@@ -2,43 +2,40 @@
  * CONTRACT — company
  * Feature doc: docs/features/company.md · Rules: docs/rules/TESTING.md
  *
- * TABLE `Company`  (one per user)
- *   id                    String              pk, uuid
- *   ownerId               String              unique, fk User (cascade)
+ * TABLE `User` — the company columns (one profile per user; `Company.id` is the user id)
  *   useCases              UseCase[]           default []
  *   useCaseOther          String?             ≤ 200
- *   website               String?             normalised (see setWebsite)
- *   name                  String?             ≤ 200
- *   iconUrl               String?
- *   summary               String?             ≤ 4000
- *   rules                 String?             ≤ 8000
+ *   companyWebsite        String?             `website` on the wire; normalised (see setWebsite)
+ *   companyName           String?             `name`; ≤ 200
+ *   companyIconUrl        String?             `iconUrl`
+ *   companySummary        String?             `summary`; ≤ 4000
+ *   companyRules          String?             `rules`; ≤ 8000
  *   crawlStatus           CompanyCrawlStatus  default IDLE
  *   crawlError            String?
  *   crawledAt             DateTime?
+ *   pageCount             Int                 default 0; pages the last background crawl read
  *   contextHash           String?             sha256 of the compiled context — not on the wire
- *   geminiCacheName       String?             explicit Gemini cache — not on the wire
- *   geminiCacheHash       String?             — not on the wire
- *   geminiCacheExpiresAt  DateTime?           — not on the wire
- *   createdAt             DateTime            now()
- *   updatedAt             DateTime            @updatedAt; also moved by every document write
- * TABLE `CompanyPage`  (the background crawl; on the wire only as `pageCount`)
- *   id String pk · companyId fk Company (cascade), indexed · url String ·
- *   title String? · markdown String · createdAt DateTime
+ *   promptCacheName       String?             explicit prompt cache — not on the wire
+ *   promptCacheHash       String?             — not on the wire
+ *   promptCacheExpiresAt  DateTime?           — not on the wire
+ *   companyUpdatedAt      DateTime            `updatedAt` on the wire; moved by every profile and
+ *                                             document write, and by nothing else
  * TABLE `CompanyDocument`
  *   id         String                 pk, uuid
- *   companyId  String                 fk Company (cascade); index (companyId, createdAt)
+ *   userId     String                 fk User (cascade); index (userId, createdAt)
  *   url        String                 what POST /files returned
  *   name       String                 ≤ 255
  *   mimeType   String                 the resolved type (see addDocument)
  *   size       Int                    bytes
  *   status     CompanyDocumentStatus  default PENDING
- *   digest     String?                Gemini's markdown digest — not on the wire
+ *   digest     String?                the model's markdown digest — not on the wire
  *   error      String?
  *   createdAt  DateTime               now()
  *   updatedAt  DateTime               @updatedAt
- * Triggers `company_notify` (Company) and `company_document_notify`
- * (CompanyDocument, incl. delete) publish the company id on channel
- * `company_changed`; an update that leaves Company.updatedAt alone (the
+ * Triggers `user_company_notify` (User, only when `companyUpdatedAt` moves)
+ * and `company_document_notify` (CompanyDocument, incl. delete) publish the
+ * user id on channel `company_changed`; a user write that leaves
+ * `companyUpdatedAt` alone (the profile, the onboarding flag, the
  * bookkeeping columns) publishes nothing.
  *
  * MODEL
@@ -63,7 +60,7 @@
  * PROCEDURES  (all protectedProcedure: UNAUTHORIZED without a session unless DEV=TRUE)
  * | Procedure              | Kind         | Payload                                              | Response                                  | Errors |
  * | ---------------------- | ------------ | ---------------------------------------------------- | ----------------------------------------- | ------ |
- * | company.me             | query        | —                                                    | Company (created on first read)           | — |
+ * | company.me             | query        | —                                                    | Company                                   | — |
  * | company.update         | mutation     | { useCases?: UseCase[] (unique, ≤ 6); useCaseOther?: string | null (≤ 200); name?: string | null (≤ 200); summary?: string | null (≤ 4000); rules?: string | null (≤ 8000) } | Company | BAD_REQUEST (validation) |
  * | company.setWebsite     | mutation     | { url: string (1..2048) }                            | Company (name, iconUrl, summary filled; crawlStatus "CRAWLING", or "READY" when the crawl could not be dispatched) | BAD_REQUEST (validation, COMPANY_WEBSITE_INVALID), SERVICE_UNAVAILABLE COMPANY_AI_UNAVAILABLE, BAD_GATEWAY COMPANY_SCRAPE_FAILED |
  * | company.recrawl        | mutation     | —                                                    | Company (crawlStatus "CRAWLING", or "READY" when the crawl could not be dispatched) | CONFLICT COMPANY_WEBSITE_MISSING |
@@ -73,8 +70,9 @@
  *
  * NOTES
  * - One company per user and no id anywhere: every procedure works on the
- *   signed-in user's profile. The first `me` (or any other procedure) creates
- *   it empty: `useCases: []`, every text field null, `crawlStatus: "IDLE"`,
+ *   signed-in user's profile, which lives on the user row — `id` is the
+ *   user's id, and it always exists. Until written it is empty:
+ *   `useCases: []`, every text field null, `crawlStatus: "IDLE"`,
  *   `crawledAt: null`, `pageCount: 0`, `documents: []`.
  * - `update`: an omitted field is left alone; `null` — or a string that is
  *   blank after trimming — clears it; strings are trimmed. `useCases`
@@ -86,16 +84,16 @@
  *   trailing slash (`example.com` → `https://example.com`). Not http(s), no
  *   dot in the host, credentials in the URL or unparsable is BAD_REQUEST
  *   `COMPANY_WEBSITE_INVALID`, and nothing is written. Without
- *   FIRECRAWL_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY on the api it is
+ *   FIRECRAWL_API_KEY or AI_API_KEY on the api it is
  *   SERVICE_UNAVAILABLE `COMPANY_AI_UNAVAILABLE`, nothing written. Otherwise
  *   the website is stored with `crawlStatus: "SCRAPING"` (visible on
- *   `onChange`), the homepage is scraped (Firecrawl, seconds) and Gemini
+ *   `onChange`), the homepage is scraped (Firecrawl, seconds) and the model
  *   writes `name` (≤ 200) and `summary` (3–5 sentences, ≤ 4000) from it; if
  *   that model call fails, `name` is the site name / page title / host and
  *   `summary` the page's meta description (may be null). `iconUrl` is the
  *   page's favicon, else its og:image, else
  *   `https://www.google.com/s2/favicons?domain=<host>&sz=128`. The previous
- *   website's pages are dropped (`pageCount: 0`, `crawledAt: null`). The
+ *   website's page count is dropped (`pageCount: 0`, `crawledAt: null`). The
  *   response is `"CRAWLING"` when the background crawl was handed to the
  *   worker, `"READY"` when there is no worker or it refused. A scrape that
  *   fails is BAD_GATEWAY `COMPANY_SCRAPE_FAILED`; the website stays stored
@@ -128,13 +126,14 @@
  *   writer (this api, the worker); a state equal to the last one sent is not
  *   repeated. Events are not `tracked`: a reconnect simply starts with the
  *   current `Company`. Pings every 15 s; ends when the client goes.
- * - What the profile is for: every Gemini prompt (cells, search, mail, the
+ * - What the profile is for: every model prompt (cells, search, mail, the
  *   assistant, onboarding, dashboard generation) starts with one compiled
  *   `<company-context>` block — the pure builders below are tested here.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
+import type { Prisma } from "../../generated/prisma/client";
 import { CELL_PREAMBLE, cachedCellSystem } from "../ai/cell-prompt";
 import { type CompanyContext, withCompanyContext } from "../ai/company-context";
 import {
@@ -152,13 +151,14 @@ import {
   type ScrapedPage,
   scrapePage,
 } from "../ai/firecrawl";
+import { defaultModelId, promptCacheApi } from "../ai/model";
 import {
   type CacheFetch,
   cacheKey,
   ensureCompanyCache,
-  GEMINI_CACHE_TTL_SECONDS,
-  type GeminiCacheStore,
-} from "../ai/gemini-cache";
+  PROMPT_CACHE_TTL_SECONDS,
+  type PromptCacheStore,
+} from "../ai/prompt-cache";
 import { pingDatabase, prisma } from "../db/prisma";
 import {
   CompanyAiUnavailableError,
@@ -184,10 +184,11 @@ import {
 } from "../modules/company/company.service";
 import {
   companyContextService,
-  type GeminiCacheState,
+  type PromptCacheState,
 } from "../modules/company/company-context.service";
 import { companyDocumentsService } from "../modules/company/company-documents.service";
 import { uploadBaseUrl } from "../modules/file/file.service";
+import { saveAiKeys, setAiKey } from "./support/ai-key";
 import {
   ensureUser,
   makeIsolatedOwnerWorkspace,
@@ -250,27 +251,71 @@ const ZERO_USAGE = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 type Snapshot = NonNullable<Awaited<ReturnType<typeof readSnapshot>>>;
 let ownerId = "";
 let original: Snapshot | null = null;
-const savedEnv: Record<string, string | undefined> = {};
-const ENV_KEYS = ["FIRECRAWL_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"];
+let savedFirecrawlKey: string | undefined;
+let restoreAiKeys: () => void = () => {};
 const workspaces: string[] = [];
 const isolatedUsers: string[] = [];
 
+/** The profile's columns on the user row. */
+const PROFILE_COLUMNS = {
+  useCases: true,
+  useCaseOther: true,
+  companyWebsite: true,
+  companyName: true,
+  companyIconUrl: true,
+  companySummary: true,
+  companyRules: true,
+  crawlStatus: true,
+  crawlError: true,
+  crawledAt: true,
+  pageCount: true,
+  contextHash: true,
+  promptCacheName: true,
+  promptCacheHash: true,
+  promptCacheExpiresAt: true,
+  companyUpdatedAt: true,
+} as const;
+
+const EMPTY_PROFILE: Prisma.UserUpdateInput = {
+  useCases: [],
+  useCaseOther: null,
+  companyWebsite: null,
+  companyName: null,
+  companyIconUrl: null,
+  companySummary: null,
+  companyRules: null,
+  crawlStatus: "IDLE",
+  crawlError: null,
+  crawledAt: null,
+  pageCount: 0,
+  contextHash: null,
+  promptCacheName: null,
+  promptCacheHash: null,
+  promptCacheExpiresAt: null,
+};
+
 const readSnapshot = (id: string) =>
-  prisma.company.findUnique({
-    where: { ownerId: id },
-    include: { pages: true, documents: true },
+  prisma.user.findUnique({
+    where: { id },
+    select: { ...PROFILE_COLUMNS, companyDocuments: true },
   });
 
-/** Every test file starts from no profile; the user's real one is put back after. */
+/** Every test file starts from an empty profile; the user's real one is put back after. */
 async function resetCompany(): Promise<void> {
-  await prisma.company.deleteMany({ where: { ownerId } });
+  await prisma.$transaction([
+    prisma.companyDocument.deleteMany({ where: { userId: ownerId } }),
+    prisma.user.update({
+      where: { id: ownerId },
+      data: { ...EMPTY_PROFILE, companyUpdatedAt: new Date() },
+    }),
+  ]);
 }
 
 beforeAll(async () => {
-  for (const key of ENV_KEYS) {
-    savedEnv[key] = process.env[key];
-    process.env[key] = "contract-test-key";
-  }
+  savedFirecrawlKey = process.env.FIRECRAWL_API_KEY;
+  process.env.FIRECRAWL_API_KEY = "contract-test-key";
+  restoreAiKeys = saveAiKeys();
+  setAiKey("contract-test-key");
   companyService.setProviders({
     scrape: async (url) => {
       scrapedUrls.push(url);
@@ -291,10 +336,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const key of ENV_KEYS) {
-    if (savedEnv[key] === undefined) delete process.env[key];
-    else process.env[key] = savedEnv[key];
-  }
+  if (savedFirecrawlKey === undefined) delete process.env.FIRECRAWL_API_KEY;
+  else process.env.FIRECRAWL_API_KEY = savedFirecrawlKey;
+  restoreAiKeys();
   companyService.setProviders(null);
   companyService.setDispatcher(null);
   if (!dbUp) return;
@@ -302,10 +346,9 @@ afterAll(async () => {
   for (const id of isolatedUsers) await removeUser(id);
   await resetCompany();
   if (original) {
-    const { pages, documents, ...row } = original;
-    await prisma.company.create({ data: row });
-    await prisma.companyPage.createMany({ data: pages });
-    await prisma.companyDocument.createMany({ data: documents });
+    const { companyDocuments, ...profile } = original;
+    await prisma.user.update({ where: { id: ownerId }, data: profile });
+    await prisma.companyDocument.createMany({ data: companyDocuments });
   }
 });
 
@@ -371,7 +414,7 @@ describe.skipIf(!dbUp)("company.me", () => {
   it("answers the same profile on every read", async () => {
     const [a, b] = [await caller.company.me(), await caller.company.me()];
     expect(b.id).toBe(a.id);
-    expect(await prisma.company.count({ where: { ownerId } })).toBe(1);
+    expect(a.id).toBe(ownerId);
   });
 });
 
@@ -1004,9 +1047,9 @@ describe.skipIf(!dbUp)("company context (service)", () => {
       name: "Acme",
       rules: "Be brief.",
     });
-    const before = await prisma.company.findUniqueOrThrow({
-      where: { ownerId },
-      select: { updatedAt: true },
+    const before = await prisma.user.findUniqueOrThrow({
+      where: { id: ownerId },
+      select: { updatedAt: true, companyUpdatedAt: true },
     });
     const context = await companyContextService.forUser(ownerId);
     expect(context?.text.startsWith("<company-context>")).toBe(true);
@@ -1014,12 +1057,13 @@ describe.skipIf(!dbUp)("company context (service)", () => {
     expect(context?.text).toContain(
       "<company-rules>\nBe brief.\n</company-rules>",
     );
-    const stored = await prisma.company.findUniqueOrThrow({
-      where: { ownerId },
-      select: { updatedAt: true, contextHash: true },
+    const stored = await prisma.user.findUniqueOrThrow({
+      where: { id: ownerId },
+      select: { updatedAt: true, companyUpdatedAt: true, contextHash: true },
     });
     expect(stored.contextHash).toBe(context?.hash ?? "");
     expect(stored.updatedAt).toEqual(before.updatedAt);
+    expect(stored.companyUpdatedAt).toEqual(before.companyUpdatedAt);
     expect(await companyContextService.forUser(ownerId)).toBe(
       context as CompanyContext,
     );
@@ -1313,22 +1357,22 @@ describe("Firecrawl scrape client (pure)", () => {
   });
 });
 
-describe("Gemini explicit cache (pure)", () => {
+describe("explicit prompt cache (pure)", () => {
   const NOW = Date.parse("2026-11-03T12:00:00Z");
   const big = compileCompanyContext(
     contextInput({ summary: "Acme sells widgets. ".repeat(200) }),
   ) as CompanyContext;
   const small = compileCompanyContext(contextInput()) as CompanyContext;
-  const key = cacheKey("gemini-2.5-flash", cachedCellSystem(big));
+  const key = cacheKey(defaultModelId(), cachedCellSystem(big));
 
   type Call = { url: string; method: string; body: unknown };
 
-  function fakeStore(initial: GeminiCacheState | null) {
-    const writes: (GeminiCacheState | null)[] = [];
+  function fakeStore(initial: PromptCacheState | null) {
+    const writes: (PromptCacheState | null)[] = [];
     let state = initial;
-    const store: GeminiCacheStore = {
-      readGeminiCache: async () => state,
-      writeGeminiCache: async (_id, next) => {
+    const store: PromptCacheStore = {
+      readPromptCache: async () => state,
+      writePromptCache: async (_id, next) => {
         writes.push(next);
         state = next;
       },
@@ -1365,7 +1409,7 @@ describe("Gemini explicit cache (pure)", () => {
     expect(cachedCellSystem(big)).toBe(`${big.text}\n\n${CELL_PREAMBLE}`);
   });
 
-  it("is null below Gemini's minimum size, without calling Gemini", async () => {
+  it("is null below the provider's minimum size, without calling it", async () => {
     const calls: Call[] = [];
     const { store, writes } = fakeStore(null);
     expect(
@@ -1390,13 +1434,13 @@ describe("Gemini explicit cache (pure)", () => {
     expect(name).toBe("cachedContents/new");
     expect(calls).toEqual([
       {
-        url: "https://generativelanguage.googleapis.com/v1beta/cachedContents",
+        url: `${promptCacheApi.url}/cachedContents`,
         method: "POST",
         body: {
-          model: "models/gemini-2.5-flash",
+          model: promptCacheApi.modelPath(defaultModelId()),
           displayName: "reclit-company",
           systemInstruction: { parts: [{ text: cachedCellSystem(big) }] },
-          ttl: `${GEMINI_CACHE_TTL_SECONDS}s`,
+          ttl: `${PROMPT_CACHE_TTL_SECONDS}s`,
         },
       },
     ]);
@@ -1455,7 +1499,7 @@ describe("Gemini explicit cache (pure)", () => {
     }
   });
 
-  it("is null, and stores nothing, when Gemini refuses", async () => {
+  it("is null, and stores nothing, when the provider refuses", async () => {
     const calls: Call[] = [];
     const { store, writes } = fakeStore(null);
     expect(

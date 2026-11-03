@@ -12,8 +12,8 @@ import { firecrawlQueue } from "./firecrawl-queue";
 
 // The company website's background crawl, after `company.setWebsite` (or
 // `recrawl`) answered with the homepage's summary: the whole site through
-// Firecrawl → the pages stored as `CompanyPage` → a summary refined from all
-// of them → READY. Every write is guarded on the website the job was for, so
+// Firecrawl → the page count recorded (the pages themselves stay in memory) →
+// a summary refined from all of them → READY. Every write is guarded on the website the job was for, so
 // a crawl of a website the user has since replaced changes nothing.
 //
 // Same shape as `crawl-website`: the polling waits are `wait.for`

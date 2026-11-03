@@ -8,10 +8,15 @@ import {
 
 // The one select per shape, and the pure record → wire mappers both services
 // share. Type-only Prisma import: nothing here runs a query.
+//
+// The dashboard is not a table of its own: its columns live on Workspace
+// (`dashboardCreatedAt` null = no dashboard) and its widgets point at the
+// workspace. On the wire the dashboard keeps its own shape, and its `id` (and
+// each widget's `dashboardId`) is the workspace id.
 
 export const widgetSelect = {
   id: true,
-  dashboardId: true,
+  workspaceId: true,
   spreadsheetId: true,
   name: true,
   description: true,
@@ -26,30 +31,31 @@ export const widgetSelect = {
   updatedAt: true,
 } as const;
 
-/** Widgets ordered the way the grid lays them out: by row, then sort. */
+/** A workspace's dashboard columns, widgets ordered the way the grid lays them out: by row, then sort. */
 export const dashboardSelect = {
   id: true,
-  workspaceId: true,
-  title: true,
-  description: true,
-  createdAt: true,
+  dashboardCreatedAt: true,
+  dashboardTitle: true,
+  dashboardDescription: true,
   updatedAt: true,
-  widgets: {
+  dashboardWidgets: {
     select: widgetSelect,
     orderBy: [{ row: "asc" as const }, { sort: "asc" as const }],
   },
-} satisfies Prisma.DashboardSelect;
+} satisfies Prisma.WorkspaceSelect;
 
 export type WidgetRecord = Prisma.DashboardWidgetGetPayload<{
   select: typeof widgetSelect;
 }>;
-export type DashboardRecord = Prisma.DashboardGetPayload<{
+export type DashboardRecord = Prisma.WorkspaceGetPayload<{
   select: typeof dashboardSelect;
 }>;
 
 export function toDashboardWidget(record: WidgetRecord): DashboardWidget {
+  const { workspaceId, ...rest } = record;
   return {
-    ...record,
+    ...rest,
+    dashboardId: workspaceId,
     type: toWireWidgetType(record.type),
     height: toWireWidgetHeight(record.height),
     // The service is the only writer and validates every query on write (the
@@ -58,6 +64,18 @@ export function toDashboardWidget(record: WidgetRecord): DashboardWidget {
   };
 }
 
-export function toDashboardDetail(record: DashboardRecord): DashboardDetail {
-  return { ...record, widgets: record.widgets.map(toDashboardWidget) };
+/** The workspace's dashboard, or null while it has none. */
+export function toDashboardDetail(
+  record: DashboardRecord,
+): DashboardDetail | null {
+  if (!record.dashboardCreatedAt) return null;
+  return {
+    id: record.id,
+    workspaceId: record.id,
+    title: record.dashboardTitle,
+    description: record.dashboardDescription,
+    createdAt: record.dashboardCreatedAt,
+    updatedAt: record.updatedAt,
+    widgets: record.dashboardWidgets.map(toDashboardWidget),
+  };
 }

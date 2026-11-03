@@ -169,7 +169,7 @@ export const onboardingFinishSchema = z.object({
   cellCount: z.number().int(),
   rowCount: z.number().int(),
   columnCount: z.number().int(),
-  /** The dashboard generation started for the sheet, or null when none could be (no Gemini key, dispatch failed). */
+  /** The dashboard generation started for the sheet, or null when none could be (no AI key, dispatch failed). */
   generationId: z.string().nullable(),
 });
 

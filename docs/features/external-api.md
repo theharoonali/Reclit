@@ -26,7 +26,7 @@ Indexes: `[cellId, input]` (the lookup), `[cellId, createdAt]` (the list),
 Migrations: `apps/api/prisma/migrations/20260910000000_add_external_api/`,
 `apps/api/prisma/migrations/20260912195356_external_api_input_index/`
 
-`cellId` is a **real foreign key**, unlike `RunAi.cellId`
+`cellId` is a **real foreign key**, unlike `AiRun.cellId`
 ([run-ai.md](run-ai.md)), and the difference is deliberate: a run is a record of
 something that happened and must outlive its cell, while a processed result
 describes the cell's *current* content and is worthless once that content is

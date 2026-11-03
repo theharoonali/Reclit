@@ -10,10 +10,10 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { AssistantUsage } from "../modules/assistant/assistant.schema";
 import { assistantModelId, toUsage } from "./assistant-step";
-import { gemini } from "./gemini";
+import { aiModel } from "./model";
 
 // The propose call of the generate-dashboard task: `generateText` with a JSON
-// response schema and no tools (Gemini refuses both in one request —
+// response schema and no tools (the model refuses both in one request —
 // search-output.ts). The schema here is deliberately LENIENT: plain strings
 // where the contract wants an identifier pattern, no array caps. The Google
 // provider drops `pattern` and `maxItems` from a response schema, so a strict
@@ -114,7 +114,7 @@ export const generateDashboardCards: ProposalGenerator = async ({
 }) => {
   const modelId = assistantModelId();
   const result = await generateText({
-    model: gemini(modelId),
+    model: aiModel(modelId),
     system,
     prompt,
     output: Output.object({ schema: proposalOutputSchema }),

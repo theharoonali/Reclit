@@ -2,7 +2,7 @@ import { generateText, type ModelMessage, Output } from "ai";
 import { z } from "zod";
 import type { AssistantUsage } from "../modules/assistant/assistant.schema";
 import { assistantModelId, toUsage } from "./assistant-step";
-import { gemini } from "./gemini";
+import { aiModel } from "./model";
 
 // The company profile's model calls: the summary (from the homepage, then
 // from the whole crawl — one generator, two prompts) and a document's digest.
@@ -39,7 +39,7 @@ export const generateCompanySummary: CompanySummaryGenerator = async ({
 }) => {
   const modelId = assistantModelId();
   const result = await generateText({
-    model: gemini(modelId),
+    model: aiModel(modelId),
     system,
     prompt,
     output: Output.object({ schema: companySummaryOutputSchema }),
@@ -90,7 +90,7 @@ export const generateDocumentDigest: DocumentDigestGenerator = async ({
     ],
   };
   const result = await generateText({
-    model: gemini(modelId),
+    model: aiModel(modelId),
     system,
     messages: [message],
   });

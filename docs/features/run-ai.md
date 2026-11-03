@@ -1,6 +1,6 @@
 # `run-ai`
 
-**Purpose:** one record per AI run against one cell — status, credits, what the
+**Purpose:** one record per AI run against one cell — status, what the
 run was given and what it produced, the batch it belongs to — plus the live
 stream the sheet paints its "working" capsules from and the Trigger.dev tasks
 that execute a batch: every selected row as a series, column by column.
@@ -9,39 +9,51 @@ that execute a batch: every selected row as a series, column by column.
 responses, stream events, error codes and every client-visible behaviour live
 in its header. Do not duplicate them here.
 
-## Table `RunAi`
+## Table `AiRun` (kind `CELL`)
+
+Cell runs are the `CELL` kind of the shared `AiRun` table (the assistant's
+`ASSISTANT` runs and the dashboard generation's `DASHBOARD` runs are the other
+two — [assistant.md](assistant.md),
+[dashboard-generation.md](dashboard-generation.md)). Every `RunAiService`
+query spreads `KIND` (`{ kind: "CELL" }`); a query without it would mix run
+types. The columns a cell run uses:
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | `String` | pk, `@default(uuid())` |
-| `cellId` | `String` | scoped Cell pk `"<sheetId>.cell.<r>.<c>"`; plain string, **not** a fk; indexed |
-| `spreadsheetId` | `String` | the sheet half of `cellId`, derived by the service on create; indexed with `updatedAt` |
-| `batchId` | `String` | required; every run one Run click created (`batch-<uuid>`); indexed |
+| `kind` | `AiRunKind` | `CELL` |
+| `cellId` | `String?` | required for `CELL` (the `CHECK`); scoped Cell pk `"<sheetId>.cell.<r>.<c>"`; plain string, **not** a fk; indexed |
+| `spreadsheetId` | `String?` | required for `CELL`; the sheet half of `cellId`, derived by the service on create; **not** a fk; indexed with `kind`, `updatedAt` |
+| `batchId` | `String?` | required for `CELL`; every run one Run click created (`batch-<uuid>`); indexed |
 | `status` | `String` | uppercase word; `PENDING \| RUNNING \| COMPLETED \| FAILED` or a custom working stage; default `PENDING`; the two last are terminal |
-| `credit` | `Int` | default 0 (credit accounting is not implemented; token usage is in `result.usage`) |
 | `result` | `Json?` | null until the cell is prepared, then `input` (with `previous` from a row's second AI column on), `output`, `model`, `usage`, `attachments`, `transcripts`, `crawls`, `searches` (`google_search` only), `error: { name, message }` — see the contract |
 | `createdAt` | `DateTime` | `@default(now())`, indexed |
 | `updatedAt` | `DateTime` | `@updatedAt`; its ms value is the SSE event id |
 
-Indexes: `cellId`, `[spreadsheetId, updatedAt]`, `batchId`, `createdAt` ·
-Relations: none — a run must outlive its cell (cleared cells are deleted rows;
-import wipes every cell) · Migrations:
-`apps/api/prisma/migrations/20260902013325_add_run_ai/`,
-`apps/api/prisma/migrations/20260902125351_run_ai_status_text_and_feed/`.
+Every other `AiRun` column (`workspaceId`, `source`, `scope`, `prompt`,
+`phase`, `steps`, …) stays null on a cell run.
 
-The second migration holds what the Prisma schema cannot express (invisible to
+Indexes: `cellId`, `[kind, spreadsheetId, updatedAt]`, `batchId`, `createdAt`
+· Relations: none for a cell run — it must outlive its cell (cleared cells are
+deleted rows; import wipes every cell) and its sheet (`spreadsheetId` has no
+fk) · Migration:
+`apps/api/prisma/migrations/20261103180000_consolidate_tables/`.
+
+That migration holds what the Prisma schema cannot express (invisible to
 `prisma migrate diff`, so it survives future migrations):
 
 | Object | What it does |
 | --- | --- |
-| partial unique index `RunAi_active_cell_key` on `cellId WHERE status NOT IN ('COMPLETED','FAILED')` | one working run per cell, enforced by the database |
-| function + trigger `run_ai_notify` (`AFTER INSERT OR UPDATE`) | `pg_notify('run_ai_changed', NEW.id)` — every writer, in any process, publishes |
+| `CHECK` `AiRun_kind_columns_check` | a `CELL` row has `cellId`, `spreadsheetId` and `batchId` |
+| partial unique index `AiRun_active_cell_key` on `cellId WHERE kind = 'CELL' AND status NOT IN ('COMPLETED','FAILED')` | one working run per cell, enforced by the database |
+| function + trigger `ai_run_notify` (`AFTER INSERT OR UPDATE`) | `pg_notify('run_ai_changed', NEW.id)` for a `CELL` row (`CASE kind`) — every writer, in any process, publishes |
+| function + trigger `ai_run_spreadsheet_cascade` (`AFTER DELETE` on `Spreadsheet`) | deletes the sheet's `ASSISTANT` / `DASHBOARD` runs; cell runs are kept |
 
 ## Files
 
 | Path | Layer | Responsibility |
 | --- | --- | --- |
-| `apps/api/prisma/schema.prisma` | model | `RunAi` |
+| `apps/api/prisma/schema.prisma` | model | `AiRun`, `AiRunKind` |
 | `apps/api/src/modules/run-ai/run-ai.schema.ts` | schema | status rules (`isTerminalRunAiStatus`, wire/db case), `RunAi`, `RunAiInput` (+ `previous`), `RunAiJobPayload` (the cell task), `RunAiBatchJob` (the orchestrator: waves), `RunAiChange`, every input, the batch caps (`MAX_RUN_AI_BATCH_ROWS` 1000, `_COLUMNS` 256, `_CELLS` 5000) |
 | `apps/api/src/modules/run-ai/run-ai.errors.ts` | errors | `RunAiNotFoundError`, `RunAiCellBusyError` (`cellIds`), `RunAiInvalidCellIdError`, `RunAiColumnNotRunnableError`, `RunAiBatchTooLargeError`, `RunAiDispatchError`, `RunAiFinishedError` |
 | `apps/api/src/modules/run-ai/run-ai.service.ts` | service | the run lifecycle and the reads: `create`, `createMany`, `markRunning`, `setResult`, `setStatus`, `complete`, `fail`, `failPending`, `find`, `byId`, `listByBatch`, `listActiveBySpreadsheet`, `listChangedSince`, `latestEventId` |
@@ -64,9 +76,9 @@ Background jobs (outside the tRPC graph — [ARCHITECTURE.md](../../ARCHITECTURE
 | `apps/api/src/trigger/run-ai-cell.ts` | task `run-ai-cell` (`{ runId, input, cacheName? }`): `markRunning` → the company context (`companyContextService.forSpreadsheet`, null on any error) → `generateCellValue` (given the run's parsed cell address and a crawl resolver that `batchTriggerAndWait`s `crawl-website` for the row's url cells) or `generateSearchCellValue` or `generateEmailCellValue` (`input.target.node` decides) → `complete` / `fail` (a failed `complete` keeps the generator's extras, e.g. `result.emails`), returns `{ runId, status }`; no retries, `maxDuration` 300 s of CPU time (a transcription may precede the model call; the wait for crawls is free); `onFailure` fails the run |
 | `apps/api/src/trigger/crawl-website.ts` | task `crawl-website` (`{ cellId, url }` → `{ recordId, reused, pages, characters }`): the general Firecrawl crawl into `ExternalApi`, one at a time on the shared `firecrawl` queue (`firecrawl-queue.ts`, also `crawl-company`), retried with backoff ([external-api.md](external-api.md)) |
 | `apps/api/src/jobs/run-ai-dispatch.ts` | the API-side client: `registerRunAiDispatcher()` → `tasks.trigger("run-ai-batch", …, { idempotencyKey: batchId })`, the only `@trigger.dev/sdk` import on the API side; called from `src/main.ts` |
-| `apps/api/src/ai/gemini.ts` | `gemini(modelId?)` — the one Gemini provider for the Vercel AI SDK |
+| `apps/api/src/ai/model.ts` | the one AI provider for the Vercel AI SDK and the only file that names the vendor: `aiModel(modelId?)`, `defaultModelId()` (`AI_MODEL`, else the provider default), `isAiConfigured()`, `AI_KEY_ENV`, `webSearchTools()` / `webSearchQueries()` (the search node), `cachedContentOptions()` / `promptCacheApi` (the explicit prompt cache) |
 | `apps/api/src/ai/search-prompt.ts` | pure: `buildSearchExtractMessages` (the grounded text → the typed value), `searchRecordOf` (the grounded call's queries and pages, or `null` when it did not search), `MAX_SEARCH_SOURCES` |
-| `apps/api/src/ai/search-output.ts` | `generateSearchCellValue` — the `google_search` node: a grounded Gemini call with the `google_search` tool, the did-it-search check, then the typed extraction call |
+| `apps/api/src/ai/search-output.ts` | `generateSearchCellValue` — the `google_search` node: a grounded model call with the provider's web-search tool (`webSearchTools()`), the did-it-search check, then the typed extraction call |
 | `apps/api/src/ai/cell-prompt.ts` | pure: `buildCellMessages(input, notes, company?)` → `{ system, prompt, cachedPrompt }` (the company block, `CELL_PREAMBLE`, then the instruction + row as context + the previous step's output as the primary input; plus `SEARCH_RULES` for a `google_search` target; `cachedPrompt` is the instruction + row for a call on an explicit cache), `cachedCellSystem` (what that cache holds), `cellOutputSchema` (answer shape per column type), `TYPE_RULES`, `formatCellLine`, `CellSourceNote` (attached / transcribed / failed) |
 | `apps/api/src/ai/cell-attachments.ts` | fetches the row's file cells into file parts (`collectAttachments`; ≤ 15 MB, 30 s each); a failure is recorded, never thrown. `isUrlCell`, `fetchFile` / `fetchAttachment`, `filenameOf` and `mediaTypeFor` are shared (`fetchFile` and `mediaTypeFor` also with the company documents) with the transcript and crawl paths |
 | `apps/api/src/ai/cell-transcripts.ts` | resolves the row's audio cells to text through `ExternalApi` + ElevenLabs ([external-api.md](external-api.md)); a failure is recorded, never thrown |
@@ -127,17 +139,19 @@ There is no REST face.
   configuration of a search column ("the official website of this company",
   "top 10 companies working on SAP with their URLs"), so a blank row still
   prepares.
-- **The search node is a grounded call plus an extraction call.** Gemini
-  rejects a tool alongside a JSON response schema on the model in use —
-  *"Function calling with a response mime type: 'application/json' is
-  unsupported"* (structured output with tools is a Gemini 3 preview) — so
+- **The search node is a grounded call plus an extraction call.** The
+  provider rejects a tool alongside a JSON response schema on the model in
+  use — *"Function calling with a response mime type: 'application/json' is
+  unsupported"* — so
   `generateSearchCellValue` unrolls it: one `generateText` with the
-  provider's `google_search` tool and no output schema (`buildCellMessages`
+  provider's web-search tool (`webSearchTools()`, keyed `google_search`) and
+  no output schema (`buildCellMessages`
   adds `SEARCH_RULES` for a `google_search` target), then
   `generateTypedCellValue` shapes the grounded text through the same
-  `cellOutputSchema` an `ai` cell uses (`buildSearchExtractMessages`). Gemini
-  decides whether to search and cannot be forced, so `searchRecordOf` reads
-  `groundingMetadata.webSearchQueries` and the `sources` first: nothing there
+  `cellOutputSchema` an `ai` cell uses (`buildSearchExtractMessages`). The
+  model decides whether to search and cannot be forced, so `searchRecordOf`
+  reads the searched queries (`webSearchQueries()`, `ai/model.ts`) and the
+  `sources` first: nothing there
   fails the cell — a Google Search cell never completes from memory. The
   queries and pages land in `result.searches` (source URLs are Google
   redirect links, `title` the domain); `result.attachments` is always `[]`
@@ -146,7 +160,7 @@ There is no REST face.
   `generateEmailCellValue` (`src/ai/email-output.ts`) collects the allowed
   addresses from the column's prompt and every cell's content
   (`emailRecipients`: target cell excluded, deduped case-insensitively, first
-  spelling kept, capped at `MAX_EMAIL_RECIPIENTS` = 10), asks Gemini once for
+  spelling kept, capped at `MAX_EMAIL_RECIPIENTS` = 10), asks the model once for
   a draft list (`Output.object`, no tools; `buildCellMessages` swaps the
   "Answer with …" line for `EMAIL_RULES` plus the allowed recipients), drops
   any draft whose `to` the list does not hold (`resolveRecipient`), is a
@@ -196,10 +210,11 @@ There is no REST face.
   content (`result.attachments`, `result.transcripts`, `result.crawls`).
 - **Company context and caching.** Every cell's system instruction starts
   with the sheet owner's `<company-context>` block and `CELL_PREAMBLE`, the
-  same bytes for every cell of a profile version, so Gemini's implicit prefix
-  cache serves them. With a `cacheName` (an explicit cache of exactly that
-  prefix, [company.md](company.md)) the `ai` and `email` calls send no
-  `system` — Gemini answers 400 to a system instruction next to a cache —
+  same bytes for every cell of a profile version, so the provider's implicit
+  prefix cache serves them. With a `cacheName` (an explicit cache of exactly
+  that prefix, [company.md](company.md)) the `ai` and `email` calls pass
+  `cachedContentOptions(cacheName)` and send no `system` — the provider
+  answers 400 to a system instruction next to a cache —
   and open the user message with the column's instruction
   (`cachedPrompt`); any failure of the cached call is retried on the
   implicit path, so a cache can never fail a cell. `google_search` cells use
@@ -239,8 +254,9 @@ There is no REST face.
   that fans out and must clean up after a crash without touching finished
   rows; `run-ai-batch.ts` is the pattern for a parent task that prepares,
   fans out with `batchTriggerAndWait`, and reads per-run outcomes.
-- `gemini()` (`src/ai/gemini.ts`) for any service or task that needs a Gemini
-  model, `transcribeAudio` (`src/ai/elevenlabs.ts`) for speech-to-text,
+- `aiModel()` (`src/ai/model.ts`) for any service or task that needs a
+  language model — never import the vendor SDK elsewhere; `isAiConfigured()`
+  for a 503 guard; `transcribeAudio` (`src/ai/elevenlabs.ts`) for speech-to-text,
   `crawlWebsite` (`src/ai/firecrawl.ts`) for a site's pages, `sendEmail`
   (`src/ai/resend.ts`) to send an email; add other
   providers beside them in `src/ai/`. `generateTypedCellValue` /

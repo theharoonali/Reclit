@@ -2,16 +2,18 @@
  * CONTRACT — assistant
  * Feature doc: docs/features/assistant.md · Rules: docs/rules/TESTING.md
  *
- * TABLE `AssistantRun`
+ * TABLE `AiRun`, kind ASSISTANT (the table every AI run shares — docs/features/assistant.md)
  *   id             String           pk, uuid
- *   workspaceId    String           fk cascade → Workspace; indexed with updatedAt
- *   spreadsheetId  String?          fk cascade → Spreadsheet (the workspace's sheet, resolved at start)
- *   scope          AssistantScope   DASHBOARD | SPREADSHEET
- *   source         AssistantSource  USER | SYSTEM, default USER
- *   prompt         String           ≤ 2000
+ *   kind           AiRunKind        "ASSISTANT" for every row this feature reads or writes
+ *   workspaceId    String?          fk cascade → Workspace; indexed with kind, updatedAt; required (CHECK)
+ *   spreadsheetId  String?          the workspace's sheet, resolved at start; deleting the sheet deletes
+ *                                   the run (trigger `ai_run_spreadsheet_cascade`)
+ *   scope          AssistantScope?  DASHBOARD | SPREADSHEET; required (CHECK)
+ *   source         AiRunSource?     USER | SYSTEM; required (CHECK)
+ *   prompt         String?          ≤ 2000; required (CHECK)
  *   status         String           uppercase; PENDING | THINKING | WORKING | AWAITING_CONFIRMATION |
  *                                   COMPLETED | FAILED | CANCELLED; the last three are terminal
- *   steps          Json             AssistantStep[] (default [])
+ *   steps          Json?            AssistantStep[] ([] on create; required (CHECK))
  *   pendingAction  Json?            the delete waiting for the user, while AWAITING_CONFIRMATION
  *   summary        String?          the model's closing message (≤ 2000)
  *   error          Json?            { name, message }
@@ -21,9 +23,11 @@
  *   triggerRunId   String?          the Trigger.dev run id — cancel's handle, never on the wire
  *   createdAt      DateTime         now(), indexed
  *   updatedAt      DateTime         @updatedAt; its ms value is the SSE event id
- *   Partial unique index `AssistantRun_active_workspace_key` (workspaceId WHERE status
- *   NOT IN terminal): one active run per workspace. Trigger `assistant_run_notify`
- *   publishes every insert/update id on channel `assistant_run_changed`.
+ *   (the cell runs' and dashboard generation's columns stay null on an ASSISTANT row)
+ *   Partial unique index `AiRun_active_assistant_key` (workspaceId WHERE kind =
+ *   ASSISTANT AND status NOT IN terminal): one active run per workspace. Trigger
+ *   `ai_run_notify` publishes every ASSISTANT insert/update id on channel
+ *   `assistant_run_changed`.
  *
  * MODEL  AssistantRun = {
  *   id: string; workspaceId: string; spreadsheetId: string | null;
@@ -141,7 +145,7 @@
  *   (`ASSISTANT_TRANSCRIPTION_FAILED`). Error bodies are `{ code, message }`.
  * - The model's system prompt starts with the workspace owner's compiled
  *   company profile (`<company-context>`, company contract) when there is
- *   one. `usage.cachedInputTokens` is the part of the input a Gemini cache
+ *   one. `usage.cachedInputTokens` is the part of the input a prompt cache
  *   served (runs recorded before it was measured have none).
  * - Generating a whole dashboard from the sheet is not the assistant's: see
  *   the dashboard-generation contract (`dashboardGeneration.start`).
@@ -358,8 +362,8 @@ afterAll(async () => {
   assistantControlService.setDispatcher(null);
   await assistantFeed.stop();
   if (workspaceId) {
-    await prisma.assistantRun
-      .deleteMany({ where: { workspaceId } })
+    await prisma.aiRun
+      .deleteMany({ where: { kind: "ASSISTANT", workspaceId } })
       .catch(() => {});
     await removeWorkspace(workspaceId);
   }
@@ -468,8 +472,8 @@ describe.skipIf(!dbUp)("assistant.start", () => {
     });
     try {
       await expectTRPCError(startRun(), "BAD_GATEWAY");
-      const failed = await prisma.assistantRun.findFirst({
-        where: { workspaceId },
+      const failed = await prisma.aiRun.findFirst({
+        where: { kind: "ASSISTANT", workspaceId },
         orderBy: { createdAt: "desc" },
         select: { id: true, status: true, error: true },
       });
@@ -691,12 +695,12 @@ describe.skipIf(!dbUp)("the worker's transitions (service)", () => {
       const usage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
       const completed = await assistantService.complete(run.id, {
         summary: "x".repeat(MAX_ASSISTANT_SUMMARY + 500),
-        model: "gemini-test",
+        model: "model-test",
         usage,
       });
       expect(completed.status).toBe("completed");
       expect(completed.summary?.length).toBe(MAX_ASSISTANT_SUMMARY);
-      expect(completed.model).toBe("gemini-test");
+      expect(completed.model).toBe("model-test");
       expect(completed.usage).toEqual(usage);
 
       await expectError(

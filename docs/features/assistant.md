@@ -12,42 +12,51 @@ context loader, prompt blocks and card schema.
 responses, stream events, step shapes, error codes and every client-visible
 behaviour live in its header. Do not duplicate them here.
 
-## Table `AssistantRun`
+## Table `AiRun` (kind `ASSISTANT`)
+
+Assistant runs are the `ASSISTANT` kind of the shared `AiRun` table
+([run-ai.md](run-ai.md) has the table's `CELL` side,
+[dashboard-generation.md](dashboard-generation.md) its `DASHBOARD` side).
+Every `AssistantService` query spreads `KIND` (`{ kind: "ASSISTANT" }`). The
+columns an assistant run uses (the rest stay null):
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | `String` | pk, `@default(uuid())` |
-| `workspaceId` | `String` | fk cascade → `Workspace`; indexed with `updatedAt` |
-| `spreadsheetId` | `String?` | fk cascade → `Spreadsheet` — the workspace's sheet, resolved by `start` |
-| `scope` | `AssistantScope` | `DASHBOARD SPREADSHEET`; decides the tool set; lowercase on the wire |
-| `source` | `AssistantSource` | `USER SYSTEM`, default `USER`; lowercase on the wire |
-| `prompt` | `String` | ≤ 2,000 |
+| `kind` | `AiRunKind` | `ASSISTANT` |
+| `workspaceId` | `String?` | required for `ASSISTANT` (the `CHECK`); fk cascade → `Workspace`; indexed with `kind`, `updatedAt` |
+| `spreadsheetId` | `String?` | the workspace's sheet, resolved by `start`; no fk — the `ai_run_spreadsheet_cascade` trigger deletes the run with its sheet |
+| `scope` | `AssistantScope?` | required for `ASSISTANT`; `DASHBOARD SPREADSHEET`; decides the tool set; lowercase on the wire |
+| `source` | `AiRunSource?` | required for `ASSISTANT`; `USER` or `SYSTEM` (the enum's `ONBOARDING` / `DASHBOARD` belong to dashboard generations); lowercase on the wire |
+| `prompt` | `String?` | required for `ASSISTANT`; ≤ 2,000 |
 | `status` | `String` | uppercase word; `PENDING THINKING WORKING AWAITING_CONFIRMATION COMPLETED FAILED CANCELLED`; the last three are terminal |
-| `steps` | `Json` | `AssistantStep[]`, default `[]`; inputs summarised (`summariseStepInput`), never raw cell lists |
+| `steps` | `Json?` | required for `ASSISTANT`; `AssistantStep[]`, written `[]` on create; inputs summarised (`summariseStepInput`), never raw cell lists |
 | `pendingAction` | `Json?` | the delete waiting for the user while `AWAITING_CONFIRMATION`: tool, summarised input, waitpoint `tokenId`, the user's `response` once given |
 | `summary` | `String?` | the model's closing message, ≤ 2,000, plain text |
 | `error` | `Json?` | `{ name, message }` via `describeError` |
-| `model` / `usage` | `String?` / `Json?` | the model id and the summed token usage (`cachedInputTokens`: what a Gemini cache served; absent on older runs) |
+| `model` / `usage` | `String?` / `Json?` | the model id and the summed token usage (`cachedInputTokens`: what the provider's prompt cache served; absent on older runs) |
 | `transcript` | `Json?` | the `ModelMessage[]` the loop built, ≤ 64 KB (`trimTranscript`) — audit only, **never selected** |
 | `triggerRunId` | `String?` | the Trigger.dev run id, stored after `tasks.trigger`; what `cancel` hands to `runs.cancel`; never selected |
 | `createdAt` | `DateTime` | `@default(now())`, indexed |
 | `updatedAt` | `DateTime` | `@updatedAt`; its ms value is the SSE event id |
 
-Indexes: `[workspaceId, updatedAt]`, `[createdAt]` · Relations:
-`Workspace.assistantRuns[]`, `Spreadsheet.assistantRuns[]` (both cascade) ·
-Migration: `apps/api/prisma/migrations/20261016120000_add_assistant_run/`,
-which also holds what the Prisma schema cannot express:
+Indexes: `[kind, workspaceId, updatedAt]`, `[createdAt]` · Relations:
+`Workspace.aiRuns[]` (cascade) · Migration:
+`apps/api/prisma/migrations/20261103180000_consolidate_tables/`, which also
+holds what the Prisma schema cannot express:
 
 | Object | What it does |
 | --- | --- |
-| partial unique index `AssistantRun_active_workspace_key` on `workspaceId WHERE status NOT IN ('COMPLETED','FAILED','CANCELLED')` | one active run per workspace, enforced by the database (`ASSISTANT_BUSY`) |
-| function + trigger `assistant_run_notify` (`AFTER INSERT OR UPDATE`) | `pg_notify('assistant_run_changed', NEW.id)` — every writer, in any process, publishes |
+| `CHECK` `AiRun_kind_columns_check` | an `ASSISTANT` row has `workspaceId`, `scope`, `source`, `prompt` and `steps` |
+| partial unique index `AiRun_active_assistant_key` on `workspaceId WHERE kind = 'ASSISTANT' AND status NOT IN ('COMPLETED','FAILED','CANCELLED')` | one active run per workspace, enforced by the database (`ASSISTANT_BUSY`) |
+| function + trigger `ai_run_notify` (`AFTER INSERT OR UPDATE`) | `pg_notify('assistant_run_changed', NEW.id)` for an `ASSISTANT` row (`CASE kind`) — every writer, in any process, publishes |
+| function + trigger `ai_run_spreadsheet_cascade` (`AFTER DELETE` on `Spreadsheet`) | deletes the sheet's assistant runs with it |
 
 ## Files
 
 | Path | Layer | Responsibility |
 | --- | --- | --- |
-| `apps/api/prisma/schema.prisma` | model | `AssistantRun`, `AssistantScope`, `AssistantSource` |
+| `apps/api/prisma/schema.prisma` | model | `AiRun`, `AiRunKind`, `AiRunSource`, `AssistantScope` |
 | `apps/api/src/common/live-feed.ts` | common | `LiveFeed(channel, label)` — one `pg` LISTEN per process with a 10 s ping, reconnect + `resync`; shared with run-ai |
 | `apps/api/src/common/schema.ts` | common | `workspaceIdInput`, shared with the dashboard |
 | `apps/api/src/modules/assistant/assistant.schema.ts` | schema | statuses + terminal rule + wire/db case, scope/source mirrors, the caps, the tool-name lists per scope and `ASSISTANT_DESTRUCTIVE_TOOLS`, `AssistantStep`, `AssistantPendingAction`, `AssistantRun`, `AssistantChange`, every input |
@@ -67,7 +76,7 @@ which also holds what the Prisma schema cannot express:
 | `apps/api/src/modules/assistant/assistant-dashboard-tools.ts` | handlers | the dashboard tools over `dashboardWidgetsService` / `dashboardService`; a card the model leaves unplaced gets a width for its type here and its slot from the service (the engine's `placeWidget`: the first row with room, else a new one); `toWidgetQueryInput`, `prepareRemoveWidget` |
 | `apps/api/src/modules/assistant/assistant-executor.ts` | executor | `AssistantExecutor.execute(stepIndex, call)`: scope check, zod validation, the confirmation for a destructive tool (`deps.confirm`), `ToolInputError` / `DomainError` → a failed step the model reads; `AssistantConfirmationTimeoutError`; `toolSpecsForScope` |
 | `apps/api/src/ai/assistant-prompt.ts` | pure | `buildAssistantSystemPrompt`: the `<company-context>` block first (`withCompanyContext`, when the context has one), then the rules, the tagged untrusted data blocks (`<sheet-description>`, `<columns>`, `<column-profile>`, `<sample-rows>`, `<widgets>`), `WIDGET_GRAMMAR` + `CHART_SENSE_RULES` for the dashboard scope, `PENDING_AI_COLUMN_RULE` when a profiled AI column has no values yet; `describeData` (the blocks, shared with the generation prompts); `withPendingAiColumns` / `roleForType` (an empty AI column's role from its type: number → measure, date → time, boolean → flag, string/email/url → category); `describeColumns`, `describeRows`, `describeSheet`, `truncateValue` (shared with the onboarding prompts) |
-| `apps/api/src/ai/assistant-step.ts` | model | `runAssistantStep` — one `generateText` with the scope's tools (no `execute`, no `output`) → text or tool calls; `toToolSet`, `toolResultsMessage`, `toUsage` / `addUsage`, `trimTranscript`, `assistantModelId` (`ASSISTANT_MODEL`, default `gemini-2.5-flash`) |
+| `apps/api/src/ai/assistant-step.ts` | model | `runAssistantStep` — one `generateText` with the scope's tools (no `execute`, no `output`) → text or tool calls; `toToolSet`, `toolResultsMessage`, `toUsage` / `addUsage`, `trimTranscript`, `assistantModelId` (`ASSISTANT_MODEL`, default `defaultModelId()` — `AI_MODEL`, else the provider default in `ai/model.ts`) |
 | `apps/api/src/trigger/assistant-run.ts` | task | `assistant-run` (`{ runId }`): the loop — see Behaviour |
 | `apps/api/src/jobs/assistant-dispatch.ts` | job client | `registerAssistantDispatcher()` → `tasks.trigger("assistant-run", …, { idempotencyKey: runId })`, `runs.cancel`, `wait.completeToken`; the only `@trigger.dev/sdk` importer for this feature; called from `src/main.ts` |
 | `apps/api/src/trpc/routers/assistant.ts` | router | `start`, `byId`, `active`, `cancel`, `respond`, `onChange` (subscription) |

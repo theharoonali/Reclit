@@ -15,11 +15,11 @@ import {
   emailRecipients,
   resolveRecipient,
 } from "./email-prompt";
-import { gemini } from "./gemini";
+import { aiModel } from "./model";
 import type { SendEmailFetch } from "./resend";
 import { sendEmail } from "./resend";
 
-// The `email` node: Gemini writes one personalized email per recipient it
+// The `email` node: the model writes one personalized email per recipient it
 // decides to contact, the server checks every address against what the
 // prompt and the row actually hold, and Resend sends them one by one. The
 // cell then records `{address: sent text | "FAILED"}`.
@@ -33,7 +33,7 @@ import { sendEmail } from "./resend";
 // failed run (see run-ai-cell.ts), so sent messages are never lost from the
 // run's result.
 //
-// The draft call has no tools, so Gemini's "no tools with a JSON response
+// The draft call has no tools, so the provider's "no tools with a JSON response
 // schema" rule (cell-output.ts) does not apply.
 
 export type EmailGenerationDeps = CellCacheOptions & {
@@ -61,7 +61,7 @@ export async function generateEmailCellValue(
     cellCalls(messages, [], deps.cacheName),
     (call) =>
       generateText({
-        model: gemini(),
+        model: aiModel(),
         ...call,
         output: Output.object({ schema: emailDraftSchema }),
       }),

@@ -1,5 +1,5 @@
 import { logger, schemaTask } from "@trigger.dev/sdk";
-import { ensureCompanyCache } from "../ai/gemini-cache";
+import { ensureCompanyCache } from "../ai/prompt-cache";
 import { describeError } from "../common/errors";
 import { companyContextService } from "../modules/company/company-context.service";
 import { RunAiFinishedError } from "../modules/run-ai/run-ai.errors";
@@ -46,7 +46,7 @@ const isCompleted = (output: unknown): boolean =>
   (output as { status?: unknown }).status === "completed";
 
 /**
- * The explicit Gemini cache the wave's cells run on, or undefined (the
+ * The explicit prompt cache the wave's cells run on, or undefined (the
  * implicit path). Asked per wave, so a batch that outlives the cache's hour
  * gets a fresh one; between those it is one read that reuses the stored one.
  */

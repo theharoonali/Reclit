@@ -3,7 +3,7 @@
 // means the timeout and the response parsing are ours (same reasoning as
 // elevenlabs.ts and firecrawl.ts).
 //
-// The key is read per call and never at import time (same idiom as gemini.ts),
+// The key is read per call and never at import time (same idiom as model.ts),
 // so the API and the test suite boot without it; only a send fails.
 
 export const RESEND_API_URL = "https://api.resend.com/emails";

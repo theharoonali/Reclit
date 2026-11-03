@@ -2,18 +2,21 @@
  * CONTRACT — dashboard-generation
  * Feature doc: docs/features/dashboard-generation.md · Rules: docs/rules/TESTING.md
  *
- * TABLE `DashboardGeneration`
+ * TABLE `AiRun`, kind DASHBOARD (the table every AI run shares — docs/features/dashboard-generation.md)
  *   id             String                     pk, uuid
- *   workspaceId    String                     fk cascade → Workspace; indexed with updatedAt
- *   spreadsheetId  String                     fk cascade → Spreadsheet (the workspace's sheet, resolved at start)
- *   source         DashboardGenerationSource  ONBOARDING | DASHBOARD
+ *   kind           AiRunKind                  "DASHBOARD" for every row this feature reads or writes
+ *   workspaceId    String?                    fk cascade → Workspace; indexed with kind, updatedAt; required (CHECK)
+ *   spreadsheetId  String?                    the workspace's sheet, resolved at start; required (CHECK);
+ *                                             deleting the sheet deletes the generation
+ *                                             (trigger `ai_run_spreadsheet_cascade`)
+ *   source         AiRunSource?               ONBOARDING | DASHBOARD; required (CHECK)
  *   status         String                     uppercase; PENDING | RUNNING | COMPLETED | FAILED | CANCELLED;
  *                                             the last three are terminal
  *   phase          String                     uppercase; QUEUED | WAITING_FOR_ROWS | ANALYZING | PROPOSING |
- *                                             LAYING_OUT | VERIFYING | RETRYING | APPLYING | DONE; default QUEUED
- *   attempt        Int                        the proposal round, 0 before the first; default 0
+ *                                             LAYING_OUT | VERIFYING | RETRYING | APPLYING | DONE; QUEUED on create
+ *   attempt        Int?                       the proposal round, 0 before the first (0 on create)
  *   awaitBatchId   String?                    the onboarding run-ai batch the worker waits for before analyzing
- *   log            Json                       GenerationStep[] (default [])
+ *   steps          Json?                      the log: GenerationStep[] ([] on create); `log` on the wire
  *   brief          Json?                      DashboardBrief, after the analyze phase
  *   result         Json?                      GenerationResult, once completed
  *   error          Json?                      { name, message }, once failed
@@ -22,10 +25,11 @@
  *   triggerRunId   String?                    the Trigger.dev run id — cancel's handle, never on the wire
  *   createdAt      DateTime                   now(), indexed
  *   updatedAt      DateTime                   @updatedAt; its ms value is the SSE event id
- *   Partial unique index `DashboardGeneration_active_workspace_key` (workspaceId WHERE status
- *   NOT IN terminal): one active generation per workspace. Trigger
- *   `dashboard_generation_notify` publishes every insert/update id on channel
- *   `dashboard_generation_changed`.
+ *   (the cell runs' and assistant's columns stay null on a DASHBOARD row)
+ *   Partial unique index `AiRun_active_dashboard_key` (workspaceId WHERE kind =
+ *   DASHBOARD AND status NOT IN terminal): one active generation per
+ *   workspace. Trigger `ai_run_notify` publishes every DASHBOARD insert/update
+ *   id on channel `dashboard_generation_changed`.
  *
  * MODEL  DashboardGeneration = {
  *   id: string; workspaceId: string; spreadsheetId: string;
@@ -90,7 +94,7 @@
  *   own sheet and asks the Trigger.dev worker (`generate-dashboard`) to
  *   execute it. An unknown workspace is NOT_FOUND (`WORKSPACE_NOT_FOUND`); a
  *   workspace without a sheet is NOT_FOUND (`SPREADSHEET_NOT_FOUND`). Without
- *   a `GOOGLE_GENERATIVE_AI_API_KEY` on the api it is SERVICE_UNAVAILABLE
+ *   an `AI_API_KEY` on the api it is SERVICE_UNAVAILABLE
  *   (`DASHBOARD_GENERATION_UNAVAILABLE`) and nothing is written. One active
  *   generation per workspace: a second `start` while one is pending / running
  *   is CONFLICT (`DASHBOARD_GENERATION_BUSY`). When the worker cannot be
@@ -194,6 +198,7 @@ import {
   toGenerationCard,
   unitOrNothing,
 } from "../modules/dashboard-generation/dashboard-generation-pipeline.service";
+import { saveAiKeys, setAiKey } from "./support/ai-key";
 import {
   makeIsolatedOwnerWorkspace,
   makeWorkspace,
@@ -218,7 +223,7 @@ const dbUp = await pingDatabase();
 // everything else only starts and cancels generations on it.
 let workspaceId = "";
 let sheetId = "";
-let savedKey: string | undefined;
+let restoreAiKeys: () => void = () => {};
 const workspaces: string[] = [];
 
 const usage = { inputTokens: 1, outputTokens: 2, totalTokens: 3 };
@@ -322,8 +327,8 @@ const result = (over: Partial<GenerationResult> = {}): GenerationResult => ({
 });
 
 beforeAll(async () => {
-  savedKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  process.env.GOOGLE_GENERATIVE_AI_API_KEY = "contract-test-key";
+  restoreAiKeys = saveAiKeys();
+  setAiKey("contract-test-key");
   if (!dbUp) return;
   const seeded = await seedOrders("dashboard generation contract");
   workspaceId = seeded.workspaceId;
@@ -331,8 +336,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (savedKey === undefined) delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  else process.env.GOOGLE_GENERATIVE_AI_API_KEY = savedKey;
+  restoreAiKeys();
   dashboardGenerationControlService.setDispatcher(null);
   await dashboardGenerationFeed.stop();
   for (const id of workspaces) await removeWorkspace(id);
@@ -392,12 +396,12 @@ describe.skipIf(!dbUp)("dashboardGeneration.start", () => {
     }
   });
 
-  it("is SERVICE_UNAVAILABLE without a Gemini key on the api, and writes nothing", async () => {
-    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  it("is SERVICE_UNAVAILABLE without an AI key on the api, and writes nothing", async () => {
+    setAiKey(undefined);
     try {
       await expectTRPCError(startGeneration(), "SERVICE_UNAVAILABLE");
     } finally {
-      process.env.GOOGLE_GENERATIVE_AI_API_KEY = "contract-test-key";
+      setAiKey("contract-test-key");
     }
     expect(await caller.dashboardGeneration.active({ workspaceId })).toBeNull();
   });

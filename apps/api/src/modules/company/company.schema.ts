@@ -31,7 +31,7 @@ export const companyDocumentStatusSchema = z.enum([
   "FAILED",
 ]);
 
-/** What a company document may be: the files Gemini reads natively, plus text. */
+/** What a company document may be: the files the model reads natively, plus text. */
 export const COMPANY_DOCUMENT_TYPES = [
   "application/pdf",
   "image/png",
@@ -41,7 +41,7 @@ export const COMPANY_DOCUMENT_TYPES = [
   "text/markdown",
   "text/csv",
 ] as const;
-/** The cell attachment cap: one file must fit a Gemini request inline. */
+/** The cell attachment cap: one file must fit a model request inline. */
 export const MAX_COMPANY_DOCUMENT_BYTES = MAX_ATTACHMENT_BYTES;
 export const MAX_COMPANY_DOCUMENTS = 10;
 

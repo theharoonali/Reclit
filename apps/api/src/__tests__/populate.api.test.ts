@@ -128,8 +128,8 @@ beforeAll(async () => {
 afterAll(async () => {
   runAiBatchService.setDispatcher(null);
   if (!dbUp) return;
-  await prisma.runAi.deleteMany({
-    where: { spreadsheetId: { in: [sheet, plainSheet] } },
+  await prisma.aiRun.deleteMany({
+    where: { kind: "CELL", spreadsheetId: { in: [sheet, plainSheet] } },
   });
   for (const id of workspaceIds) await removeWorkspace(id);
 });

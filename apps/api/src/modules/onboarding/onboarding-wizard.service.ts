@@ -1,3 +1,4 @@
+import { isAiConfigured } from "../../ai/model";
 import {
   generateColumnSuggestions,
   type SuggestGeneration,
@@ -63,7 +64,7 @@ export class OnboardingWizardService {
     input: SuggestColumnsInput,
     deps: SuggestDeps = { generate: generateColumnSuggestions },
   ): Promise<OnboardingSuggestions> {
-    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    if (!isAiConfigured()) {
       throw new OnboardingAiUnavailableError();
     }
     const messages = buildSuggestColumnsPrompt(
@@ -128,7 +129,7 @@ export class OnboardingWizardService {
    * run-ai batch, then the flag, then the dashboard generation that waits for
    * that batch. A dispatch failure of the batch propagates with the flag
    * still false, so the step can be retried; a generation that cannot start
-   * (no Gemini key, dispatch failed) answers `generationId: null` — the
+   * (no AI key, dispatch failed) answers `generationId: null` — the
    * dashboard's own pill is the fallback.
    */
   async finish({

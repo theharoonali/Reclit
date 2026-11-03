@@ -11,19 +11,26 @@ payloads, responses, stream events, the log/brief/result shapes, error codes
 and every client-visible behaviour live in its header. Do not duplicate them
 here.
 
-## Table `DashboardGeneration`
+## Table `AiRun` (kind `DASHBOARD`)
+
+Dashboard generations are the `DASHBOARD` kind of the shared `AiRun` table
+([run-ai.md](run-ai.md) has the table's `CELL` side,
+[assistant.md](assistant.md) its `ASSISTANT` side). Every
+`DashboardGenerationService` query spreads `KIND` (`{ kind: "DASHBOARD" }`).
+The columns a generation uses (the rest stay null):
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | `String` | pk, `@default(uuid())` |
-| `workspaceId` | `String` | fk cascade → `Workspace`; indexed with `updatedAt` |
-| `spreadsheetId` | `String` | fk cascade → `Spreadsheet` — the workspace's sheet, resolved by `start` |
-| `source` | `DashboardGenerationSource` | `ONBOARDING DASHBOARD`; lowercase on the wire |
+| `kind` | `AiRunKind` | `DASHBOARD` |
+| `workspaceId` | `String?` | required for `DASHBOARD` (the `CHECK`); fk cascade → `Workspace`; indexed with `kind`, `updatedAt` |
+| `spreadsheetId` | `String?` | required for `DASHBOARD`; the workspace's sheet, resolved by `start`; no fk — the `ai_run_spreadsheet_cascade` trigger deletes the generation with its sheet |
+| `source` | `AiRunSource?` | required for `DASHBOARD`; `ONBOARDING` or `DASHBOARD` (the enum's `USER` / `SYSTEM` belong to assistant runs); lowercase on the wire |
 | `status` | `String` | uppercase word; `PENDING RUNNING COMPLETED FAILED CANCELLED`; the last three are terminal |
-| `phase` | `String` | uppercase word; `QUEUED WAITING_FOR_ROWS ANALYZING PROPOSING LAYING_OUT VERIFYING RETRYING APPLYING DONE` |
-| `attempt` | `Int` | the proposal round, 0 before the first, then 1 or 2 |
+| `phase` | `String?` | required for `DASHBOARD`; uppercase word; `QUEUED WAITING_FOR_ROWS ANALYZING PROPOSING LAYING_OUT VERIFYING RETRYING APPLYING DONE` |
+| `attempt` | `Int?` | required for `DASHBOARD`; the proposal round, 0 before the first, then 1 or 2 |
 | `awaitBatchId` | `String?` | the onboarding run-ai batch the task waits for before analyzing; null from the pill |
-| `log` | `Json` | `GenerationStep[]`, default `[]` — one entry per phase per attempt (`phase`, `attempt`, `status`, `detail`, timestamps) |
+| `steps` | `Json?` | required for `DASHBOARD`; the log — `GenerationStep[]`, written `[]` on create, one entry per phase per attempt (`phase`, `attempt`, `status`, `detail`, timestamps); the service maps it to `log` on the wire |
 | `brief` | `Json?` | the strict-parsed `DashboardBrief` (subject, questions, a use per column) |
 | `result` | `Json?` | `GenerationResult`: `cardCount`, `applied`, `attempts`, the applied attempt's `issues`, the `review`, `reason` (`ok` / `no_value`) |
 | `error` | `Json?` | `{ name, message }` via `describeError` |
@@ -32,22 +39,23 @@ here.
 | `createdAt` | `DateTime` | `@default(now())`, indexed |
 | `updatedAt` | `DateTime` | `@updatedAt`; its ms value is the SSE event id |
 
-Indexes: `[workspaceId, updatedAt]`, `[createdAt]` · Relations:
-`Workspace.dashboardGenerations[]`, `Spreadsheet.dashboardGenerations[]` (both
-cascade) · Migration:
-`apps/api/prisma/migrations/20261102120000_add_dashboard_generation/`, which
-also holds what the Prisma schema cannot express:
+Indexes: `[kind, workspaceId, updatedAt]`, `[createdAt]` · Relations:
+`Workspace.aiRuns[]` (cascade) · Migration:
+`apps/api/prisma/migrations/20261103180000_consolidate_tables/`, which also
+holds what the Prisma schema cannot express:
 
 | Object | What it does |
 | --- | --- |
-| partial unique index `DashboardGeneration_active_workspace_key` on `workspaceId WHERE status NOT IN ('COMPLETED','FAILED','CANCELLED')` | one active generation per workspace, enforced by the database (`DASHBOARD_GENERATION_BUSY`) |
-| function + trigger `dashboard_generation_notify` (`AFTER INSERT OR UPDATE`) | `pg_notify('dashboard_generation_changed', NEW.id)` — every writer, in any process, publishes |
+| `CHECK` `AiRun_kind_columns_check` | a `DASHBOARD` row has `workspaceId`, `spreadsheetId`, `source`, `phase`, `attempt` and `steps` |
+| partial unique index `AiRun_active_dashboard_key` on `workspaceId WHERE kind = 'DASHBOARD' AND status NOT IN ('COMPLETED','FAILED','CANCELLED')` | one active generation per workspace, enforced by the database (`DASHBOARD_GENERATION_BUSY`) |
+| function + trigger `ai_run_notify` (`AFTER INSERT OR UPDATE`) | `pg_notify('dashboard_generation_changed', NEW.id)` for a `DASHBOARD` row (`CASE kind`) — every writer, in any process, publishes |
+| function + trigger `ai_run_spreadsheet_cascade` (`AFTER DELETE` on `Spreadsheet`) | deletes the sheet's generations with it |
 
 ## Files
 
 | Path | Layer | Responsibility |
 | --- | --- | --- |
-| `apps/api/prisma/schema.prisma` | model | `DashboardGeneration`, `DashboardGenerationSource` |
+| `apps/api/prisma/schema.prisma` | model | `AiRun`, `AiRunKind`, `AiRunSource` |
 | `packages/dashboard-engine/src/verify.ts` (+ `verify-query.ts`) | engine | `verifyDashboard(cards, payload, profile)` → `VerifyIssue[]` (`QUERY_INVALID EMPTY_RESULT SINGLE_GROUP ALL_NULL TOO_MANY_SLICES TOO_MANY_CATEGORIES LONG_LABELS CONSTANT_SERIES NON_MEASURE_AGGREGATE ID_COUNT_STAT DUPLICATE_CARD`, each `error` or `warn`), `verifyLayout` (`ROW_UNDERFILLED` + `checkLayout`), the caps `MAX_PIE_SLICES` 6, `MAX_RADAR_AXES` 8, `MAX_LABEL_CHARS` 14, `MAX_CATEGORIES_BY_SPAN` {6: 8, 12: 16} |
 | `packages/dashboard-engine/src/layout.ts` | engine | `packDashboard(cards)` — stats first (widths so a stat row sums to 12), charts paired 6 + 6 with an odd last one widened to 12, tables 12, then `placeWidgets` |
 | `apps/api/src/modules/dashboard-generation/dashboard-generation.schema.ts` | schema | statuses + terminal rule + wire/db case, phases, source mirrors, the caps (`MIN_CARDS` 3, `MAX_CARDS` 8, `MAX_ATTEMPTS` 2, `WAIT_FOR_ROWS_SECONDS` 5, `MAX_WAIT_POLLS` 120), `GenerationStep`, `DashboardBrief`, `GenerationCard`, `VerifyIssue` (the engine's codes + `UNPARSABLE`), `DashboardReview`, `GenerationResult`, `DashboardGeneration`, `GenerationChange`, every input |
@@ -85,8 +93,8 @@ also holds what the Prisma schema cannot express:
   — never from `bootstrap.ts`, which the test suite boots. Without a
   dispatcher a generation stays `pending` and a cancel still flips the row.
 - **`start` checks the key, inserts first, dispatches second.** The api
-  refuses without `GOOGLE_GENERATIVE_AI_API_KEY` (the worker's `gemini()`
-  would only throw a plain Error later); the `pending` row (and its trigger)
+  refuses without an AI key (`isAiConfigured()`: `AI_API_KEY`; the worker's
+  `aiModel()` would only throw a plain Error later); the `pending` row (and its trigger)
   reaches the page before the worker is asked; a dispatch that throws fails
   the row and surfaces as `DashboardGenerationDispatchError`; a cancel that
   lands between the insert and the handle is caught by a re-read.
@@ -98,8 +106,8 @@ also holds what the Prisma schema cannot express:
   cancelled generation stops at its next step.
 - **The task waits for the onboarding batch before it looks.** With an
   `awaitBatchId` the task marks `waiting_for_rows` and sleeps with
-  `wait.for` (5 s, checkpointed — free of `maxDuration`) until every `RunAi`
-  row of the batch is terminal or 120 polls (10 min) pass, then analyzes the
+  `wait.for` (5 s, checkpointed — free of `maxDuration`) until every cell run
+  of the batch is terminal or 120 polls (10 min) pass, then analyzes the
   sheet as it is. The batch itself is created by `onboarding.finish` in the
   api, not by the task: the sheet's live stream and the `rowLimit` contract
   depend on the rows existing before the response.
@@ -121,13 +129,13 @@ also holds what the Prisma schema cannot express:
   swap; the engine already passed every card). No card left: `completed` with
   `result.reason "no_value"` and the dashboard untouched.
 - **Phase writes are the progress.** `onPhase` → `markRunning` closes the open
-  log entry as `done` and appends the new one as `running`; `complete` and
+  log entry (in `steps`) as `done` and appends the new one as `running`; `complete` and
   `fail` close it as `done` / `failed`. Every write fires the notify trigger,
   so the page's step list follows the worker with no other channel.
 - **The generators are lenient, the schema strict.** Each model call is
-  `generateText` + `Output.object` with no `pattern` or array caps (Gemini
-  drops them from a response schema) and no tools (Gemini refuses tools and a
-  JSON schema in one request). The strict twins (`dashboardBriefSchema`,
+  `generateText` + `Output.object` with no `pattern` or array caps (the
+  provider drops them from a response schema) and no tools (the provider
+  refuses tools and a JSON schema in one request). The strict twins (`dashboardBriefSchema`,
   `proposalCardSchema`, `dashboardReviewSchema`) run in the pipeline; an
   unreadable review counts as a fail with a reason the retry can read.
 - **The stream is derived, not stored.** `changes` subscribes to the feed

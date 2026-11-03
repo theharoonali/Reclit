@@ -57,7 +57,7 @@ export function emailRecipients(input: RunAiInput): string[] {
   return recipients.slice(0, MAX_EMAIL_RECIPIENTS);
 }
 
-/** The model's structured answer: closed objects, so Gemini accepts them. */
+/** The model's structured answer: closed objects, so the model accepts them. */
 export const emailDraftSchema = z.object({
   emails: z
     .array(

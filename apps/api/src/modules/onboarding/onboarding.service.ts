@@ -1,3 +1,4 @@
+import { isAiConfigured } from "../../ai/model";
 import {
   type DescribeGeneration,
   type DescribeGenerator,
@@ -55,8 +56,8 @@ export class OnboardingService {
       filename,
       mimeType,
     );
-    // `gemini()` would throw a plain Error; name the condition instead.
-    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    // `aiModel()` would throw a plain Error; name the condition instead.
+    if (!isAiConfigured()) {
       throw new OnboardingAiUnavailableError();
     }
     const sampleRows = toSampleRows(

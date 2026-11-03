@@ -25,7 +25,7 @@ import type {
 } from "./cell-transcripts";
 import { collectTranscripts, summariseTranscripts } from "./cell-transcripts";
 import type { CompanyContext } from "./company-context";
-import { gemini } from "./gemini";
+import { aiModel, cachedContentOptions } from "./model";
 
 // The one model call behind an AI cell, and the typed-output call every
 // generator ends on. The row's file cells are fetched and attached as file
@@ -37,7 +37,7 @@ import { gemini } from "./gemini";
 // the spreadsheet applies on write, so a run never completes with a value
 // its cell would refuse.
 
-/** A cell's token counts; `cachedInputTokens` is the part of the input a Gemini cache served. */
+/** A cell's token counts; `cachedInputTokens` is the part of the input a prompt cache served. */
 export type CellUsage = {
   inputTokens: number | undefined;
   outputTokens: number | undefined;
@@ -55,14 +55,14 @@ export const cellUsage = (usage: LanguageModelUsage): CellUsage => ({
 /**
  * What one cell's model call is sent, apart from the model and the output:
  * `system` on the implicit path; on the explicit-cache path no `system`
- * (Gemini answers 400 "CachedContent can not be used with GenerateContent
+ * (the model answers 400 "CachedContent can not be used with GenerateContent
  * request setting system_instruction, tools or tool_config") and the cache
- * named in `providerOptions.google.cachedContent`.
+ * named in the provider options (`cachedContentOptions`, ai/model.ts).
  */
 export type CellCall = {
   system?: string;
   messages: ModelMessage[];
-  providerOptions?: { google: { cachedContent: string } };
+  providerOptions?: ReturnType<typeof cachedContentOptions>;
 };
 
 /** What the company context and the batch's explicit cache add to a cell's call. */
@@ -112,7 +112,7 @@ export function cellCalls(
     cached: cacheName
       ? {
           messages: [userMessage(messages.cachedPrompt, files)],
-          providerOptions: { google: { cachedContent: cacheName } },
+          providerOptions: cachedContentOptions(cacheName),
         }
       : null,
   };
@@ -132,7 +132,7 @@ export async function withCacheFallback<T>(
       return await run(calls.cached);
     } catch (error) {
       console.warn(
-        "[gemini-cache] cached call failed, retrying without the cache:",
+        "[prompt-cache] cached call failed, retrying without the cache:",
         describeError(error).message,
       );
     }
@@ -242,8 +242,8 @@ function notesOf(
 /**
  * One model call whose answer is shaped to a column type: `Output.object`
  * with `cellOutputSchema` for a typed column, `Output.json` for a `json`
- * column (Gemini rejects open objects), then `coerceCellValue`. Every
- * generator ends on it. Never give this call `tools`: Gemini refuses a JSON
+ * column (the model rejects open objects), then `coerceCellValue`. Every
+ * generator ends on it. Never give this call `tools`: the model refuses a JSON
  * response schema alongside a tool in one request (400 INVALID_ARGUMENT —
  * docs/plans/021-google-search-node.md), which is why a search cell grounds
  * in one call and types its answer in this one. `call` is either shape of
@@ -257,7 +257,7 @@ export async function generateTypedCellValue({
   type: ColumnTypeWire;
 }): Promise<Pick<CellGeneration, "output" | "model" | "usage">> {
   const schema = cellOutputSchema(type);
-  const model = gemini();
+  const model = aiModel();
   const result =
     schema === null
       ? await generateText({ model, ...call, output: Output.json() })

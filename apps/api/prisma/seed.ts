@@ -91,13 +91,9 @@ if (existingUser) {
 // A small company profile for the demo user (docs/features/company.md), so
 // every AI call has a <company-context> to start with. No website: setting
 // one scrapes it through Firecrawl, which a seed must not do.
-const owner = await userService.me();
-const existingCompany = await prisma.company.findUnique({
-  where: { ownerId: owner.id },
-  select: { id: true },
-});
-if (existingCompany) {
-  console.log(`Seed: company already exists (${existingCompany.id})`);
+const existingCompany = await companyService.me();
+if (existingCompany.name) {
+  console.log(`Seed: company already exists (${existingCompany.name})`);
 } else {
   const company = await companyService.update({
     useCases: ["CUSTOMER_INSIGHTS", "EMAIL_OUTREACH"],

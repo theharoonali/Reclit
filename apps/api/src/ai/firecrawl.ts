@@ -9,7 +9,7 @@ import { EXTERNAL_API_KINDS } from "../modules/external-api/external-api.schema"
 // reasoning as elevenlabs.ts): the flow is one POST to start a crawl and GETs
 // until it is done, and keeping it dependency-free means the
 // page cap, the timeouts, the polling cadence and the response parsing are
-// ours. The key is read per call, never at import time (the gemini.ts idiom),
+// ours. The key is read per call, never at import time (the model.ts idiom),
 // so the API and the test suite boot without it.
 //
 // A crawl is asynchronous on Firecrawl's side, so `crawlWebsite` loops:

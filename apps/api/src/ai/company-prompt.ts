@@ -10,8 +10,8 @@ import type { ScrapedPage } from "./firecrawl";
 //
 // The block is deterministic on purpose: fixed field order, fixed caps,
 // documents oldest first. Byte-identical input gives a byte-identical block,
-// which is what lets Gemini's prefix cache (implicit) and our explicit cache
-// (gemini-cache.ts) hit across calls.
+// which is what lets the provider's prefix cache (implicit) and our explicit cache
+// (prompt-cache.ts) hit across calls.
 
 /** The use cases as the model reads them; the dashboard has its own copy for people. */
 export const USE_CASE_LABELS: Record<UseCase, string> = {

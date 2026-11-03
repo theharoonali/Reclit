@@ -64,7 +64,7 @@ export const EMAIL_RULES = [
 /**
  * The zod shape of the model's structured answer for a column type, wrapped
  * as `{ value }` because structured output wants an object at the root.
- * `null` for `json`: Gemini rejects open objects (`additionalProperties`), so
+ * `null` for `json`: the model rejects open objects (`additionalProperties`), so
  * a JSON column is asked for free JSON instead and validated afterwards.
  */
 export function cellOutputSchema(
@@ -153,12 +153,12 @@ function crawledContentBlocks(
 
 /**
  * The first line of every cell's instruction, whichever node runs: the part
- * an explicit Gemini cache holds after the company block (`cachedCellSystem`).
+ * an explicit prompt cache holds after the company block (`cachedCellSystem`).
  */
 export const CELL_PREAMBLE = "You fill in one cell of a spreadsheet row.";
 
 /**
- * What an explicit cache's `systemInstruction` is (ai/gemini-cache.ts): the
+ * What an explicit cache's `systemInstruction` is (ai/prompt-cache.ts): the
  * company block, then the preamble. Every cell's implicit `system` starts
  * with exactly these bytes too, so both caching paths share one prefix.
  */
@@ -174,7 +174,7 @@ export type CellMessages = {
   prompt: string;
   /**
    * The explicit-cache path: the cache already holds the company block and
-   * the preamble, and Gemini refuses a `system` next to a cache — so the
+   * the preamble, and the model refuses a `system` next to a cache — so the
    * column's instruction opens the user message instead, then `prompt`.
    */
   cachedPrompt: string;

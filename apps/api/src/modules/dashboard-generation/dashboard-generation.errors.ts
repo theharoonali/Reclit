@@ -12,7 +12,7 @@ export class DashboardGenerationNotFoundError extends DomainError {
   }
 }
 
-/** The workspace already has a generation that is not finished (partial unique index `DashboardGeneration_active_workspace_key`). */
+/** The workspace already has a generation that is not finished (partial unique index `AiRun_active_dashboard_key`). */
 export class DashboardGenerationBusyError extends DomainError {
   readonly kind = "conflict";
   readonly code = "DASHBOARD_GENERATION_BUSY";
@@ -44,14 +44,12 @@ export class DashboardGenerationDispatchError extends DomainError {
   }
 }
 
-/** `dashboardGeneration.start` without a `GOOGLE_GENERATIVE_AI_API_KEY` on the api. */
+/** `dashboardGeneration.start` without a `AI_API_KEY` on the api. */
 export class DashboardGenerationUnavailableError extends DomainError {
   readonly kind = "unavailable";
   readonly code = "DASHBOARD_GENERATION_UNAVAILABLE";
   constructor() {
-    super(
-      "Dashboard generation is not configured: GOOGLE_GENERATIVE_AI_API_KEY is not set",
-    );
+    super("Dashboard generation is not configured: AI_API_KEY is not set");
     this.name = "DashboardGenerationUnavailableError";
   }
 }

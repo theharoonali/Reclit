@@ -65,7 +65,7 @@ through `user.me`.
   so the file is uploaded once and the second call carries no parser.
 - **The generators are lenient, the services strict.** Each call is
   `generateText` + `Output.object` over a schema with no caps, enums or
-  patterns (Gemini drops them from a response schema). The answer is then
+  patterns (the provider drops them from a response schema). The answer is then
   parsed with the strict twin — `describedSheetSchema` whole, or
   `suggestedColumnSchema` per proposal — so a bad proposal costs one column
   and an unusable description is `ONBOARDING_AI_FAILED`.
@@ -93,7 +93,7 @@ through `user.me`.
   columns) so one batch fits the run-ai cell cap — and creates one `runCells`
   batch, then `userService.completeOnboarding`, then starts the dashboard
   generation with that batch id ([dashboard-generation.md](dashboard-generation.md))
-  — best effort: a generation that cannot start (no Gemini key, dispatch
+  — best effort: a generation that cannot start (no AI key, dispatch
   failed) answers `generationId: null` and the dashboard's pill is the
   fallback. No runnable column or no row: no batch, the flag is still set,
   the generation starts without waiting. A batch dispatch failure propagates
@@ -106,7 +106,8 @@ through `user.me`.
   user on `/onboarding`; the page resumes at the finishing step from
   `workspace.list` ([route doc](../routes/onboarding.md)).
 - **`db:reset`** (`apps/api/prisma/reset.ts`) deletes every row of every
-  table, children first (`RunAi` has no foreign key), then creates "Demo
+  table, children first (cell runs — `AiRun` of kind `CELL` — have no
+  foreign key), then creates "Demo
   User" with `onboardingCompleted: false` and no workspace. It refuses
   `NODE_ENV=production`. The seed (`prisma/seed.ts`) is unchanged and still
   creates an onboarded user with the "Customers" workspace.

@@ -5,8 +5,8 @@ import {
 } from "../../ai/company-ai";
 import { buildCompanySummaryPrompt } from "../../ai/company-prompt";
 import { type ScrapedPage, scrapePage } from "../../ai/firecrawl";
+import { isAiConfigured } from "../../ai/model";
 import { describeError } from "../../common/errors";
-import { isUniqueViolation } from "../../common/prisma-errors";
 import { prisma } from "../../db/prisma";
 import { userService } from "../user/user.service";
 import {
@@ -27,15 +27,16 @@ import {
 } from "./company.schema";
 
 // Framework-free (docs/rules/BACKEND.md hard rule 1). The profile itself: one
-// company per user, created on first read; the website's synchronous scrape
-// and the hand-off of the background crawl; and the crawl task's writes.
-// Documents are company-documents.service.ts; the compiled context and its
-// caches are company-context.service.ts.
+// company per user, stored as the user's `company*` columns (so `Company.id`
+// is the user id); the website's synchronous scrape and the hand-off of the
+// background crawl; and the crawl task's writes. Documents are
+// company-documents.service.ts; the compiled context and its caches are
+// company-context.service.ts.
 //
 // Two seams: the dispatcher (the Trigger.dev client, registered from
 // src/main.ts by src/jobs/company-dispatch.ts — without it a crawl is never
 // started and documents stay pending) and the providers (Firecrawl's scrape
-// and the Gemini summary — fakes in the contract test).
+// and the model summary — fakes in the contract test).
 
 /** The one document projection: here, nested in the company, and in company-documents.service.ts. */
 export const companyDocumentSelect = {
@@ -54,42 +55,97 @@ const companySelect = {
   id: true,
   useCases: true,
   useCaseOther: true,
-  website: true,
-  name: true,
-  iconUrl: true,
-  summary: true,
-  rules: true,
+  companyWebsite: true,
+  companyName: true,
+  companyIconUrl: true,
+  companySummary: true,
+  companyRules: true,
   crawlStatus: true,
   crawlError: true,
   crawledAt: true,
-  updatedAt: true,
-  _count: { select: { pages: true } },
-  documents: {
+  pageCount: true,
+  companyUpdatedAt: true,
+  companyDocuments: {
     select: companyDocumentSelect,
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   },
-} as const satisfies Prisma.CompanySelect;
+} as const satisfies Prisma.UserSelect;
 
-type CompanyRecord = Prisma.CompanyGetPayload<{
+type CompanyRecord = Prisma.UserGetPayload<{
   select: typeof companySelect;
 }>;
 
 function toCompany(record: CompanyRecord): Company {
-  const { _count, ...rest } = record;
-  return { ...rest, pageCount: _count.pages };
+  return {
+    id: record.id,
+    useCases: record.useCases,
+    useCaseOther: record.useCaseOther,
+    website: record.companyWebsite,
+    name: record.companyName,
+    iconUrl: record.companyIconUrl,
+    summary: record.companySummary,
+    rules: record.companyRules,
+    crawlStatus: record.crawlStatus,
+    crawlError: record.crawlError,
+    crawledAt: record.crawledAt,
+    pageCount: record.pageCount,
+    documents: record.companyDocuments,
+    updatedAt: record.companyUpdatedAt,
+  };
 }
 
+/** A profile write in wire names — what `companyData` turns into user columns. */
+type CompanyPatch = Partial<
+  Pick<
+    Company,
+    | "useCases"
+    | "useCaseOther"
+    | "website"
+    | "name"
+    | "iconUrl"
+    | "summary"
+    | "rules"
+    | "crawlStatus"
+    | "crawlError"
+    | "crawledAt"
+    | "pageCount"
+  >
+>;
+
 /**
- * Moves the company's `updatedAt` — the key its compiled context is memoised
- * by — in the same batch as a document write. Un-awaited, so it batches in
- * `$transaction([...])`.
+ * The one way a profile write reaches the user row: wire names → columns,
+ * and `companyUpdatedAt` moved — the key the compiled context is memoised by
+ * and the column the `company_changed` trigger watches.
  */
-export const touchCompany = (companyId: string) =>
-  prisma.company.update({
-    where: { id: companyId },
-    data: { updatedAt: new Date() },
+function companyData({
+  website,
+  name,
+  iconUrl,
+  summary,
+  rules,
+  ...same
+}: CompanyPatch): Prisma.UserUpdateManyMutationInput {
+  return {
+    ...same,
+    ...(website !== undefined && { companyWebsite: website }),
+    ...(name !== undefined && { companyName: name }),
+    ...(iconUrl !== undefined && { companyIconUrl: iconUrl }),
+    ...(summary !== undefined && { companySummary: summary }),
+    ...(rules !== undefined && { companyRules: rules }),
+    companyUpdatedAt: new Date(),
+  };
+}
+
+/** One profile write by user id. Un-awaited, it batches in `$transaction([...])`. */
+const writeCompany = (id: string, patch: CompanyPatch) =>
+  prisma.user.update({
+    where: { id },
+    data: companyData(patch),
     select: { id: true },
   });
+
+/** Moves the profile's `companyUpdatedAt` in the same batch as a document write. */
+export const touchCompany = (userId: string) => writeCompany(userId, {});
 
 /**
  * `example.com` → `https://example.com`; any other scheme, a host without a
@@ -190,41 +246,22 @@ export class CompanyService {
     this.providers = { ...DEFAULT_PROVIDERS, ...providers };
   }
 
-  /** The current user's company id, creating the empty profile on first use. */
+  /** The current user's company id — the user's own id. */
   async currentId(): Promise<string> {
-    const owner = await userService.me();
-    const where = { ownerId: owner.id };
-    const found = await prisma.company.findUnique({
-      where,
-      select: { id: true },
-    });
-    if (found) return found.id;
-    try {
-      const created = await prisma.company.create({
-        data: where,
-        select: { id: true },
-      });
-      return created.id;
-    } catch (error) {
-      // Two first reads racing: the other one created it.
-      if (!isUniqueViolation(error)) throw error;
-      return (
-        await prisma.company.findUniqueOrThrow({ where, select: { id: true } })
-      ).id;
-    }
+    return (await userService.me()).id;
   }
 
   async me(): Promise<Company> {
-    const record = await prisma.company.findUniqueOrThrow({
+    const record = await prisma.user.findUniqueOrThrow({
       where: { id: await this.currentId() },
       select: companySelect,
     });
     return toCompany(record);
   }
 
-  /** One company by id, or null — what the change stream and the tasks read. */
+  /** One company by id (its user's id), or null — what the change stream and the tasks read. */
   async find(id: string): Promise<Company | null> {
-    const record = await prisma.company.findUnique({
+    const record = await prisma.user.findUnique({
       where: { id },
       select: companySelect,
     });
@@ -237,12 +274,12 @@ export class CompanyService {
     // would describe a choice the user took back.
     const clearsOther =
       input.useCases !== undefined && !input.useCases.includes("OTHER");
-    const record = await prisma.company.update({
+    const record = await prisma.user.update({
       where: { id },
-      data: {
+      data: companyData({
         ...input,
         ...(clearsOther && { useCaseOther: null }),
-      },
+      }),
       select: companySelect,
     });
     return toCompany(record);
@@ -256,17 +293,14 @@ export class CompanyService {
   async setWebsite(input: SetCompanyWebsiteInput): Promise<Company> {
     const url = normalizeWebsite(input.url);
     if (url === null) throw new CompanyWebsiteInvalidError(input.url);
-    if (
-      !process.env.FIRECRAWL_API_KEY ||
-      !process.env.GOOGLE_GENERATIVE_AI_API_KEY
-    ) {
+    if (!process.env.FIRECRAWL_API_KEY || !isAiConfigured()) {
       throw new CompanyAiUnavailableError();
     }
     const id = await this.currentId();
-    await prisma.company.update({
-      where: { id },
-      data: { website: url, crawlStatus: "SCRAPING", crawlError: null },
-      select: { id: true },
+    await writeCompany(id, {
+      website: url,
+      crawlStatus: "SCRAPING",
+      crawlError: null,
     });
 
     let page: ScrapedPage;
@@ -274,11 +308,7 @@ export class CompanyService {
       page = await this.providers.scrape(url);
     } catch (error) {
       const reason = describeError(error).message;
-      await prisma.company.update({
-        where: { id },
-        data: { crawlStatus: "FAILED", crawlError: reason },
-        select: { id: true },
-      });
+      await writeCompany(id, { crawlStatus: "FAILED", crawlError: reason });
       throw new CompanyScrapeFailedError(url, reason);
     }
     const described =
@@ -287,37 +317,27 @@ export class CompanyService {
         this.providers.summarise,
       )) ?? summaryFromPage(page);
 
-    // A new website: the old site's pages describe something else.
-    await prisma.$transaction([
-      prisma.companyPage.deleteMany({ where: { companyId: id } }),
-      prisma.company.update({
-        where: { id },
-        data: {
-          name: described.name,
-          summary: described.summary,
-          iconUrl: companyIconUrl(page, url),
-          crawlStatus: "CRAWLING",
-          crawledAt: null,
-        },
-        select: { id: true },
-      }),
-    ]);
+    // A new website: the old site's page count describes something else.
+    await writeCompany(id, {
+      name: described.name,
+      summary: described.summary,
+      iconUrl: companyIconUrl(page, url),
+      crawlStatus: "CRAWLING",
+      crawledAt: null,
+      pageCount: 0,
+    });
     return this.startCrawl(id, url);
   }
 
   /** The background crawl again, for the website already set. */
   async recrawl(): Promise<Company> {
     const id = await this.currentId();
-    const { website } = await prisma.company.findUniqueOrThrow({
+    const { companyWebsite: website } = await prisma.user.findUniqueOrThrow({
       where: { id },
-      select: { website: true },
+      select: { companyWebsite: true },
     });
     if (!website) throw new CompanyWebsiteMissingError();
-    await prisma.company.update({
-      where: { id },
-      data: { crawlStatus: "CRAWLING", crawlError: null },
-      select: { id: true },
-    });
+    await writeCompany(id, { crawlStatus: "CRAWLING", crawlError: null });
     return this.startCrawl(id, website);
   }
 
@@ -330,11 +350,7 @@ export class CompanyService {
       dispatcher.crawl({ companyId: id, url }),
     );
     if (dispatched !== "sent") {
-      await prisma.company.update({
-        where: { id },
-        data: { crawlStatus: "READY" },
-        select: { id: true },
-      });
+      await writeCompany(id, { crawlStatus: "READY" });
     }
     return this.me();
   }
@@ -363,26 +379,20 @@ export class CompanyService {
   /* ------------------------------------------------- crawl task writes */
 
   /**
-   * Replaces the company's pages with a crawl of `url` — unless the website
-   * changed while the crawl ran, when nothing is written and false comes back.
+   * Records a crawl of `url` — how many pages it read; the task summarises
+   * the pages in memory and they are not kept — unless the website changed
+   * while the crawl ran, when nothing is written and false comes back.
    */
   async savePages(
     companyId: string,
     url: string,
     pages: { url: string; title: string | null; markdown: string }[],
   ): Promise<boolean> {
-    const company = await prisma.company.findUnique({
-      where: { id: companyId },
-      select: { website: true },
+    const { count } = await prisma.user.updateMany({
+      where: { id: companyId, companyWebsite: url },
+      data: companyData({ pageCount: pages.length }),
     });
-    if (company?.website !== url) return false;
-    await prisma.$transaction([
-      prisma.companyPage.deleteMany({ where: { companyId } }),
-      prisma.companyPage.createMany({
-        data: pages.map((page) => ({ companyId, ...page })),
-      }),
-    ]);
-    return true;
+    return count > 0;
   }
 
   /**
@@ -395,7 +405,7 @@ export class CompanyService {
     url: string,
     result: { summary: CompanySummary | null } | { error: string },
   ): Promise<void> {
-    const data: Prisma.CompanyUpdateManyMutationInput =
+    const patch: CompanyPatch =
       "error" in result
         ? { crawlStatus: "FAILED", crawlError: result.error.slice(0, 1000) }
         : {
@@ -407,9 +417,9 @@ export class CompanyService {
               summary: result.summary.summary,
             }),
           };
-    await prisma.company.updateMany({
-      where: { id: companyId, website: url },
-      data,
+    await prisma.user.updateMany({
+      where: { id: companyId, companyWebsite: url },
+      data: companyData(patch),
     });
   }
 }

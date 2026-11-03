@@ -1,5 +1,5 @@
 // The compiled company profile as every prompt builder takes it, and the one
-// way it enters a system prompt: FIRST. Gemini's implicit cache hits on a
+// way it enters a system prompt: FIRST. The provider's implicit cache hits on a
 // shared prefix, so the block — byte-identical for every call of one
 // profile version — must come before anything call-specific. Pure: the
 // block is compiled by `compileCompanyContext` (company-prompt.ts) and

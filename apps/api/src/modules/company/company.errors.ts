@@ -25,9 +25,7 @@ export class CompanyAiUnavailableError extends DomainError {
   readonly kind = "unavailable";
   readonly code = "COMPANY_AI_UNAVAILABLE";
   constructor() {
-    super(
-      "FIRECRAWL_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY are not set in apps/api/.env",
-    );
+    super("FIRECRAWL_API_KEY / AI_API_KEY are not set in apps/api/.env");
     this.name = "CompanyAiUnavailableError";
   }
 }

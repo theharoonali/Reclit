@@ -12,7 +12,7 @@ import type { RunAiInputCell } from "../modules/run-ai/run-ai.schema";
 // it as its pages (cell-crawls.ts). `fetchAttachment`, `isUrlCell`,
 // `filenameOf` and `mediaTypeFor` are shared with those paths.
 
-/** Gemini's inline-data ceiling is 20 MB per request; keep one file under it. */
+/** The provider's inline-data ceiling is 20 MB per request; keep one file under it. */
 export const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 export const ATTACHMENT_TIMEOUT_MS = 30_000;
 

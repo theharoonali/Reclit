@@ -9,7 +9,11 @@ import type {
   UpdateWidgetInput,
   WidgetInput,
 } from "./dashboard.schema";
-import { dashboardService } from "./dashboard.service";
+import {
+  dashboardService,
+  ensureDashboard,
+  written,
+} from "./dashboard.service";
 import {
   dashboardSelect,
   toDashboardDetail,
@@ -41,31 +45,30 @@ export class DashboardWidgetsService {
     const sheet = await createSheetResolver(workspaceId)(rest.spreadsheetId);
     assertWidgetValid(rest, sheet.columns);
     const record = await prisma.$transaction(async (tx) => {
-      const dashboard = await tx.dashboard.upsert({
+      await ensureDashboard(tx, workspaceId);
+      const slots = await tx.dashboardWidget.findMany({
         where: { workspaceId },
-        create: { workspaceId },
-        update: {},
-        select: { id: true, widgets: { select: slotSelect } },
+        select: slotSelect,
       });
       const placement =
         row !== undefined && sort !== undefined
           ? { row, sort }
-          : placeWidget(dashboard.widgets, rest.column, row);
+          : placeWidget(slots, rest.column, row);
       const widget: WidgetInput = { ...rest, ...placement };
-      assertLayoutValid([...dashboard.widgets, widget]);
+      assertLayoutValid([...slots, widget]);
       await tx.dashboardWidget.create({
         data: {
           ...toPreparedWidget(widget, sheet.spreadsheetId),
-          dashboardId: dashboard.id,
+          workspaceId,
         },
         select: { id: true },
       });
-      return tx.dashboard.findUniqueOrThrow({
-        where: { id: dashboard.id },
+      return tx.workspace.findUniqueOrThrow({
+        where: { id: workspaceId },
         select: dashboardSelect,
       });
     });
-    return toDashboardDetail(record);
+    return written(toDashboardDetail(record), workspaceId);
   }
 
   /**
@@ -78,9 +81,7 @@ export class DashboardWidgetsService {
       where: { id },
       select: {
         ...widgetSelect,
-        dashboard: {
-          select: { workspaceId: true, widgets: { select: slotSelect } },
-        },
+        workspace: { select: { dashboardWidgets: { select: slotSelect } } },
       },
     });
     if (!stored) throw new DashboardWidgetNotFoundError(id);
@@ -101,7 +102,7 @@ export class DashboardWidgetsService {
       query: patch.query ?? current.query,
     };
 
-    const { workspaceId } = stored.dashboard;
+    const { workspaceId } = stored;
     let spreadsheetId = stored.spreadsheetId;
     const touchesQuery =
       patch.query !== undefined ||
@@ -116,25 +117,25 @@ export class DashboardWidgetsService {
       assertWidgetValid(merged, sheet.columns);
     }
     assertLayoutValid([
-      ...stored.dashboard.widgets.filter((other) => other.id !== id),
+      ...stored.workspace.dashboardWidgets.filter((other) => other.id !== id),
       merged,
     ]);
 
     const updated = await prisma.dashboardWidget.update({
       where: { id },
       data: toPreparedWidget(merged, spreadsheetId),
-      select: { dashboardId: true },
+      select: { workspaceId: true },
     });
-    return dashboardService.byId(updated.dashboardId);
+    return dashboardService.byId(updated.workspaceId);
   }
 
   async removeWidget(id: string): Promise<DashboardDetail> {
     try {
       const removed = await prisma.dashboardWidget.delete({
         where: { id },
-        select: { dashboardId: true },
+        select: { workspaceId: true },
       });
-      return await dashboardService.byId(removed.dashboardId);
+      return await dashboardService.byId(removed.workspaceId);
     } catch (error) {
       if (isRecordNotFound(error)) throw new DashboardWidgetNotFoundError(id);
       throw error;

@@ -55,7 +55,7 @@ The dashboard sets `X-Frame-Options: DENY` on all routes (`next.config.ts`).
 ## Secrets
 
 `DATABASE_URL` is the one required secret. `SUPABASE_KEY`,
-`TRIGGER_SECRET_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY` are optional: without
+`TRIGGER_SECRET_KEY` and `AI_API_KEY` are optional: without
 them uploads answer 503, runs stay `pending`, the worker fails a run with a
 clear message and the dashboard's AI recommendations answer 503
 (`SERVICE_UNAVAILABLE`). `.env` files are gitignored; `.env.example` lists

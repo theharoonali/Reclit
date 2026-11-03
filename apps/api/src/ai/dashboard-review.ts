@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AssistantUsage } from "../modules/assistant/assistant.schema";
 import { REVIEW_VERDICTS } from "../modules/dashboard-generation/dashboard-generation.schema";
 import { assistantModelId, toUsage } from "./assistant-step";
-import { gemini } from "./gemini";
+import { aiModel } from "./model";
 
 // The review call of the generate-dashboard task: `generateText` with a JSON
 // response schema and no tools. LENIENT like the other two; the strict twin
@@ -43,7 +43,7 @@ export const generateDashboardReview: ReviewGenerator = async ({
 }) => {
   const modelId = assistantModelId();
   const result = await generateText({
-    model: gemini(modelId),
+    model: aiModel(modelId),
     system,
     prompt,
     output: Output.object({ schema: reviewOutputSchema }),

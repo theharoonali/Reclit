@@ -89,7 +89,7 @@
  *   (`dashboardGeneration.start`, in-process) with `source: "onboarding"`
  *   and `awaitBatchId` = `batchId`, so the worker waits for the AI columns
  *   before analyzing; `generationId` is its id and the wizard then follows
- *   `dashboardGeneration.onChange`. Best effort: without a Gemini key, or
+ *   `dashboardGeneration.onChange`. Best effort: without an AI key, or
  *   when the worker cannot be reached, `generationId` is null and the
  *   response is still 200 with the flag set — the dashboard page offers to
  *   generate again.
@@ -101,7 +101,7 @@
  *   compiled company profile (`<company-context>`, company contract) when
  *   there is one, so the description and the proposed columns reflect the
  *   company and the use cases the user picked (`company.update`).
- * - Without `GOOGLE_GENERATIVE_AI_API_KEY` on the api, `describe` is 503 and
+ * - Without `AI_API_KEY` on the api, `describe` is 503 and
  *   `suggestColumns` SERVICE_UNAVAILABLE; a model failure or an unusable
  *   answer is 502 / BAD_GATEWAY.
  * - Every route is public; there is no auth yet. "The user" is `user.me`.
@@ -130,6 +130,7 @@ import {
   onboardingWizardService,
   rowBudget,
 } from "../modules/onboarding/onboarding-wizard.service";
+import { saveAiKeys, setAiKey } from "./support/ai-key";
 import { ensureUser, makeWorkspace, removeWorkspace } from "./support/fixtures";
 import type { TestServer } from "./support/http";
 import { startTestServer } from "./support/http";
@@ -162,7 +163,7 @@ describe.skipIf(!dbUp)("onboarding", () => {
   let baseUrl = "";
   let userId = "";
   let originalFlag = true;
-  let savedKey: string | undefined;
+  let restoreAiKeys: () => void = () => {};
   const created: string[] = [];
 
   // There is only one user; its flag is flipped back to false before every
@@ -188,19 +189,18 @@ describe.skipIf(!dbUp)("onboarding", () => {
     const user = await ensureUser();
     userId = user.id;
     originalFlag = user.onboardingCompleted;
-    savedKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    restoreAiKeys = saveAiKeys();
     server = await startTestServer();
     baseUrl = server.baseUrl;
   });
 
   beforeEach(async () => {
     await setFlag(false);
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY = "contract-test-key";
+    setAiKey("contract-test-key");
   });
 
   afterAll(async () => {
-    if (savedKey === undefined) delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    else process.env.GOOGLE_GENERATIVE_AI_API_KEY = savedKey;
+    restoreAiKeys();
     dashboardGenerationControlService.setDispatcher(null);
     for (const id of created) await removeWorkspace(id);
     await setFlag(originalFlag).catch(() => {});
@@ -424,7 +424,7 @@ describe.skipIf(!dbUp)("onboarding", () => {
         return { described, model: "fake-model", usage };
       };
 
-    it("answers 400 without a file, 400 for a bad file and 503 without a Gemini key", async () => {
+    it("answers 400 without a file, 400 for a bad file and 503 without an AI key", async () => {
       const none = await fetch(`${baseUrl}/onboarding/describe`, {
         method: "POST",
         body: new FormData(),
@@ -440,7 +440,7 @@ describe.skipIf(!dbUp)("onboarding", () => {
         "SPREADSHEET_IMPORT_EMPTY",
       );
 
-      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      setAiKey(undefined);
       const noKey = await fetch(`${baseUrl}/onboarding/describe`, {
         method: "POST",
         body: csvBody(csv),
@@ -578,12 +578,12 @@ describe.skipIf(!dbUp)("onboarding", () => {
         };
       };
 
-    it("is BAD_REQUEST without columns and SERVICE_UNAVAILABLE without a Gemini key", async () => {
+    it("is BAD_REQUEST without columns and SERVICE_UNAVAILABLE without an AI key", async () => {
       await expectTRPCError(
         caller.onboarding.suggestColumns({ ...input, columns: [] }),
         "BAD_REQUEST",
       );
-      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      setAiKey(undefined);
       await expectTRPCError(
         caller.onboarding.suggestColumns(input),
         "SERVICE_UNAVAILABLE",
@@ -691,7 +691,7 @@ describe.skipIf(!dbUp)("onboarding", () => {
 
     afterAll(async () => {
       for (const batchId of batches) {
-        await prisma.runAi.deleteMany({ where: { batchId } });
+        await prisma.aiRun.deleteMany({ where: { kind: "CELL", batchId } });
       }
     });
 
@@ -767,9 +767,9 @@ describe.skipIf(!dbUp)("onboarding", () => {
       }
     });
 
-    it("answers generationId null without a Gemini key, the flag still set", async () => {
+    it("answers generationId null without an AI key, the flag still set", async () => {
       const { workspaceId } = await stage(1);
-      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      setAiKey(undefined);
       const result = await caller.onboarding.finish({ workspaceId });
       if (result.batchId) batches.push(result.batchId);
       expect(result.batchId).toStartWith("batch-");

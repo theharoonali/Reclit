@@ -1,4 +1,5 @@
 import type { Prisma } from "../../../generated/prisma/client";
+import { present } from "../../common/ai-run";
 import {
   isRecordNotFound,
   isUniqueViolation,
@@ -32,7 +33,10 @@ import {
 // tasks transition them, and the database enforces one working run per cell
 // (partial unique index). Which cells run, in what order, and the dispatcher
 // hook live in run-ai-batch.service.ts; the live stream in
-// run-ai-changes.service.ts.
+// run-ai-changes.service.ts. Cell runs are the `CELL` kind of the shared
+// `AiRun` table: every query below carries `KIND`.
+
+const KIND = { kind: "CELL" } as const;
 
 const runAiSelect = {
   id: true,
@@ -40,7 +44,6 @@ const runAiSelect = {
   spreadsheetId: true,
   batchId: true,
   status: true,
-  credit: true,
   result: true,
   createdAt: true,
   updatedAt: true,
@@ -50,15 +53,18 @@ const runAiSelect = {
 const REPLAY_LIMIT = 500;
 
 /** The `where` half of "still working": any status but the terminal two. */
-const WORKING: Prisma.StringFilter<"RunAi"> = {
+const WORKING: Prisma.StringFilter<"AiRun"> = {
   notIn: [...RUN_AI_TERMINAL_STATUSES_DB],
 };
 
 function toRunAi(
-  record: Prisma.RunAiGetPayload<{ select: typeof runAiSelect }>,
+  record: Prisma.AiRunGetPayload<{ select: typeof runAiSelect }>,
 ): RunAi {
   return {
     ...record,
+    cellId: present(record.cellId, "cellId", record.id),
+    spreadsheetId: present(record.spreadsheetId, "spreadsheetId", record.id),
+    batchId: present(record.batchId, "batchId", record.id),
     status: toWireRunAiStatus(record.status),
     // complete/fail are the only writers and only accept objects.
     result: (record.result ?? null) as RunAiResult | null,
@@ -66,36 +72,30 @@ function toRunAi(
 }
 
 /**
- * The optional fields a create or transition may carry. `result` is the
- * *input* shape: `create` takes `z.input` (its `credit` defaults), so a caller
- * may hand over a result whose defaulted fields — `input.target.node` — are
- * still absent. Either way it is written verbatim as JSON.
+ * The optional `result` a create or transition may carry. It is the *input*
+ * shape: `create` takes `z.input`, so a caller may hand over a result whose
+ * defaulted fields — `input.target.node` — are still absent. Either way it is
+ * written verbatim as JSON.
  */
-function resultAndCredit({
-  result,
-  credit,
-}: {
-  result?: RunAiResultInput;
-  credit?: number;
-}): { result?: Prisma.InputJsonValue; credit?: number } {
-  return {
-    ...(result !== undefined && { result: toJsonInput(result) }),
-    ...(credit !== undefined && { credit }),
-  };
+function resultData({ result }: { result?: RunAiResultInput }): {
+  result?: Prisma.InputJsonValue;
+} {
+  return result !== undefined ? { result: toJsonInput(result) } : {};
 }
 
 /** One create input as a row; shared by `create` and `createMany`. */
-function toCreateData(input: CreateRunAiInput): Prisma.RunAiCreateManyInput {
+function toCreateData(input: CreateRunAiInput): Prisma.AiRunCreateManyInput {
   const address = parseCellId(input.cellId);
   if (!address) throw new RunAiInvalidCellIdError(input.cellId);
   return {
+    ...KIND,
     cellId: input.cellId,
     spreadsheetId: address.sheetId,
     batchId: input.batchId,
     ...(input.status !== undefined && {
       status: toDbRunAiStatus(input.status),
     }),
-    ...resultAndCredit({ result: input.result, credit: input.credit ?? 0 }),
+    ...resultData(input),
   };
 }
 
@@ -103,7 +103,7 @@ export class RunAiService {
   async create(input: CreateRunAiInput): Promise<RunAi> {
     const data = toCreateData(input);
     try {
-      const record = await prisma.runAi.create({ data, select: runAiSelect });
+      const record = await prisma.aiRun.create({ data, select: runAiSelect });
       return toRunAi(record);
     } catch (error) {
       if (isUniqueViolation(error)) throw new RunAiCellBusyError(input.cellId);
@@ -120,7 +120,7 @@ export class RunAiService {
   async createMany(inputs: CreateRunAiInput[]): Promise<RunAi[]> {
     const data = inputs.map(toCreateData);
     try {
-      const records = await prisma.runAi.createManyAndReturn({
+      const records = await prisma.aiRun.createManyAndReturn({
         data,
         select: runAiSelect,
       });
@@ -157,14 +157,11 @@ export class RunAiService {
    */
   setStatus(id: string, input: SetRunAiStatusInput): Promise<RunAi> {
     if (input.status === "completed") {
-      return this.complete(id, {
-        result: input.result ?? {},
-        credit: input.credit,
-      });
+      return this.complete(id, { result: input.result ?? {} });
     }
     return this.update(id, {
       status: toDbRunAiStatus(input.status),
-      ...resultAndCredit(input),
+      ...resultData(input),
     });
   }
 
@@ -188,11 +185,11 @@ export class RunAiService {
         value: output,
       });
     }
-    return this.update(id, { status: "COMPLETED", ...resultAndCredit(input) });
+    return this.update(id, { status: "COMPLETED", ...resultData(input) });
   }
 
   fail(id: string, input: FailRunAiInput = {}): Promise<RunAi> {
-    return this.update(id, { status: "FAILED", ...resultAndCredit(input) });
+    return this.update(id, { status: "FAILED", ...resultData(input) });
   }
 
   /**
@@ -202,8 +199,8 @@ export class RunAiService {
    */
   async failPending(ids: string[], result: RunAiResult): Promise<number> {
     if (ids.length === 0) return 0;
-    const { count } = await prisma.runAi.updateMany({
-      where: { id: { in: ids }, status: WORKING },
+    const { count } = await prisma.aiRun.updateMany({
+      where: { ...KIND, id: { in: ids }, status: WORKING },
       data: { status: "FAILED", result: toJsonInput(result) },
     });
     return count;
@@ -211,8 +208,8 @@ export class RunAiService {
 
   /** A run, or null. The stream uses this: a row deleted between a notify and its read is not an event. */
   async find(id: string): Promise<RunAi | null> {
-    const record = await prisma.runAi.findUnique({
-      where: { id },
+    const record = await prisma.aiRun.findUnique({
+      where: { id, ...KIND },
       select: runAiSelect,
     });
     return record ? toRunAi(record) : null;
@@ -225,8 +222,8 @@ export class RunAiService {
   }
 
   async listByBatch(batchId: string): Promise<RunAi[]> {
-    const records = await prisma.runAi.findMany({
-      where: { batchId },
+    const records = await prisma.aiRun.findMany({
+      where: { ...KIND, batchId },
       select: runAiSelect,
       orderBy: { createdAt: "asc" },
     });
@@ -235,8 +232,8 @@ export class RunAiService {
 
   /** The newest working run per cell of a sheet — what a fresh subscriber paints. */
   async listActiveBySpreadsheet(spreadsheetId: string): Promise<RunAi[]> {
-    const records = await prisma.runAi.findMany({
-      where: { spreadsheetId, status: WORKING },
+    const records = await prisma.aiRun.findMany({
+      where: { ...KIND, spreadsheetId, status: WORKING },
       distinct: ["cellId"],
       orderBy: [{ cellId: "asc" }, { createdAt: "desc" }],
       select: runAiSelect,
@@ -246,8 +243,8 @@ export class RunAiService {
 
   /** Rows touched at or after `since`, oldest first — the reconnect replay. */
   async listChangedSince(spreadsheetId: string, since: Date): Promise<RunAi[]> {
-    const records = await prisma.runAi.findMany({
-      where: { spreadsheetId, updatedAt: { gte: since } },
+    const records = await prisma.aiRun.findMany({
+      where: { ...KIND, spreadsheetId, updatedAt: { gte: since } },
       orderBy: { updatedAt: "asc" },
       take: REPLAY_LIMIT,
       select: runAiSelect,
@@ -257,8 +254,8 @@ export class RunAiService {
 
   /** The sheet's newest `updatedAt` in ms — the snapshot's event id; "0" with no runs. */
   async latestEventId(spreadsheetId: string): Promise<string> {
-    const latest = await prisma.runAi.findFirst({
-      where: { spreadsheetId },
+    const latest = await prisma.aiRun.findFirst({
+      where: { ...KIND, spreadsheetId },
       orderBy: { updatedAt: "desc" },
       select: { updatedAt: true },
     });
@@ -268,10 +265,10 @@ export class RunAiService {
   /** A guarded write: only a working run changes; a finished one is reported, never revived. */
   private async updateWorking(
     id: string,
-    data: Prisma.RunAiUpdateManyMutationInput,
+    data: Prisma.AiRunUpdateManyMutationInput,
   ): Promise<RunAi> {
-    const { count } = await prisma.runAi.updateMany({
-      where: { id, status: WORKING },
+    const { count } = await prisma.aiRun.updateMany({
+      where: { id, ...KIND, status: WORKING },
       data,
     });
     if (count === 0) {
@@ -284,11 +281,11 @@ export class RunAiService {
   /** One statement, no read-then-write: a miss surfaces as P2025. */
   private async update(
     id: string,
-    data: Prisma.RunAiUpdateInput,
+    data: Prisma.AiRunUpdateInput,
   ): Promise<RunAi> {
     try {
-      const record = await prisma.runAi.update({
-        where: { id },
+      const record = await prisma.aiRun.update({
+        where: { id, ...KIND },
         data,
         select: runAiSelect,
       });

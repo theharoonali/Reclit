@@ -1,4 +1,3 @@
-import type { GoogleGenerativeAIProviderMetadata } from "@ai-sdk/google";
 import type { ProviderMetadata } from "ai";
 import type {
   RunAiInput,
@@ -6,6 +5,7 @@ import type {
 } from "../modules/run-ai/run-ai.schema";
 import { TYPE_RULES } from "./cell-prompt";
 import { type CompanyContext, withCompanyContext } from "./company-context";
+import { webSearchQueries } from "./model";
 
 // Pure: the two halves of a `google_search` cell that need no SDK call — the
 // extraction call's prompt (what the model is asked once the grounded text
@@ -58,7 +58,7 @@ export type SearchSourceLike = {
 
 /**
  * The queries and pages behind a grounded answer, or `null` when the model
- * did not search. Gemini cannot be forced to use the tool, so this is the
+ * did not search. The model cannot be forced to use the tool, so this is the
  * check that keeps the node honest: no query and no web source means the
  * text came from memory, and a Google Search cell must not complete on it.
  * `webSearchQueries` is the primary signal; a web source without a recorded
@@ -68,10 +68,7 @@ export function searchRecordOf(
   providerMetadata: ProviderMetadata | undefined,
   sources: ReadonlyArray<SearchSourceLike>,
 ): RunAiSearches | null {
-  const google = providerMetadata?.google as
-    | GoogleGenerativeAIProviderMetadata
-    | undefined;
-  const queries = (google?.groundingMetadata?.webSearchQueries ?? []).filter(
+  const queries = webSearchQueries(providerMetadata).filter(
     (query) => query.trim() !== "",
   );
   const seen = new Set<string>();

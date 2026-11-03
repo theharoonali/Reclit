@@ -1,4 +1,3 @@
-import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import type {
   RunAiInput,
@@ -8,24 +7,24 @@ import type { CellGeneration, CellUsage } from "./cell-output";
 import { cellUsage, generateTypedCellValue } from "./cell-output";
 import { buildCellMessages } from "./cell-prompt";
 import type { CompanyContext } from "./company-context";
-import { gemini } from "./gemini";
+import { aiModel, webSearchTools } from "./model";
 import { buildSearchExtractMessages, searchRecordOf } from "./search-prompt";
 
-// The `google_search` node: Gemini searches Google about the row, then the
+// The `google_search` node: the model searches Google about the row, then the
 // answer it wrote from the results is typed to the target column.
 //
 // WHY TWO MODEL CALLS AND NOT ONE. The obvious shape is one `generateText`
 // with the search tool and `output: Output.object(...)` — the AI SDK types
-// allow it. Gemini does not, on the model in use: a JSON response schema
+// allow it. The provider does not, on the model in use: a JSON response schema
 // together with a tool is
 //
 //   400 INVALID_ARGUMENT
 //   "Function calling with a response mime type: 'application/json' is unsupported"
 //
-// (structured output with tools exists only on Gemini 3 models, as a
+// (structured output with tools exists only on newer models, as a
 // preview). So the loop is unrolled: call 1 grounds — the `google_search`
 // tool, no output schema, free text; call 2 shapes that text with the same
-// typed-output call an `ai` cell ends on. And since Gemini decides whether to
+// typed-output call an `ai` cell ends on. And since the model decides whether to
 // use the tool and cannot be forced, the grounded call's metadata is read
 // before anything else: a cell whose model recorded no query and no web
 // source is failed, not completed from memory — the one thing a node called
@@ -47,7 +46,7 @@ const sumUsage = (a: CellUsage, b: CellUsage): CellUsage => ({
  * to pick a function. `attachments` and `transcripts` are always empty: the
  * row's file cells reach the model as text lines, nothing is fetched. Both
  * calls start with the company block; neither uses an explicit cache — the
- * grounded call has a tool, which Gemini refuses next to a cache, and the
+ * grounded call has a tool, which the model refuses next to a cache, and the
  * extraction call's prompt is its own.
  */
 export async function generateSearchCellValue(
@@ -57,12 +56,10 @@ export async function generateSearchCellValue(
   // `buildCellMessages` reads `target.node` and adds SEARCH_RULES itself.
   const { system, prompt } = buildCellMessages(input, new Map(), company);
   const grounded = await generateText({
-    model: gemini(),
+    model: aiModel(),
     system,
     prompt,
-    // The key must be "google_search". The descriptor is static, so building
-    // it needs no API key — only the model call does.
-    tools: { google_search: google.tools.googleSearch({}) },
+    tools: webSearchTools(),
   });
   const searches = searchRecordOf(grounded.providerMetadata, grounded.sources);
   if (searches === null) {

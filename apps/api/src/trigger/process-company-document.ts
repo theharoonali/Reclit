@@ -12,7 +12,7 @@ import { companyDocumentsService } from "../modules/company/company-documents.se
 
 // One uploaded company document → a digest, once. PROCESSING → the file
 // fetched from storage (the cell attachments' fetch: 15 MB, 30 s) → a PDF or
-// an image sent to Gemini as a native file part, a text file inline → the
+// an image sent to the model as a native file part, a text file inline → the
 // markdown digest, capped → READY. A file that cannot be fetched or yields
 // nothing is FAILED with the reason; a transient model error is retried
 // once, then `onFailure` records it. The digest, not the file, is what every

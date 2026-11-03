@@ -37,16 +37,45 @@ enum ColumnType {
 /// and every workspace belongs to them (docs/plans/013-workspaces.md).
 /// `onboardingCompleted` flips once `POST /onboarding` has created the user's
 /// first workspace from an upload (docs/plans/027-onboarding.md).
+///
+/// The user also carries the account-level company profile
+/// (docs/plans/043-company-profile.md, folded in by 044): use cases, website,
+/// summary, rules, the crawl state and `pageCount`. It is compiled into one
+/// `<company-context>` block placed first in every model system prompt
+/// (modules/company/company-context.service.ts). `contextHash` is the sha256
+/// of that block; the three `promptCache*` columns record the explicit prompt
+/// cache built from it (ai/prompt-cache.ts). `companyUpdatedAt` moves on
+/// every profile or document write and on nothing else: it is the context
+/// memo key, and the migration `consolidate_tables` adds a trigger that
+/// `pg_notify`s the user id on `company_changed` whenever it moves (and one on
+/// CompanyDocument for every write).
 model User {
-  id                  String      @id @default(uuid())
-  name                String
-  email               String?
-  imageUrl            String?
-  onboardingCompleted Boolean     @default(false)
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
-  workspaces          Workspace[]
-  company             Company?
+  id                   String             @id @default(uuid())
+  name                 String
+  email                String?
+  imageUrl             String?
+  onboardingCompleted  Boolean            @default(false)
+  useCases             UseCase[]          @default([])
+  useCaseOther         String?
+  companyWebsite       String?
+  companyName          String?
+  companyIconUrl       String?
+  companySummary       String?
+  companyRules         String?
+  crawlStatus          CompanyCrawlStatus @default(IDLE)
+  crawlError           String?
+  crawledAt            DateTime?
+  /// How many pages the last background crawl read.
+  pageCount            Int                @default(0)
+  contextHash          String?
+  promptCacheName      String?
+  promptCacheHash      String?
+  promptCacheExpiresAt DateTime?
+  companyUpdatedAt     DateTime           @default(now())
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  workspaces           Workspace[]
+  companyDocuments     CompanyDocument[]
 }
 
 /// What the user will use Reclit for; several may be picked
@@ -78,59 +107,12 @@ enum CompanyDocumentStatus {
   FAILED
 }
 
-/// The account-level company profile: one per user, created on first read.
-/// Compiled into one `<company-context>` block placed first in every Gemini
-/// system prompt (modules/company/company-context.service.ts). `contextHash`
-/// is the sha256 of that block; the three `geminiCache*` columns record the
-/// explicit Gemini cache built from it (ai/gemini-cache.ts). Those four are
-/// bookkeeping and are written without moving `updatedAt`. The migration
-/// `add_company` adds a trigger that `pg_notify`s the company id on
-/// `company_changed` for every write to this table and to CompanyDocument.
-model Company {
-  id                   String             @id @default(uuid())
-  ownerId              String             @unique
-  useCases             UseCase[]
-  useCaseOther         String?
-  website              String?
-  name                 String?
-  iconUrl              String?
-  summary              String?
-  rules                String?
-  crawlStatus          CompanyCrawlStatus @default(IDLE)
-  crawlError           String?
-  crawledAt            DateTime?
-  contextHash          String?
-  geminiCacheName      String?
-  geminiCacheHash      String?
-  geminiCacheExpiresAt DateTime?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-  owner                User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  pages                CompanyPage[]
-  documents            CompanyDocument[]
-}
-
-/// One page of the company website's background crawl. A crawl replaces
-/// every page of the company. (`ExternalApi` cannot hold these: its `cellId`
-/// is a required foreign key.)
-model CompanyPage {
-  id        String   @id @default(uuid())
-  companyId String
-  url       String
-  title     String?
-  markdown  String
-  createdAt DateTime @default(now())
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-}
-
 /// A document the user uploaded through `POST /files` for the company
-/// profile, digested once by Gemini into `digest` (markdown) by the
+/// profile, digested once by the model into `digest` (markdown) by the
 /// `process-company-document` task.
 model CompanyDocument {
   id        String                @id @default(uuid())
-  companyId String
+  userId    String
   url       String
   name      String
   mimeType  String
@@ -140,50 +122,57 @@ model CompanyDocument {
   error     String?
   createdAt DateTime              @default(now())
   updatedAt DateTime              @updatedAt
-  company   Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([companyId, createdAt])
+  @@index([userId, createdAt])
 }
 
 /// A workspace owns spreadsheets. The relation is one-to-many for future
 /// scope; the app creates exactly one sheet per workspace today, named after
 /// the workspace.
+///
+/// The workspace's dashboard lives on it too (docs/plans/029-backend-dashboard.md,
+/// folded in by 044): `dashboardCreatedAt` null means "no dashboard yet" — the
+/// first widget write sets it, `dashboard.remove` clears it. The dashboard
+/// stores configuration only, never data: every widget is computed in the
+/// browser from the sheet. `dashboardTitle` / `dashboardDescription` null →
+/// the page's default title / subtitle.
 model Workspace {
-  id           String        @id @default(uuid())
-  name         String
-  ownerId      String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  spreadsheets  Spreadsheet[]
-  dashboard     Dashboard?
-  assistantRuns AssistantRun[]
-  dashboardGenerations DashboardGeneration[]
+  id                   String            @id @default(uuid())
+  name                 String
+  ownerId              String
+  dashboardCreatedAt   DateTime?
+  dashboardTitle       String?
+  dashboardDescription String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  owner                User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  spreadsheets         Spreadsheet[]
+  dashboardWidgets     DashboardWidget[]
+  aiRuns               AiRun[]
 
   @@index([ownerId])
   @@index([createdAt])
 }
 
 model Spreadsheet {
-  id               String            @id @default(uuid())
-  name             String
+  id                String            @id @default(uuid())
+  name              String
   /// What the sheet holds, written by the onboarding wizard's AI and edited by the user.
-  description      String?
+  description       String?
   /// "We see it as": a short label for what the sheet is ("Hiring pipeline").
-  purpose          String?
+  purpose           String?
   /// The public form shows the AI columns of a submitted row filling in live.
-  formOutputEnabled Boolean         @default(false)
-  totalRows        Int               @default(5000000)
-  workspaceId      String
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  columns          Column[]
-  rows             Row[]
-  cells            Cell[]
-  dashboardWidgets DashboardWidget[]
-  assistantRuns    AssistantRun[]
-  dashboardGenerations DashboardGeneration[]
+  formOutputEnabled Boolean           @default(false)
+  totalRows         Int               @default(5000000)
+  workspaceId       String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  workspace         Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  columns           Column[]
+  rows              Row[]
+  cells             Cell[]
+  dashboardWidgets  DashboardWidget[]
 
   @@index([createdAt])
   @@index([workspaceId])
@@ -246,33 +235,88 @@ model Cell {
   @@index([spreadsheetId, rowIndex])
 }
 
-/// One AI run for one cell. `cellId` is the scoped Cell pk
-/// "<sheetId>.cell.<row>.<col>" kept as a plain string, NOT a relation: Cell
-/// rows are deleted on clear and wiped on import, and the run record must
-/// outlive them. `spreadsheetId` is the sheet half of that key, denormalised
-/// so the live feed and the snapshot query filter by sheet through an index.
-/// `batchId` groups every run one user action enqueued.
-///
-/// `status` is free text, uppercase: PENDING | RUNNING | COMPLETED | FAILED
-/// or any custom working stage (ANALYZING, ...). COMPLETED and FAILED are the
-/// terminal values. Two things the schema cannot express live in the
-/// migration `run_ai_status_text_and_feed`: a partial unique index that
-/// allows one non-terminal run per cell, and an AFTER INSERT OR UPDATE
-/// trigger that `pg_notify`s the row id on channel `run_ai_changed`
-/// (modules/run-ai/run-ai.feed.ts listens).
-model RunAi {
-  id            String   @id @default(uuid())
-  cellId        String
-  spreadsheetId String
-  batchId       String
-  status        String   @default("PENDING")
-  credit        Int      @default(0)
-  result        Json?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+/// What an AI run is for. Each kind has its own service, router and live
+/// feed; they share this one table (docs/plans/044-table-consolidation.md).
+enum AiRunKind {
+  /// One cell of a sheet (modules/run-ai) — onboarding's first fill included.
+  CELL
+  /// One assistant prompt (modules/assistant).
+  ASSISTANT
+  /// One dashboard generation (modules/dashboard-generation).
+  DASHBOARD
+}
 
+/// Who or what started a run. ASSISTANT runs: USER | SYSTEM. DASHBOARD runs:
+/// ONBOARDING | DASHBOARD. CELL runs: null. Lowercase on the wire; each
+/// feature's schema holds its own 1:1 case mapping.
+enum AiRunSource {
+  USER
+  SYSTEM
+  ONBOARDING
+  DASHBOARD
+}
+
+/// One AI run of any kind. The columns a kind does not use stay null; a
+/// `CHECK` in the migration `consolidate_tables` requires the ones it does.
+/// Every query filters by `kind`.
+///
+/// - CELL: `cellId` is the scoped Cell pk "<sheetId>.cell.<row>.<col>" kept as
+///   a plain string, NOT a relation — Cell rows are deleted on clear and wiped
+///   on import, and the run must outlive them. `spreadsheetId` is its sheet
+///   half (also not a relation), `batchId` groups every run one user action
+///   enqueued, and `result` holds input, output, model, usage and error.
+///   Status: PENDING | RUNNING | COMPLETED | FAILED or any custom working
+///   stage; terminal: COMPLETED, FAILED.
+/// - ASSISTANT (docs/plans/030-assistant-island.md): `workspaceId`, optional
+///   `spreadsheetId`, `scope`, `source`, `prompt`; `steps` is the bounded list
+///   of tool calls, `pendingAction` the destructive call waiting while the
+///   status is AWAITING_CONFIRMATION, `summary` the answer, `transcript` the
+///   model conversation (audit only, never on the wire). Status: PENDING |
+///   THINKING | WORKING | AWAITING_CONFIRMATION | COMPLETED | FAILED |
+///   CANCELLED; terminal: the last three.
+/// - DASHBOARD (docs/plans/042-dashboard-generation-pipeline.md):
+///   `workspaceId`, `spreadsheetId`, `source`, `phase` (QUEUED … DONE),
+///   `attempt`, `awaitBatchId` (the onboarding cell batch it waits for),
+///   `steps` (the per-phase log), `brief`, `result`. Status: PENDING | RUNNING
+///   | COMPLETED | FAILED | CANCELLED; terminal: the last three.
+///
+/// What the schema cannot express lives in the migration: per-kind partial
+/// unique indexes (one working run per cell; one per workspace for each of
+/// ASSISTANT and DASHBOARD), an AFTER INSERT OR UPDATE trigger that
+/// `pg_notify`s the row id on the kind's channel (`run_ai_changed`,
+/// `assistant_run_changed`, `dashboard_generation_changed`), and a trigger
+/// that deletes a sheet's ASSISTANT and DASHBOARD runs with the sheet.
+model AiRun {
+  id            String          @id @default(uuid())
+  kind          AiRunKind
+  workspaceId   String?
+  spreadsheetId String?
+  cellId        String?
+  batchId       String?
+  awaitBatchId  String?
+  status        String          @default("PENDING")
+  source        AiRunSource?
+  scope         AssistantScope?
+  prompt        String?
+  phase         String?
+  attempt       Int?
+  steps         Json?
+  pendingAction Json?
+  summary       String?
+  brief         Json?
+  result        Json?
+  error         Json?
+  model         String?
+  usage         Json?
+  transcript    Json?
+  triggerRunId  String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  workspace     Workspace?      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([kind, spreadsheetId, updatedAt])
+  @@index([kind, workspaceId, updatedAt])
   @@index([cellId])
-  @@index([spreadsheetId, updatedAt])
   @@index([batchId])
   @@index([createdAt])
 }
@@ -283,7 +327,7 @@ model RunAi {
 /// produced from (a file URL, a website URL, a file name) and is NOT unique: a
 /// cell may have several sources, and one source may be processed more than
 /// once. `output` is the result as JSON — an object whose `kind` says what
-/// produced it (external-api.schema.ts). Unlike `RunAi.cellId` this IS a
+/// produced it (external-api.schema.ts). Unlike `AiRun.cellId` this IS a
 /// relation: a processed result describes the cell's current content, so
 /// clearing the cell (its row is deleted), deleting the row or re-importing
 /// the sheet must take it with them.
@@ -322,27 +366,13 @@ enum DashboardWidgetHeight {
   LG
 }
 
-/// One dashboard per workspace, created lazily by the first widget write
-/// (docs/plans/029-backend-dashboard.md). It stores configuration only —
-/// never data: every widget is computed in the browser from the sheet.
-model Dashboard {
-  id          String            @id @default(uuid())
-  workspaceId String            @unique
-  /// null → the page's default title / subtitle.
-  title       String?
-  description String?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  widgets     DashboardWidget[]
-}
-
-/// A widget's placement and its query. `query` is a WidgetQuery
+/// A widget's placement and its query, on its workspace's dashboard (the
+/// dashboard columns live on Workspace). `query` is a WidgetQuery
 /// (@reclit/dashboard-engine), validated against the sheet's columns on every
 /// write; the service is its only writer.
 model DashboardWidget {
   id            String                @id @default(uuid())
-  dashboardId   String
+  workspaceId   String
   spreadsheetId String
   name          String
   description   String?
@@ -355,10 +385,10 @@ model DashboardWidget {
   query         Json
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
-  dashboard     Dashboard             @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  workspace     Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   spreadsheet   Spreadsheet           @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
 
-  @@index([dashboardId, row, sort])
+  @@index([workspaceId, row, sort])
   @@index([spreadsheetId])
 }
 
@@ -367,92 +397,4 @@ model DashboardWidget {
 enum AssistantScope {
   DASHBOARD
   SPREADSHEET
-}
-
-/// Who started the run: a person through the header capsule, or the system
-/// (onboarding, a job). Lowercase on the wire.
-enum AssistantSource {
-  USER
-  SYSTEM
-}
-
-/// One assistant run: a prompt, the steps the model took through the tools and
-/// where it stands (docs/plans/030-assistant-island.md). `status` is free
-/// text, uppercase: PENDING | THINKING | WORKING | AWAITING_CONFIRMATION |
-/// COMPLETED | FAILED | CANCELLED; the last three are terminal. `steps` is the
-/// bounded list of tool calls with summarised inputs; `pendingAction` is the
-/// destructive call waiting for the user while the status is
-/// AWAITING_CONFIRMATION; `transcript` is the model conversation, kept for
-/// audit and never selected onto the wire; `triggerRunId` is what `cancel`
-/// hands to Trigger.dev. Two things the schema cannot express live in the
-/// migration `add_assistant_run`: a partial unique index that allows one
-/// non-terminal run per workspace, and an AFTER INSERT OR UPDATE trigger that
-/// `pg_notify`s the row id on channel `assistant_run_changed`
-/// (modules/assistant/assistant.feed.ts listens).
-model AssistantRun {
-  id            String          @id @default(uuid())
-  workspaceId   String
-  spreadsheetId String?
-  scope         AssistantScope
-  source        AssistantSource @default(USER)
-  prompt        String
-  status        String          @default("PENDING")
-  steps         Json            @default("[]")
-  pendingAction Json?
-  summary       String?
-  error         Json?
-  model         String?
-  usage         Json?
-  transcript    Json?
-  triggerRunId  String?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  spreadsheet   Spreadsheet?    @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
-
-  @@index([workspaceId, updatedAt])
-  @@index([createdAt])
-}
-
-/// Where a dashboard generation was started from. Lowercase on the wire;
-/// dashboard-generation.schema.ts holds the 1:1 case mapping.
-enum DashboardGenerationSource {
-  ONBOARDING
-  DASHBOARD
-}
-
-/// One run of the generate-dashboard task: analyze → propose → lay out →
-/// verify (→ retry once) → apply (docs/plans/042-dashboard-generation-pipeline.md).
-/// `status` is free text, uppercase: PENDING | RUNNING | COMPLETED | FAILED |
-/// CANCELLED; the last three are terminal. `phase` is the stage the worker is
-/// in (QUEUED … DONE), `attempt` the proposal round (1 or 2), `log` one entry
-/// per phase per attempt (what the progress UI lists), `brief` the model's
-/// analysis, `result` what was applied and why, `awaitBatchId` the onboarding
-/// run-ai batch the task waits for before analyzing. The migration
-/// `add_dashboard_generation` adds a partial unique index (one non-terminal
-/// generation per workspace) and an AFTER INSERT OR UPDATE trigger that
-/// `pg_notify`s the row id on `dashboard_generation_changed`.
-model DashboardGeneration {
-  id            String                    @id @default(uuid())
-  workspaceId   String
-  spreadsheetId String
-  source        DashboardGenerationSource
-  status        String                    @default("PENDING")
-  phase         String                    @default("QUEUED")
-  attempt       Int                       @default(0)
-  awaitBatchId  String?
-  log           Json                      @default("[]")
-  brief         Json?
-  result        Json?
-  error         Json?
-  model         String?
-  usage         Json?
-  triggerRunId  String?
-  createdAt     DateTime                  @default(now())
-  updatedAt     DateTime                  @updatedAt
-  workspace     Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  spreadsheet   Spreadsheet               @relation(fields: [spreadsheetId], references: [id], onDelete: Cascade)
-
-  @@index([workspaceId, updatedAt])
-  @@index([createdAt])
 }

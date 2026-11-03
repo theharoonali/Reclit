@@ -26,7 +26,7 @@ import {
 // documents: the user's add / remove, and the `process-company-document`
 // task's writes. The file itself was stored by `POST /files`; only URLs that
 // route wrote are accepted, so the worker never fetches an arbitrary address.
-// Every write also moves the company's `updatedAt` (`touchCompany`), which is
+// Every write also moves the profile's `companyUpdatedAt` (`touchCompany`), which is
 // what the compiled context is memoised by.
 
 /** Names browsers and OSes use for an accepted type. */
@@ -55,14 +55,16 @@ export class CompanyDocumentsService {
       throw new CompanyDocumentUrlInvalidError(input.url);
     }
     const companyId = await companyService.currentId();
-    const count = await prisma.companyDocument.count({ where: { companyId } });
+    const count = await prisma.companyDocument.count({
+      where: { userId: companyId },
+    });
     if (count >= MAX_COMPANY_DOCUMENTS) {
       throw new CompanyDocumentLimitError(MAX_COMPANY_DOCUMENTS);
     }
     const [document] = await prisma.$transaction([
       prisma.companyDocument.create({
         data: {
-          companyId,
+          userId: companyId,
           url: input.url,
           name: input.name,
           mimeType,
@@ -90,7 +92,7 @@ export class CompanyDocumentsService {
   async remove(id: string): Promise<{ id: string }> {
     const companyId = await companyService.currentId();
     const document = await prisma.companyDocument.findFirst({
-      where: { id, companyId },
+      where: { id, userId: companyId },
       select: { url: true },
     });
     if (!document) throw new CompanyDocumentNotFoundError(id);
@@ -117,10 +119,10 @@ export class CompanyDocumentsService {
   } | null> {
     const document = await prisma.companyDocument.findUnique({
       where: { id },
-      select: { companyId: true, url: true, name: true, mimeType: true },
+      select: { userId: true, url: true, name: true, mimeType: true },
     });
     if (!document) return null;
-    const { companyId, ...file } = document;
+    const { userId: companyId, ...file } = document;
     await this.write(id, companyId, { status: "PROCESSING", error: null });
     return file;
   }
@@ -132,12 +134,12 @@ export class CompanyDocumentsService {
   ): Promise<void> {
     const document = await prisma.companyDocument.findUnique({
       where: { id },
-      select: { companyId: true },
+      select: { userId: true },
     });
     if (!document) return;
     await this.write(
       id,
-      document.companyId,
+      document.userId,
       "digest" in result
         ? { status: "READY", digest: result.digest, error: null }
         : { status: "FAILED", error: result.error.slice(0, 1000) },

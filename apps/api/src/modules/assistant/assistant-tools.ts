@@ -28,7 +28,7 @@ import {
 // schema per tool — plus the summary of a call's input that is stored on the
 // run and streamed to the capsule. No service, no SDK: the contract test
 // covers this file without an API key. Shapes stay flat (unions of
-// primitives only, no nested unions): Gemini's function declarations reject
+// primitives only, no nested unions): the provider's function declarations reject
 // anything richer, and the executor maps them onto the services' inputs.
 
 export const MAX_READ_ROWS = 50;
@@ -260,7 +260,7 @@ export const ASSISTANT_TOOLS = {
 /**
  * One proposed card, as the generate-dashboard pipeline validates each item
  * of the model's answer: the strict twin of the lenient generation schema in
- * `src/ai/dashboard-propose.ts` (Gemini drops `pattern` and array caps from
+ * `src/ai/dashboard-propose.ts` (the model drops `pattern` and array caps from
  * a response schema, so the strict checks run here, per card).
  */
 export const proposalCardSchema = z.object({

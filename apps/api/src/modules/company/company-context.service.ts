@@ -8,34 +8,35 @@ import { userService } from "../user/user.service";
 // the one `<company-context>` block every AI call starts with: resolved from
 // the user, the spreadsheet a cell runs in, or the current user, compiled by
 // `compileCompanyContext` (ai/company-prompt.ts) and memoised per process by
-// the company's `updatedAt` — every profile and document write moves it
-// (company.service.ts `touchCompany`), so a hit is one indexed read.
+// the user's `companyUpdatedAt` — every profile and document write moves it
+// (company.service.ts `companyData` / `touchCompany`), so a hit is one
+// indexed read.
 //
 // Also the home of the profile's bookkeeping columns — `contextHash` and the
-// explicit Gemini cache (ai/gemini-cache.ts) — written WITHOUT moving
-// `updatedAt`: they describe the context, they are not a change to it, and
-// the `company_notify` trigger stays silent for them.
+// explicit prompt cache (ai/prompt-cache.ts) — written WITHOUT moving
+// `companyUpdatedAt` or `updatedAt`: they describe the context, they are not
+// a change to it, and the `company_changed` trigger stays silent for them.
 
 const contextSelect = {
   id: true,
-  updatedAt: true,
-  name: true,
-  website: true,
+  companyUpdatedAt: true,
+  companyName: true,
+  companyWebsite: true,
   useCases: true,
   useCaseOther: true,
-  summary: true,
-  rules: true,
+  companySummary: true,
+  companyRules: true,
   contextHash: true,
-  documents: {
+  companyDocuments: {
     where: { status: "READY", digest: { not: null } },
     select: { name: true, digest: true },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   },
-} as const satisfies Prisma.CompanySelect;
+} as const satisfies Prisma.UserSelect;
 
-export type GeminiCacheState = {
+export type PromptCacheState = {
   name: string;
-  /** What the cache was built from (ai/gemini-cache.ts `cacheKey`). */
+  /** What the cache was built from (ai/prompt-cache.ts `cacheKey`). */
   hash: string;
   expiresAt: Date;
 };
@@ -46,16 +47,14 @@ export class CompanyContextService {
     { at: number; context: CompanyContext | null }
   >();
 
-  forUser(ownerId: string): Promise<CompanyContext | null> {
-    return this.resolve({ ownerId });
+  forUser(userId: string): Promise<CompanyContext | null> {
+    return this.resolve({ id: userId });
   }
 
   /** The owner of the spreadsheet's workspace — what a cell, the assistant and a generation run under. */
   forSpreadsheet(spreadsheetId: string): Promise<CompanyContext | null> {
     return this.resolve({
-      owner: {
-        workspaces: { some: { spreadsheets: { some: { id: spreadsheetId } } } },
-      },
+      workspaces: { some: { spreadsheets: { some: { id: spreadsheetId } } } },
     });
   }
 
@@ -66,35 +65,38 @@ export class CompanyContextService {
   }
 
   private async resolve(
-    where: Prisma.CompanyWhereInput,
+    where: Prisma.UserWhereInput,
   ): Promise<CompanyContext | null> {
-    const head = await prisma.company.findFirst({
+    const head = await prisma.user.findFirst({
       where,
-      select: { id: true, updatedAt: true },
+      select: { id: true, companyUpdatedAt: true },
     });
     if (!head) return null;
     const hit = this.memo.get(head.id);
-    if (hit && hit.at === head.updatedAt.getTime()) return hit.context;
+    if (hit && hit.at === head.companyUpdatedAt.getTime()) return hit.context;
 
-    const record = await prisma.company.findUnique({
+    const record = await prisma.user.findUnique({
       where: { id: head.id },
       select: contextSelect,
     });
     if (!record) return null;
     const context = compileCompanyContext({
       companyId: record.id,
-      name: record.name,
-      website: record.website,
+      name: record.companyName,
+      website: record.companyWebsite,
       useCases: record.useCases,
       useCaseOther: record.useCaseOther,
-      summary: record.summary,
-      rules: record.rules,
-      documents: record.documents.map((document) => ({
+      summary: record.companySummary,
+      rules: record.companyRules,
+      documents: record.companyDocuments.map((document) => ({
         name: document.name,
         digest: document.digest ?? "",
       })),
     });
-    this.memo.set(record.id, { at: record.updatedAt.getTime(), context });
+    this.memo.set(record.id, {
+      at: record.companyUpdatedAt.getTime(),
+      context,
+    });
     const hash = context?.hash ?? null;
     if (hash !== record.contextHash) {
       await this.writeQuietly(record.id, { contextHash: hash });
@@ -102,57 +104,58 @@ export class CompanyContextService {
     return context;
   }
 
-  async readGeminiCache(companyId: string): Promise<GeminiCacheState | null> {
-    const record = await prisma.company.findUnique({
+  async readPromptCache(companyId: string): Promise<PromptCacheState | null> {
+    const record = await prisma.user.findUnique({
       where: { id: companyId },
       select: {
-        geminiCacheName: true,
-        geminiCacheHash: true,
-        geminiCacheExpiresAt: true,
+        promptCacheName: true,
+        promptCacheHash: true,
+        promptCacheExpiresAt: true,
       },
     });
     if (
-      !record?.geminiCacheName ||
-      !record.geminiCacheHash ||
-      !record.geminiCacheExpiresAt
+      !record?.promptCacheName ||
+      !record.promptCacheHash ||
+      !record.promptCacheExpiresAt
     ) {
       return null;
     }
     return {
-      name: record.geminiCacheName,
-      hash: record.geminiCacheHash,
-      expiresAt: record.geminiCacheExpiresAt,
+      name: record.promptCacheName,
+      hash: record.promptCacheHash,
+      expiresAt: record.promptCacheExpiresAt,
     };
   }
 
-  async writeGeminiCache(
+  async writePromptCache(
     companyId: string,
-    state: GeminiCacheState | null,
+    state: PromptCacheState | null,
   ): Promise<void> {
     await this.writeQuietly(companyId, {
-      geminiCacheName: state?.name ?? null,
-      geminiCacheHash: state?.hash ?? null,
-      geminiCacheExpiresAt: state?.expiresAt ?? null,
+      promptCacheName: state?.name ?? null,
+      promptCacheHash: state?.hash ?? null,
+      promptCacheExpiresAt: state?.expiresAt ?? null,
     });
   }
 
   /**
-   * A write that keeps `updatedAt` as it is: Prisma only leaves an
-   * `@updatedAt` column alone when it is set explicitly, so it is set to its
-   * own value — and only if nobody moved it meanwhile. Losing that race is
-   * fine: the next read recomputes.
+   * A write that keeps the profile unchanged: `companyUpdatedAt` is left
+   * alone, and `updatedAt` — which Prisma only leaves alone when it is set
+   * explicitly — is set to its own value. Guarded on `companyUpdatedAt`, so a
+   * profile edit in between wins; losing that race is fine: the next read
+   * recomputes.
    */
   private async writeQuietly(
     companyId: string,
-    data: Prisma.CompanyUpdateManyMutationInput,
+    data: Prisma.UserUpdateManyMutationInput,
   ): Promise<void> {
-    const current = await prisma.company.findUnique({
+    const current = await prisma.user.findUnique({
       where: { id: companyId },
-      select: { updatedAt: true },
+      select: { updatedAt: true, companyUpdatedAt: true },
     });
     if (!current) return;
-    await prisma.company.updateMany({
-      where: { id: companyId, updatedAt: current.updatedAt },
+    await prisma.user.updateMany({
+      where: { id: companyId, companyUpdatedAt: current.companyUpdatedAt },
       data: { ...data, updatedAt: current.updatedAt },
     });
   }

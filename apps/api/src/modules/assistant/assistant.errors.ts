@@ -12,7 +12,7 @@ export class AssistantNotFoundError extends DomainError {
   }
 }
 
-/** The workspace already has a run that is not finished (partial unique index `AssistantRun_active_workspace_key`). */
+/** The workspace already has a run that is not finished (partial unique index `AiRun_active_assistant_key`). */
 export class AssistantBusyError extends DomainError {
   readonly kind = "conflict";
   readonly code = "ASSISTANT_BUSY";
