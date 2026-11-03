@@ -6,14 +6,16 @@ import { Textarea } from "@reclit/ui/textarea";
 import { ArrowLeft, ArrowRight, Plus, Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useId } from "react";
+import { ONBOARDING_RUN_ROW_LIMIT } from "@/config/onboarding";
 import { canCreate, columnDraftIssues } from "@/lib/onboarding/column-draft";
 import { OnboardingColumnCard } from "./onboarding-column-card";
 import type { OnboardingWizardApi } from "./use-onboarding-wizard";
 
 /**
- * The third screen: the proposed columns as one divided list, the "tell us
- * more" box when the AI asked for context (or could not answer), the add
- * buttons, then Back and Create workspace.
+ * The fourth screen: the proposed columns as one divided list, a note that
+ * the AI will run over the first rows only, the "tell us more" box when the
+ * AI asked for context (or could not answer), the add buttons, then Back and
+ * "Create workspace and run AI".
  */
 export function OnboardingColumnList({
   columns,
@@ -51,6 +53,9 @@ export function OnboardingColumnList({
           ))}
         </ul>
       )}
+      <p className="text-caption text-muted-foreground">
+        {t("topRowsNotice", { count: ONBOARDING_RUN_ROW_LIMIT })}
+      </p>
 
       {showMore && (
         <div className="space-y-2 rounded-sm border border-border bg-card p-3">
@@ -123,7 +128,7 @@ export function OnboardingColumnList({
           type="button"
           variant="default"
         >
-          {columns.isCreating ? t("creating") : t("create")}
+          {columns.isCreating ? t("creating") : t("createAndRun")}
           {columns.isCreating ? <Spinner size="sm" /> : <ArrowRight />}
         </Button>
       </div>

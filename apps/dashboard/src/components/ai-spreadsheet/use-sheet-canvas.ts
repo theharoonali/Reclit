@@ -4,28 +4,41 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useCanvasSurface } from "@/hooks/use-canvas-surface";
 import { dropTarget, previewOrder } from "@/lib/ai-spreadsheet/column-order";
 import {
-  COL_WIDTH,
+  CELL_PAD_X,
   clamp,
   GUTTER_WIDTH,
   headerGripRect,
-  ROW_HEIGHT,
+  hitTest,
 } from "@/lib/ai-spreadsheet/geometry";
+import {
+  buildLayout,
+  CELL_PAD_Y,
+  colLeft,
+  colWidth,
+  LINE_HEIGHT,
+  rowHeight,
+  rowTop,
+  wrapLines,
+} from "@/lib/ai-spreadsheet/layout";
 import { paintBody } from "@/lib/ai-spreadsheet/paint-body";
 import { paintEditor } from "@/lib/ai-spreadsheet/paint-editor";
 import { paintHeader } from "@/lib/ai-spreadsheet/paint-header";
 import { selectAllState } from "@/lib/ai-spreadsheet/row-selection";
-import type {
-  CellValue,
-  ColumnDragState,
-  RangeDragState,
-  SheetFormatters,
-  SheetHit,
-  SheetLabels,
-  SheetModel,
+import {
+  type CellAddress,
+  type CellValue,
+  type ColumnDragState,
+  cellKey,
+  type RangeDragState,
+  type SheetFormatters,
+  type SheetHit,
+  type SheetLabels,
+  type SheetModel,
 } from "@/lib/ai-spreadsheet/types";
 import { useCellEditor } from "./use-cell-editor";
 import { createColumnDragHandlers } from "./use-column-drag";
 import { useSheetAudio } from "./use-sheet-audio";
+import { createClipboardHandlers } from "./use-sheet-clipboard";
 import { createRangeDragHandlers } from "./use-sheet-drag-select";
 import { createSheetPointerHandlers } from "./use-sheet-pointer";
 import { useSheetRuns } from "./use-sheet-runs";
@@ -40,6 +53,10 @@ export type SheetCanvasArgs = {
   formatters: SheetFormatters;
   getCell: (row: number, columnId: string) => CellValue;
   setCell: (row: number, columnId: string, value: CellValue) => void;
+  /** A paste's bulk write — one batched request (use-sheet-sync `setCells`). */
+  setCells: (
+    entries: { row: number; columnId: string; value: CellValue }[],
+  ) => void;
   /** Model-only write, for values the server already holds (a finished AI run). */
   setCellLocal: (row: number, columnId: string, value: CellValue) => void;
   /** Whether the run stream should be open; its capsules exist only while it is. */
@@ -77,7 +94,7 @@ export type SheetCanvasArgs = {
  */
 export function useSheetCanvas(args: SheetCanvasArgs) {
   const { modelRef, columnsVersion, rowCount, labels, formatters } = args;
-  const { getCell, setCell, setCellLocal } = args;
+  const { getCell } = args;
   const { runListening, onRunEnded, onRunsChange, onSelectionChange } = args;
   const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile, onOpenColumn } =
     args;
@@ -102,13 +119,30 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     rowCount,
     modelRef.current?.columns.length ?? 0,
   );
-  const { viewportRef, paletteRef, fontsRef, paintRef, requestPaint } = view;
+  const {
+    viewportRef,
+    paletteRef,
+    fontsRef,
+    paintRef,
+    requestPaint,
+    layoutDirtyRef,
+    invalidateLayout,
+  } = view;
+
+  // The selected cell's in-place scroller: wheel-driven, reset when the
+  // active cell changes. A ref-of-ref so the wheel listener never re-binds
+  // while the real implementation (below, needing the editor) swaps in.
+  const activeCellScrollRef = useRef({ key: "", y: 0 });
+  const cellWheelRef = useRef<(x: number, y: number, dy: number) => boolean>(
+    () => false,
+  );
 
   const { syncGeometry, scrollCellIntoView, scrollBy } = useSheetScroll({
     scrollerRef,
     spacerRef,
     viewportRef,
     requestPaint,
+    interceptWheel: (x, y, dy) => cellWheelRef.current(x, y, dy),
   });
 
   // Measured against the scroller's client box, not its own parent — the
@@ -127,6 +161,24 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   const bodySizeRef = body.sizeRef;
   const headerCtxRef = header.ctxRef;
   const headerSizeRef = header.sizeRef;
+
+  // Any cell write can change a fitted width or a grown row height, so both
+  // write paths carry the layout invalidation with them.
+  const lastCellCountRef = useRef(-1);
+  const setCell = useCallback<SheetCanvasArgs["setCell"]>(
+    (row, columnId, value) => {
+      args.setCell(row, columnId, value);
+      invalidateLayout();
+    },
+    [args.setCell, invalidateLayout],
+  );
+  const setCellLocal = useCallback<SheetCanvasArgs["setCellLocal"]>(
+    (row, columnId, value) => {
+      args.setCellLocal(row, columnId, value);
+      invalidateLayout();
+    },
+    [args.setCellLocal, invalidateLayout],
+  );
 
   const audio = useSheetAudio(requestPaint);
   const runs = useSheetRuns({
@@ -155,6 +207,65 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     onSelectionChange,
   });
   const { editorRef, proxyRef } = editor;
+
+  const clipboard = createClipboardHandlers({
+    modelRef,
+    editor,
+    setCells: args.setCells,
+    invalidateLayout,
+    requestPaint,
+  });
+
+  /** True when the selected idle cell can scroll its own content. */
+  const activeScrollable = useCallback((): {
+    row: number;
+    col: number;
+    max: number;
+  } | null => {
+    const model = modelRef.current;
+    const state = editorRef.current;
+    const ctx = bodyCtxRef.current;
+    const active = state.active;
+    if (!model || !ctx || !active || state.mode !== "idle") return null;
+    const column = model.columns[active.col];
+    if (!column || column.type !== "string" || column.node === "email") {
+      return null;
+    }
+    const value = model.cells.get(cellKey(active.row, column.id));
+    if (typeof value !== "string") return null;
+    const { layout } = viewportRef.current;
+    ctx.font = fontsRef.current.cell;
+    const inner = colWidth(layout, active.col) - CELL_PAD_X * 2;
+    const lines = wrapLines(ctx, value, inner, 1_000).length;
+    const contentH = lines * LINE_HEIGHT + CELL_PAD_Y * 2;
+    const max = contentH - rowHeight(layout, active.row);
+    return max > 0 ? { row: active.row, col: active.col, max } : null;
+  }, [bodyCtxRef, editorRef, fontsRef, modelRef, viewportRef]);
+
+  cellWheelRef.current = (x, y, dy) => {
+    const scrollable = activeScrollable();
+    if (!scrollable) return false;
+    const hit = hitTest(x, y, viewportRef.current);
+    if (
+      hit.kind !== "cell" ||
+      hit.row !== scrollable.row ||
+      hit.col !== scrollable.col
+    ) {
+      return false;
+    }
+    const state = activeCellScrollRef.current;
+    const key = `${scrollable.row}:${scrollable.col}`;
+    if (state.key !== key) {
+      state.key = key;
+      state.y = 0;
+    }
+    const next = clamp(state.y + dy, 0, scrollable.max);
+    // At either end the wheel falls through, so the sheet keeps scrolling.
+    if (next === state.y) return false;
+    state.y = next;
+    requestPaint();
+    return true;
+  };
 
   /**
    * Moves the drag chip. Written straight onto the node: this runs on every
@@ -212,8 +323,9 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     const active = editorRef.current.active;
     const viewport = viewportRef.current;
     if (!proxy || !active) return;
-    const x = GUTTER_WIDTH + active.col * COL_WIDTH - viewport.scrollX;
-    const y = active.row * ROW_HEIGHT - viewport.scrollY;
+    const { layout } = viewport;
+    const x = GUTTER_WIDTH + colLeft(layout, active.col) - viewport.scrollX;
+    const y = rowTop(layout, active.row) - viewport.scrollY;
     proxy.style.left = `${clamp(x, 0, Math.max(0, viewport.width - 1))}px`;
     proxy.style.top = `${clamp(y, 0, Math.max(0, viewport.height - 1))}px`;
   }, [editorRef, proxyRef, viewportRef]);
@@ -223,6 +335,35 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     const viewport = viewportRef.current;
     if (!model) return;
     viewport.columnCount = model.columns.length;
+
+    // The layout is rebuilt here, never per frame: only when something
+    // marked it dirty (a cell write, a column change, a font load) or the
+    // sparse cell count moved under us (a removal path without its own
+    // invalidate). Everything below this line paints from one layout.
+    const layoutCtx = bodyCtxRef.current;
+    if (
+      layoutCtx &&
+      (layoutDirtyRef.current ||
+        viewport.layout.colLefts.length - 1 !== model.columns.length ||
+        lastCellCountRef.current !== model.cells.size)
+    ) {
+      viewport.layout = buildLayout({
+        ctx: layoutCtx,
+        columns: model.columns,
+        cells: model.cells,
+        labels,
+        formatters,
+        fonts: {
+          cell: fontsRef.current.cell,
+          header: fontsRef.current.header,
+        },
+      });
+      layoutDirtyRef.current = false;
+      lastCellCountRef.current = model.cells.size;
+      // The content size changed with the layout, so the spacer and the
+      // scroll clamps must follow before anything paints.
+      syncGeometry();
+    }
 
     // Nothing previews until the press has passed the threshold — a click on
     // the grip must not shuffle the grid.
@@ -245,6 +386,20 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         palette: paletteRef.current,
         fonts: fontsRef.current,
       };
+      // The selected cell's scroller: visible (thumb at rest) as soon as a
+      // scrollable cell is selected, offset by whatever the wheel has done.
+      const scrollable = activeScrollable();
+      let activeCellScrollY: number | undefined;
+      if (scrollable) {
+        const state = activeCellScrollRef.current;
+        const key = `${scrollable.row}:${scrollable.col}`;
+        if (state.key !== key) {
+          state.key = key;
+          state.y = 0;
+        }
+        state.y = Math.min(state.y, scrollable.max);
+        activeCellScrollY = state.y;
+      }
       paintBody({
         ...shared,
         model,
@@ -256,6 +411,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         runPhase: runs.phaseRef.current,
         columns,
         draggingCol,
+        activeCellScrollY,
       });
       paintEditor({ ...shared, editor: editorRef.current });
       positionProxy();
@@ -304,13 +460,22 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     requestPaint();
   }, [paint, paintRef, requestPaint]);
 
-  // Adding a column widens the content, so the spacer has to grow with it.
+  // Adding a column widens the content, so the spacer has to grow with it —
+  // and any column change (name, type, order) re-fits the layout.
   useEffect(() => {
     const model = modelRef.current;
     if (model) viewportRef.current.columnCount = model.columns.length;
+    invalidateLayout();
     syncGeometry();
     requestPaint();
-  }, [columnsVersion, modelRef, requestPaint, syncGeometry, viewportRef]);
+  }, [
+    columnsVersion,
+    invalidateLayout,
+    modelRef,
+    requestPaint,
+    syncGeometry,
+    viewportRef,
+  ]);
 
   const pointer = createSheetPointerHandlers({
     modelRef,
@@ -318,13 +483,11 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     ctxRef: bodyCtxRef,
     fontsRef,
     hoverRef,
-    labels,
     editor,
     drag: columnDrag,
     onGripHover: setGripCol,
     getCell,
     requestPaint,
-    onOpenJson,
     onOpenColumn,
     onRemoveColumn,
     onToggleAudio: audio.toggle,
@@ -340,9 +503,9 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
       : {
           x:
             GUTTER_WIDTH +
-            headerGripRect(gripCol).x -
+            headerGripRect(viewportRef.current.layout, gripCol).x -
             viewportRef.current.scrollX,
-          y: headerGripRect(gripCol).y,
+          y: headerGripRect(viewportRef.current.layout, gripCol).y,
         };
 
   return {
@@ -352,7 +515,9 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     spacerRef,
     editor,
     runs,
+    clipboard,
     requestPaint,
+    invalidateLayout,
     resetHover,
     gripAnchor,
     ...pointer,

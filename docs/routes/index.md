@@ -8,9 +8,11 @@ every file and API behind the page and what it does today.
 | `/` | [root.md](root.md) | The backend-configured dashboard (stat cards, every shadcn chart, heatmap, table — computed in the browser from the workspace's sheet) and the app shell — sidebar + header. Calls `dashboard.byWorkspace`, `dashboard.createStarter`, `spreadsheet.rows` |
 | `/ai-spreadsheet` | [ai-spreadsheet.md](ai-spreadsheet.md) | A canvas spreadsheet: endless rows, typed columns, canvas-drawn editing. Persists through the spreadsheet API + `POST /files` uploads |
 | `/populate` | [populate.md](populate.md) | The public form link + the Populate API (endpoint and curl). Calls `populate.form` |
-| `/settings` | [settings.md](settings.md) | Display-only user profile + stubbed subscription cards. Calls `user.me` |
-| `/onboarding` | [onboarding.md](onboarding.md) | First run: upload a CSV/XLSX to create the first workspace. Every `(app)` route is gated on `user.me` and sends a user who has not onboarded here. Calls `user.me`, `POST /onboarding` |
+| `/chat` | [chat.md](chat.md) | claude.ai-style chat UI: greeting, thread, message actions, composer with model chip. UI only, with fixture replies and no API |
+| `/settings` | [settings.md](settings.md) | Display-only user profile, the editable company profile (website, use cases, rules, documents) + stubbed subscription cards. Calls `user.me`, `company.*` |
+| `/onboarding` | [onboarding.md](onboarding.md) | First run: the company profile (use cases, website, documents and rules), then name the workspace, upload a CSV/XLSX (or skip), review the AI's description and columns, then watch the AI fill the first rows and build the dashboard. Every `(app)` route is gated on `user.me` and sends a user who has not onboarded here. Calls `user.me`, `company.*`, `onboarding.skip`, `POST /onboarding`, `onboarding.finish`, `dashboardGeneration.onChange` |
 | `/form/[spreadsheetId]` | [form.md](form.md) | Public form that adds a row to a spreadsheet and runs its AI columns. Calls `populate.form`, `populate.submit`, `POST /files`, `DELETE /files` |
+| `/login` | [login.md](login.md) | Login screen for the env-backed dummy user; skipped when `DEV=TRUE`. Calls `auth.session`, `auth.login` |
 
 New route? Copy [`_template.md`](_template.md), fill it in, add a row here.
 

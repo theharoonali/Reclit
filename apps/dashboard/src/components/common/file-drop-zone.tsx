@@ -7,7 +7,10 @@ import { type DragEvent, useState } from "react";
 import { useFilePicker } from "@/hooks/use-file-picker";
 
 type FileDropZoneProps = {
+  /** Runs once per file — once per drop or pick, or once per file with `multiple`. */
   onPick: (file: File) => void;
+  /** Take several files from the dialog and from a drop. */
+  multiple?: boolean;
   /** The drop instruction, e.g. "Drag a file here, or choose one". */
   title: string;
   /** A muted line under the title, e.g. the size limit. */
@@ -23,11 +26,12 @@ type FileDropZoneProps = {
 
 /**
  * A dashed drop target with a "choose" button: the one file-picking surface
- * (public form file fields, onboarding). Drag-and-drop is an extra; the button
+ * (public form file fields, onboarding, company documents). Drag-and-drop is an extra; the button
  * is the keyboard path.
  */
 export function FileDropZone({
   onPick,
+  multiple = false,
   title,
   hint,
   chooseLabel,
@@ -37,14 +41,15 @@ export function FileDropZone({
   errorId,
   disabled = false,
 }: FileDropZoneProps) {
-  const picker = useFilePicker(onPick);
+  const picker = useFilePicker(onPick, { multiple });
   const [dragging, setDragging] = useState(false);
 
   const handleDrop = (event: DragEvent) => {
     event.preventDefault();
     setDragging(false);
-    const file = event.dataTransfer.files[0];
-    if (file && !disabled) onPick(file);
+    if (disabled) return;
+    const files = Array.from(event.dataTransfer.files);
+    for (const file of multiple ? files : files.slice(0, 1)) onPick(file);
   };
 
   return (

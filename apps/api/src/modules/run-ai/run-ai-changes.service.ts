@@ -63,24 +63,29 @@ export class RunAiChangesService {
       [LiveChange]
     >;
     try {
-      const since = parseEventId(input.lastEventId);
-      if (since) {
-        for (const run of await runAiService.listChangedSince(
-          input.spreadsheetId,
-          since,
-        )) {
-          yield runEvent(run);
-        }
+      // The newest `updatedAt` this stream has told the client about: where a
+      // catch-up starts from.
+      let seen = parseEventId(input.lastEventId);
+      const sent = (event: RunAiEvent) => {
+        const at = parseEventId(event.id);
+        if (at && (!seen || at > seen)) seen = at;
+        return event;
+      };
+      for (const event of await this.catchUp(input.spreadsheetId, seen)) {
+        yield sent(event);
       }
-      yield await this.snapshot(input.spreadsheetId);
       for await (const [change] of live) {
         if (change.kind === "resync") {
-          yield await this.snapshot(input.spreadsheetId);
+          // The feed was down: runs may have moved without a notice. Same as
+          // a client reconnecting with its last event id.
+          for (const event of await this.catchUp(input.spreadsheetId, seen)) {
+            yield sent(event);
+          }
           continue;
         }
         const run = change.run;
         if (run.spreadsheetId !== input.spreadsheetId) continue;
-        yield runEvent(run);
+        yield sent(runEvent(run));
         if (!isTerminalRunAiStatus(run.status)) continue;
         const working = await runAiService.listActiveBySpreadsheet(
           input.spreadsheetId,
@@ -98,6 +103,21 @@ export class RunAiChangesService {
     } finally {
       await live.return?.();
     }
+  }
+
+  /**
+   * What a client that has seen everything up to `since` missed — every run
+   * touched at or after it, oldest first — then the snapshot. `null` (a
+   * first connection) has missed nothing.
+   */
+  private async catchUp(
+    spreadsheetId: string,
+    since: Date | null,
+  ): Promise<RunAiEvent[]> {
+    const missed = since
+      ? await runAiService.listChangedSince(spreadsheetId, since)
+      : [];
+    return [...missed.map(runEvent), await this.snapshot(spreadsheetId)];
   }
 
   /**

@@ -79,7 +79,10 @@ describe("trpcErrorKey", () => {
     expect(trpcErrorKey("SERVICE_UNAVAILABLE")).toBe("aiUnavailable");
     expect(trpcErrorKey("BAD_GATEWAY")).toBe("aiFailed");
     expect(trpcErrorKey("CONFLICT")).toBe("errorConflict");
-    expect(trpcErrorKey("BAD_REQUEST")).toBe("errorWidgets");
+  });
+
+  test("falls back to the generic message for any other code", () => {
+    expect(trpcErrorKey("BAD_REQUEST")).toBe("error");
     expect(trpcErrorKey(undefined)).toBe("error");
   });
 });

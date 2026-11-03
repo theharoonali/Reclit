@@ -1,8 +1,10 @@
 # `onboarding`
 
-**Purpose:** the first run, as a wizard. One upload is described by the AI,
-becomes the user's first workspace with the AI columns the user chose, and
-the last step runs those columns and marks the user as onboarded.
+**Purpose:** the first run, as a wizard. The user names a workspace; one
+upload is described by the AI and becomes that workspace with the AI columns
+the user chose; the last step runs those columns over the first rows, marks
+the user as onboarded and starts the dashboard generation. Without an upload,
+`skip` creates the named empty workspace and marks the user as onboarded.
 
 **Contract:** `apps/api/src/__tests__/onboarding.api.test.ts` — the payloads,
 the responses and the error codes live in its header. Do not duplicate them
@@ -23,15 +25,15 @@ Migrations: `apps/api/prisma/migrations/20260925120000_add_user_onboarding_compl
 
 | Path | Layer | Responsibility |
 | --- | --- | --- |
-| `apps/api/src/modules/onboarding/onboarding.schema.ts` | schema | `onboardingInput` (`name?`, `description?`, `purpose?`, `columns?` as JSON text → `columnDraftInput[]`), `onboardingResultSchema`, `onboardingDescriptionSchema` + its strict twin `describedSheetSchema`, `suggestColumnsInput`, `suggestedColumnSchema`, `onboardingSuggestionsSchema`, `finishOnboardingInput`, `onboardingFinishSchema`, the caps (`ONBOARDING_MAX_COLUMNS` 10, `ONBOARDING_SAMPLE_ROWS` 5, `MAX_SUGGESTED_COLUMNS` 5, `ONBOARDING_AI_COLUMN_TYPES`), `workspaceNameFromFile` |
+| `apps/api/src/modules/onboarding/onboarding.schema.ts` | schema | `onboardingInput` (`name?`, `description?`, `purpose?`, `columns?` as JSON text → `columnDraftInput[]`), `onboardingResultSchema`, `onboardingDescriptionSchema` + its strict twin `describedSheetSchema`, `suggestColumnsInput`, `suggestedColumnSchema`, `onboardingSuggestionsSchema`, `finishOnboardingInput`, `onboardingFinishSchema` (with `generationId`), `skipOnboardingInput`, `onboardingSkipSchema`, the caps (`ONBOARDING_MAX_COLUMNS` 10, `ONBOARDING_SAMPLE_ROWS` 5, `MAX_SUGGESTED_COLUMNS` 5, `ONBOARDING_AI_COLUMN_TYPES`), `workspaceNameFromFile` |
 | `apps/api/src/modules/onboarding/onboarding.errors.ts` | errors | `OnboardingAlreadyCompletedError`, `OnboardingAiUnavailableError` (503), `OnboardingAiFailedError` (502) |
 | `apps/api/src/modules/onboarding/onboarding.service.ts` | service | the REST half (imports the parsers, never enters the tRPC graph): `describe` (parse → one model call, writes nothing), `create` (guard → parse → workspace → grid → columns → meta, rollback on failure, no flag) |
-| `apps/api/src/modules/onboarding/onboarding-wizard.service.ts` | service | the tRPC half, parser-free and prisma-free: `suggestColumns` (one model call → strict per-item parse → taken names dropped → cap 5), `finish` (runnable columns × first rows → one `runCells` batch → the flag), `rowBudget` |
-| `apps/api/src/ai/onboarding-prompt.ts` | pure | `buildDescribePrompt`, `buildSuggestColumnsPrompt` (rules + the untrusted `<file>`, `<sheet-description>`, `<columns>`, `<sample-rows>` blocks, over the assistant prompt's `describeColumns` / `describeRows` / `describeSheet`), `toSampleRows`, `ONBOARDING_UNTRUSTED_RULE` |
+| `apps/api/src/modules/onboarding/onboarding-wizard.service.ts` | service | the tRPC half, parser-free and prisma-free: `suggestColumns` (one model call → strict per-item parse → taken names dropped → cap 5), `finish` (runnable columns × first rows → one `runCells` batch → the flag → the dashboard generation, best effort), `skip` (an empty named workspace → the flag), `rowBudget` |
+| `apps/api/src/ai/onboarding-prompt.ts` | pure | `buildDescribePrompt(input, company?)`, `buildSuggestColumnsPrompt(input, max, company?)` (the user's `<company-context>` block first when there is one — the suggest prompt then adds `COMPANY_USE_CASE_RULE`; then rules + the untrusted `<file>`, `<sheet-description>`, `<columns>`, `<sample-rows>` blocks, over the assistant prompt's `describeColumns` / `describeRows` / `describeSheet`), `toSampleRows`, `ONBOARDING_UNTRUSTED_RULE` |
 | `apps/api/src/ai/onboarding-ai.ts` | model | `generateSheetDescription`, `generateColumnSuggestions` — one `generateText` + `Output.object` each over a deliberately lenient schema; `DescribeGenerator` / `SuggestGenerator` (the injectable types) |
 | `apps/api/src/modules/onboarding/onboarding.controller.ts` | REST | `POST /onboarding/describe` (multipart `file`), `POST /onboarding` (multipart `file` + `name`, `description`, `purpose`, `columns`) |
 | `apps/api/src/modules/onboarding/onboarding.module.ts` | Nest | registers the controller in `app.module.ts` |
-| `apps/api/src/trpc/routers/onboarding.ts` | router | `suggestColumns`, `finish` |
+| `apps/api/src/trpc/routers/onboarding.ts` | router | `suggestColumns`, `finish`, `skip` |
 | `apps/api/prisma/reset.ts` | script | `db:reset`: empties every table, creates one user who has not onboarded |
 
 ## Procedures
@@ -42,6 +44,7 @@ Migrations: `apps/api/prisma/migrations/20260925120000_add_user_onboarding_compl
 | `POST /onboarding` | REST | `OnboardingService.create` | 400, `VALIDATION_FAILED`, `SPREADSHEET_IMPORT_*`, `SPREADSHEET_COLUMN_NAME_TAKEN`, `ONBOARDING_ALREADY_COMPLETED` |
 | `onboarding.suggestColumns` | mutation | `OnboardingWizardService.suggestColumns` | `ONBOARDING_AI_UNAVAILABLE`, `ONBOARDING_AI_FAILED`, validation |
 | `onboarding.finish` | mutation | `OnboardingWizardService.finish` | `WORKSPACE_NOT_FOUND`, `SPREADSHEET_NOT_FOUND`, `ONBOARDING_ALREADY_COMPLETED`, `RUN_AI_DISPATCH_FAILED`, validation |
+| `onboarding.skip` | mutation | `OnboardingWizardService.skip` | `ONBOARDING_ALREADY_COMPLETED`, validation |
 
 The upload routes are REST only: multipart does not ride the tRPC link, and
 the CSV/XLSX parsers must stay out of the `src/trpc/**` graph the dashboard
@@ -50,6 +53,11 @@ through `user.me`.
 
 ## Behaviour
 
+- **Both calls know the company.** `describe` and `suggestColumns` read
+  `companyContextService.forCurrentUser()` ([company.md](company.md)) after
+  the key check and pass it to the builders, so the block — including the
+  use cases the wizard's purpose screen wrote through `company.update` —
+  comes first and the proposed columns serve them.
 - **Two model calls, in the wizard's order.** `describe` runs on the upload
   (so the user sees and edits the description before anything else);
   `suggestColumns` runs on the user's final name, description and purpose
@@ -57,7 +65,7 @@ through `user.me`.
   so the file is uploaded once and the second call carries no parser.
 - **The generators are lenient, the services strict.** Each call is
   `generateText` + `Output.object` over a schema with no caps, enums or
-  patterns (Gemini drops them from a response schema). The answer is then
+  patterns (the provider drops them from a response schema). The answer is then
   parsed with the strict twin — `describedSheetSchema` whole, or
   `suggestedColumnSchema` per proposal — so a bad proposal costs one column
   and an unusable description is `ONBOARDING_AI_FAILED`.
@@ -78,20 +86,28 @@ through `user.me`.
   `prisma.workspace.delete` (the FK cascade takes the sheet). Not
   `workspaceService.remove`: its last-workspace guard would refuse exactly
   this delete. **`create` does not set the flag.**
-- **`finish` is the only writer of the flag.** It filters the sheet's columns
-  with the run-ai service's `isRunnable`, reads the first stored rows with
-  `readAllRows` up to `rowBudget(rowLimit, columns)` — `rowLimit` (default
-  and at most 1000) capped by floor(5000 / columns) so one batch fits the
-  run-ai cell cap — and creates one `runCells` batch, then
-  `userService.completeOnboarding`. No runnable column or no row: no batch,
-  the flag is still set. A dispatch failure propagates with the flag still
-  false, so the step is retried from the client. Larger sheets finish
-  partially filled; the sheet page runs the rest.
+- **`finish` and `skip` are the only writers of the flag.** `finish` filters
+  the sheet's columns with the run-ai service's `isRunnable`, reads the first
+  stored rows with `readAllRows` up to `rowBudget(rowLimit, columns)` —
+  `rowLimit` (the wizard sends 10; at most 1000) capped by floor(5000 /
+  columns) so one batch fits the run-ai cell cap — and creates one `runCells`
+  batch, then `userService.completeOnboarding`, then starts the dashboard
+  generation with that batch id ([dashboard-generation.md](dashboard-generation.md))
+  — best effort: a generation that cannot start (no AI key, dispatch
+  failed) answers `generationId: null` and the dashboard's pill is the
+  fallback. No runnable column or no row: no batch, the flag is still set,
+  the generation starts without waiting. A batch dispatch failure propagates
+  with the flag still false, so the step is retried from the client. The rest
+  of the sheet is run from the sheet page.
+- **`skip`** creates the workspace and its empty sheet with
+  `workspaceService.create({ name })` and sets the flag; `/` then shows the
+  dashboard's empty state.
 - **The gate is the flag.** A reload between `create` and `finish` keeps the
-  user on `/onboarding`; the page resumes at the cards step from
+  user on `/onboarding`; the page resumes at the finishing step from
   `workspace.list` ([route doc](../routes/onboarding.md)).
 - **`db:reset`** (`apps/api/prisma/reset.ts`) deletes every row of every
-  table, children first (`RunAi` has no foreign key), then creates "Demo
+  table, children first (cell runs — `AiRun` of kind `CELL` — have no
+  foreign key), then creates "Demo
   User" with `onboardingCompleted: false` and no workspace. It refuses
   `NODE_ENV=production`. The seed (`prisma/seed.ts`) is unchanged and still
   creates an onboarded user with the "Customers" workspace.
@@ -113,6 +129,7 @@ through `user.me`.
 
 - `/onboarding` ([route doc](../routes/onboarding.md)) calls
   `POST /onboarding/describe`, `onboarding.suggestColumns`, `POST /onboarding`
-  and `onboarding.finish`, in that order; the cards step in between is
-  `assistant.recommendWidgets` + `dashboard.replace`
-  ([assistant.md](assistant.md), [dashboard.md](dashboard.md)).
+  and `onboarding.finish { rowLimit: 10 }`, in that order, then follows the
+  generation through `dashboardGeneration.onChange`
+  ([dashboard-generation.md](dashboard-generation.md)); or `onboarding.skip`
+  from the upload screen.

@@ -4,11 +4,12 @@ import type {
 } from "../modules/external-api/external-api.schema";
 import { EXTERNAL_API_KINDS } from "../modules/external-api/external-api.schema";
 
-// The Firecrawl crawl, and nothing else. Plain `fetch` rather than the vendor
-// SDK (same reasoning as elevenlabs.ts): the flow is one POST to start a
-// crawl and GETs until it is done, and keeping it dependency-free means the
+// The Firecrawl crawl, and the one-page scrape (`scrapePage`, the company
+// profile's homepage). Plain `fetch` rather than the vendor SDK (same
+// reasoning as elevenlabs.ts): the flow is one POST to start a crawl and GETs
+// until it is done, and keeping it dependency-free means the
 // page cap, the timeouts, the polling cadence and the response parsing are
-// ours. The key is read per call, never at import time (the gemini.ts idiom),
+// ours. The key is read per call, never at import time (the model.ts idiom),
 // so the API and the test suite boot without it.
 //
 // A crawl is asynchronous on Firecrawl's side, so `crawlWebsite` loops:
@@ -215,6 +216,81 @@ export async function cancelCrawl(
   )
     .then(() => undefined)
     .catch(() => undefined);
+}
+
+/** One page scraped synchronously: its main content and what its `<head>` says. */
+export type ScrapedPage = {
+  /** Where the page ended up after redirects. */
+  url: string;
+  title: string | null;
+  description: string | null;
+  siteName: string | null;
+  /** Absolute URLs, resolved against the page. */
+  favicon: string | null;
+  ogImage: string | null;
+  markdown: string;
+};
+
+/** What every scrape asks for: the main content as markdown, which a model reads best. */
+export const SCRAPE_OPTIONS = {
+  formats: ["markdown"],
+  onlyMainContent: true,
+} as const;
+
+/** `value` as an absolute http(s) URL against `base`, or null. */
+function absoluteUrl(value: unknown, base: string): string | null {
+  const text = Array.isArray(value) ? asText(value[0]) : asText(value);
+  if (!text) return null;
+  try {
+    const resolved = new URL(text, base);
+    return resolved.protocol === "http:" || resolved.protocol === "https:"
+      ? resolved.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const firstText = (value: unknown): string | null =>
+  Array.isArray(value) ? asText(value[0]) : asText(value);
+
+/**
+ * One page, now: `POST /scrape`, which answers in seconds (a crawl takes
+ * minutes). Throws on a failed call and on a page with neither content nor a
+ * title, so an empty result is never summarised as if it were the site.
+ */
+export async function scrapePage(
+  url: string,
+  deps: Pick<CrawlDeps, "fetchImpl"> = {},
+): Promise<ScrapedPage> {
+  const body = asRecord(
+    await call(
+      "/scrape",
+      { method: "POST", body: { url, ...SCRAPE_OPTIONS } },
+      deps.fetchImpl ?? defaultFetch,
+    ),
+  );
+  const data = asRecord(body?.data) ?? {};
+  const metadata = asRecord(data.metadata) ?? {};
+  const pageUrl = asText(metadata.url) ?? asText(metadata.sourceURL) ?? url;
+  const markdown =
+    typeof data.markdown === "string"
+      ? data.markdown.slice(0, FIRECRAWL_MAX_PAGE_CHARS)
+      : "";
+  const title = firstText(metadata.title) ?? firstText(metadata.ogTitle);
+  if (markdown.trim() === "" && !title) {
+    throw new Error(`Firecrawl scraped ${url} but it holds no readable text`);
+  }
+  return {
+    url: pageUrl,
+    title,
+    description:
+      firstText(metadata.description) ?? firstText(metadata.ogDescription),
+    siteName: firstText(metadata.ogSiteName),
+    favicon: absoluteUrl(metadata.favicon, pageUrl),
+    ogImage: absoluteUrl(metadata.ogImage, pageUrl),
+    markdown,
+  };
 }
 
 const isTerminal = (status: string) =>

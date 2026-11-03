@@ -1,84 +1,56 @@
-import type { Prisma } from "../../../generated/prisma/client";
-import { prisma, toJsonInput } from "../../db/prisma";
+import { isUniqueViolation } from "../../common/prisma-errors";
+import { prisma } from "../../db/prisma";
 import {
   SpreadsheetImportTooLargeError,
   SpreadsheetImportUnsupportedTypeError,
 } from "./spreadsheet.errors";
-import { cellId, columnId, rowId } from "./spreadsheet.ids";
-import type { SheetColumn, SheetImportResult } from "./spreadsheet.schema";
+import { shortColumnId } from "./spreadsheet.ids";
+import type {
+  SheetColumn,
+  SheetImportPreview,
+  SheetImportResult,
+} from "./spreadsheet.schema";
 import {
+  IMPORT_PREVIEW_ROWS,
   MAX_IMPORT_COLUMNS,
   MAX_IMPORT_ROWS,
-  toDbColumnType,
+  toWireColumnType,
 } from "./spreadsheet.schema";
 import { spreadsheetService } from "./spreadsheet.service";
 import { toSheetColumn } from "./spreadsheet.shape";
+import { nextRowIndex } from "./spreadsheet-cells.service";
 import type { InferredSheet } from "./spreadsheet-import.infer";
 import { inferSheet } from "./spreadsheet-import.infer";
-import { detectFormat, readTable } from "./spreadsheet-import.parse";
+import { unionTables } from "./spreadsheet-import.match";
+import type { ImportFormat } from "./spreadsheet-import.parse";
+import { detectFormat, readTables } from "./spreadsheet-import.parse";
+import type { MergePlan } from "./spreadsheet-import.plan";
+import { planMerge } from "./spreadsheet-import.plan";
+import {
+  buildMergeRecords,
+  buildRecords,
+  chunk,
+} from "./spreadsheet-import.records";
 
-// Framework-free (docs/rules/BACKEND.md hard rule 1). The one grid write that
-// is neither per-cell, per-row nor per-column: parse an upload, replace the
-// whole grid.
+// Framework-free (docs/rules/BACKEND.md hard rule 1). The grid writes that are
+// neither per-cell, per-row nor per-column: parse an upload, then merge it
+// into the sheet (import) or replace the whole grid with it (onboarding).
 
-/** Postgres caps a statement at 65535 bind parameters; a Cell costs ~6. */
-const CREATE_CHUNK = 2_000;
+type ParsedUpload = {
+  format: ImportFormat;
+  tableCount: number;
+  sheet: InferredSheet;
+};
 
-function chunk<T>(items: T[]): T[][] {
-  return Array.from(
-    { length: Math.ceil(items.length / CREATE_CHUNK) },
-    (_, index) => items.slice(index * CREATE_CHUNK, (index + 1) * CREATE_CHUNK),
-  );
-}
-
-/**
- * Every record of the new grid, with its primary key. The scoped ids are pure
- * functions of `(sheetId, index)`, so `createMany` needs no lookups and no
- * upserts — the whole rebuild is one write pass.
- */
-function buildRecords(id: string, plan: InferredSheet) {
-  // File order is already dense, so `index` and `sortOrder` start out equal —
-  // they only diverge once a column is removed or reordered. Imported columns
-  // never carry a node, so they carry no prompt either (left unset, which is
-  // SQL NULL).
-  const columnData = plan.columns.map((column, index) => ({
-    id: columnId(id, index),
-    spreadsheetId: id,
-    index,
-    sortOrder: index,
-    name: column.name,
-    type: toDbColumnType(column.type),
-    node: null,
-    prompt: null,
-  }));
-
-  // A Row record for every data row index, blank ones included: the row existed
-  // in the file, and `spreadsheet.rows` pages *stored* rows.
-  const rowData = plan.cells.map((_, index) => ({
-    id: rowId(id, index),
-    spreadsheetId: id,
-    index,
-  }));
-
-  const cellData: Prisma.CellCreateManyInput[] = [];
-  for (const [rowIndex, row] of plan.cells.entries()) {
-    for (const [columnIndex, value] of row.entries()) {
-      if (value === undefined) continue; // a blank cell writes no record
-      cellData.push({
-        id: cellId(id, rowIndex, columnIndex),
-        spreadsheetId: id,
-        rowIndex,
-        columnIndex,
-        value: toJsonInput(value),
-      });
-    }
-  }
-
-  return { columnData, rowData, cellData };
-}
+/** A concurrent append can take the row indexes an import planned to use. */
+const MERGE_ATTEMPTS = 3;
 
 export class SpreadsheetImportService {
-  /** Parses an uploaded CSV/XLSX and replaces the sheet's grid with it. */
+  /**
+   * Parses an uploaded CSV/XLSX/DOCX and merges it into the sheet: matching
+   * columns are filled, the rest are added, and the file's rows are appended
+   * below the existing ones. Nothing already in the sheet changes.
+   */
   async import(
     id: string,
     bytes: Uint8Array,
@@ -86,8 +58,10 @@ export class SpreadsheetImportService {
     mimeType: string,
   ): Promise<SheetImportResult> {
     const meta = await spreadsheetService.byId(id);
-    const plan = await this.parse(bytes, filename, mimeType);
-    const { rowCount, cellCount, columns } = await this.replaceAll(id, plan);
+    const { sheet } = await this.read(bytes, filename, mimeType);
+    const { plan, cellCount } = await this.merge(id, sheet);
+    const columns = (await spreadsheetService.columnsOf(id)).map(toSheetColumn);
+    const created = plan.columns.filter((c) => c.target.kind === "new").length;
     return {
       id: meta.id,
       name: meta.name,
@@ -95,9 +69,45 @@ export class SpreadsheetImportService {
       // change it; `rowCount` is what the file held.
       totalRows: meta.totalRows,
       totalColumns: columns.length,
-      rowCount,
+      rowCount: plan.rowCount,
       cellCount,
+      columnsMatched: plan.columns.length - created,
+      columnsCreated: created,
       columns,
+    };
+  }
+
+  /** What `import` would do with this file, without writing anything. */
+  async preview(
+    id: string,
+    bytes: Uint8Array,
+    filename: string,
+    mimeType: string,
+  ): Promise<SheetImportPreview> {
+    await spreadsheetService.byId(id);
+    const upload = await this.read(bytes, filename, mimeType);
+    const { plan } = await this.plan(id, upload.sheet);
+    return {
+      format: upload.format,
+      tableCount: upload.tableCount,
+      rowCount: plan.rowCount,
+      columns: plan.columns.map(({ source, target, skippedValues }) => ({
+        source,
+        skippedValues,
+        target:
+          target.kind === "new"
+            ? target
+            : {
+                kind: "existing" as const,
+                id: shortColumnId(target.record.index),
+                name: target.record.name,
+                type: toWireColumnType(target.record.type),
+              },
+      })),
+      sampleRows: Array.from(
+        { length: Math.min(plan.rowCount, IMPORT_PREVIEW_ROWS) },
+        (_, row) => plan.columns.map((column) => column.values[row] ?? null),
+      ),
     };
   }
 
@@ -111,32 +121,92 @@ export class SpreadsheetImportService {
     filename: string,
     mimeType: string,
   ): Promise<InferredSheet> {
+    return (await this.read(bytes, filename, mimeType)).sheet;
+  }
+
+  private async read(
+    bytes: Uint8Array,
+    filename: string,
+    mimeType: string,
+  ): Promise<ParsedUpload> {
     const format = detectFormat(filename, mimeType);
     if (!format) throw new SpreadsheetImportUnsupportedTypeError(filename);
 
-    const plan = inferSheet(await readTable(bytes, format));
-    if (plan.columns.length > MAX_IMPORT_COLUMNS) {
+    // A Word document's tables become one grid; a CSV or workbook is one.
+    const tables = await readTables(bytes, format);
+    const sheet = inferSheet(
+      format === "docx" ? unionTables(tables) : (tables[0] ?? []),
+    );
+    if (sheet.columns.length > MAX_IMPORT_COLUMNS) {
       throw new SpreadsheetImportTooLargeError(
         "columns",
-        plan.columns.length,
+        sheet.columns.length,
         MAX_IMPORT_COLUMNS,
       );
     }
-    if (plan.cells.length > MAX_IMPORT_ROWS) {
+    if (sheet.cells.length > MAX_IMPORT_ROWS) {
       throw new SpreadsheetImportTooLargeError(
         "rows",
-        plan.cells.length,
+        sheet.cells.length,
         MAX_IMPORT_ROWS,
       );
     }
-    return plan;
+    return { format, tableCount: tables.length, sheet };
+  }
+
+  /** Maps the file onto the sheet's current columns; refuses too many. */
+  private async plan(id: string, sheet: InferredSheet) {
+    const existing = await spreadsheetService.columnsOf(id);
+    const plan = planMerge(existing, sheet);
+    const created = plan.columns.filter((c) => c.target.kind === "new").length;
+    if (existing.length + created > MAX_IMPORT_COLUMNS) {
+      throw new SpreadsheetImportTooLargeError(
+        "columns",
+        existing.length + created,
+        MAX_IMPORT_COLUMNS,
+      );
+    }
+    return { existing, plan };
   }
 
   /**
-   * The only full-grid wipe-and-rebuild: `removeColumn` drops single columns
-   * (leaving index gaps), but only an import replaces everything at once.
-   * Delete and rebuild happen in one transaction, so a failed import leaves
-   * the sheet exactly as it was.
+   * One transaction, so a failed import leaves the sheet exactly as it was.
+   * It is planned against a snapshot of the columns and rows; a concurrent
+   * write that takes one of the planned indexes is a unique violation, and
+   * the merge is re-planned against the new state.
+   */
+  private async merge(
+    id: string,
+    sheet: InferredSheet,
+  ): Promise<{ plan: MergePlan; cellCount: number }> {
+    for (let attempt = 1; ; attempt += 1) {
+      const { existing, plan } = await this.plan(id, sheet);
+      const firstRow = await nextRowIndex(id);
+      const records = buildMergeRecords(id, existing, plan, firstRow);
+      try {
+        await prisma.$transaction([
+          ...chunk(records.columnData).map((data) =>
+            prisma.column.createMany({ data }),
+          ),
+          ...chunk(records.rowData).map((data) =>
+            prisma.row.createMany({ data }),
+          ),
+          ...chunk(records.cellData).map((data) =>
+            prisma.cell.createMany({ data }),
+          ),
+        ]);
+        return { plan, cellCount: records.cellData.length };
+      } catch (error) {
+        if (attempt >= MERGE_ATTEMPTS || !isUniqueViolation(error)) throw error;
+      }
+    }
+  }
+
+  /**
+   * The only full-grid wipe-and-rebuild, used by onboarding to fill a fresh
+   * sheet: `removeColumn` drops single columns (leaving index gaps), and an
+   * import merges. Delete and rebuild happen in one transaction, so a failure
+   * leaves the sheet exactly as it was.
    */
   async replaceAll(
     id: string,

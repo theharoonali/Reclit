@@ -6,7 +6,8 @@
  * user contract), one `Workspace` + its `Spreadsheet` with its `description`
  * and `purpose` (see the workspace and spreadsheet contracts), the imported
  * grid (spreadsheet contract, IMPORT), the extra columns and, at the end,
- * one run-ai batch (see the run-ai contract).
+ * one run-ai batch (see the run-ai contract) and one `DashboardGeneration`
+ * (see the dashboard-generation contract).
  *
  * MODELS
  *   OnboardingDescription = {        // POST /onboarding/describe
@@ -37,6 +38,11 @@
  *     user: UserProfile;             // onboardingCompleted now TRUE
  *     batchId: string | null;        // the run-ai batch; null when nothing could run
  *     cellCount: number; rowCount: number; columnCount: number;
+ *     generationId: string | null;   // the DashboardGeneration started for the sheet; null when none could be
+ *   }
+ *   OnboardingSkip = {               // onboarding.skip
+ *     user: UserProfile;             // onboardingCompleted now TRUE
+ *     workspace: WorkspaceSummary;   // the new, empty workspace (its sheet has no column and no row)
  *   }
  * Dates are ISO strings on the REST routes (plain JSON, no superjson).
  *
@@ -47,6 +53,7 @@
  * | POST /onboarding            | multipart file; name?: 1..200; description?: <= 1000; purpose?: <= 80; columns?: JSON text of OnboardingColumn[] (<= 10) | 200 OnboardingResult | 400 (no file) · 400 VALIDATION_FAILED (name, description, purpose, columns) · 400 SPREADSHEET_IMPORT_* · 409 SPREADSHEET_COLUMN_NAME_TAKEN · 409 ONBOARDING_ALREADY_COMPLETED |
  * | onboarding.suggestColumns   | mutation { name: 1..200; description: <= 1000; purpose: <= 80; columns: { name; type }[] (1..256); sampleRows: string[][] (<= 5) } | OnboardingSuggestions | BAD_REQUEST, SERVICE_UNAVAILABLE, BAD_GATEWAY |
  * | onboarding.finish           | mutation { workspaceId; rowLimit?: 1..1000 = 1000 }                                          | OnboardingFinish         | BAD_REQUEST, NOT_FOUND (workspace, sheet), CONFLICT (ONBOARDING_ALREADY_COMPLETED), BAD_GATEWAY (RUN_AI_DISPATCH_FAILED) |
+ * | onboarding.skip             | mutation { name: 1..200 }                                                                    | OnboardingSkip           | BAD_REQUEST, CONFLICT (ONBOARDING_ALREADY_COMPLETED) |
  *
  * NOTES
  * - The upload routes are REST only: multipart does not ride the tRPC link,
@@ -78,7 +85,23 @@
  *   still sets the flag. A dispatch failure propagates with the flag still
  *   false. A second `finish`, like a `POST /onboarding` once the flag is
  *   true, is a conflict.
- * - Without `GOOGLE_GENERATIVE_AI_API_KEY` on the api, `describe` is 503 and
+ * - After the flag, `finish` starts the sheet's dashboard generation
+ *   (`dashboardGeneration.start`, in-process) with `source: "onboarding"`
+ *   and `awaitBatchId` = `batchId`, so the worker waits for the AI columns
+ *   before analyzing; `generationId` is its id and the wizard then follows
+ *   `dashboardGeneration.onChange`. Best effort: without an AI key, or
+ *   when the worker cannot be reached, `generationId` is null and the
+ *   response is still 200 with the flag set — the dashboard page offers to
+ *   generate again.
+ * - `skip` is the wizard's "no file" exit: it creates a workspace named
+ *   `name` (trimmed, 1..200) with an empty sheet and sets the flag. Nothing
+ *   is run and no generation is started. Once the flag is true it is a
+ *   conflict, like `finish`.
+ * - `describe` and `suggestColumns` start their prompt with the user's
+ *   compiled company profile (`<company-context>`, company contract) when
+ *   there is one, so the description and the proposed columns reflect the
+ *   company and the use cases the user picked (`company.update`).
+ * - Without `AI_API_KEY` on the api, `describe` is 503 and
  *   `suggestColumns` SERVICE_UNAVAILABLE; a model failure or an unusable
  *   answer is 502 / BAD_GATEWAY.
  * - Every route is public; there is no auth yet. "The user" is `user.me`.
@@ -92,14 +115,22 @@ import {
   expect,
   it,
 } from "bun:test";
+import { compileCompanyContext } from "../ai/company-prompt";
 import type { DescribeGenerator, SuggestGenerator } from "../ai/onboarding-ai";
+import {
+  buildDescribePrompt,
+  buildSuggestColumnsPrompt,
+  COMPANY_USE_CASE_RULE,
+} from "../ai/onboarding-prompt";
 import { pingDatabase, prisma } from "../db/prisma";
+import { dashboardGenerationControlService } from "../modules/dashboard-generation/dashboard-generation-control.service";
 import { OnboardingAiFailedError } from "../modules/onboarding/onboarding.errors";
 import { onboardingService } from "../modules/onboarding/onboarding.service";
 import {
   onboardingWizardService,
   rowBudget,
 } from "../modules/onboarding/onboarding-wizard.service";
+import { saveAiKeys, setAiKey } from "./support/ai-key";
 import { ensureUser, makeWorkspace, removeWorkspace } from "./support/fixtures";
 import type { TestServer } from "./support/http";
 import { startTestServer } from "./support/http";
@@ -132,7 +163,7 @@ describe.skipIf(!dbUp)("onboarding", () => {
   let baseUrl = "";
   let userId = "";
   let originalFlag = true;
-  let savedKey: string | undefined;
+  let restoreAiKeys: () => void = () => {};
   const created: string[] = [];
 
   // There is only one user; its flag is flipped back to false before every
@@ -158,19 +189,19 @@ describe.skipIf(!dbUp)("onboarding", () => {
     const user = await ensureUser();
     userId = user.id;
     originalFlag = user.onboardingCompleted;
-    savedKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    restoreAiKeys = saveAiKeys();
     server = await startTestServer();
     baseUrl = server.baseUrl;
   });
 
   beforeEach(async () => {
     await setFlag(false);
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY = "contract-test-key";
+    setAiKey("contract-test-key");
   });
 
   afterAll(async () => {
-    if (savedKey === undefined) delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    else process.env.GOOGLE_GENERATIVE_AI_API_KEY = savedKey;
+    restoreAiKeys();
+    dashboardGenerationControlService.setDispatcher(null);
     for (const id of created) await removeWorkspace(id);
     await setFlag(originalFlag).catch(() => {});
     await server?.close();
@@ -393,7 +424,7 @@ describe.skipIf(!dbUp)("onboarding", () => {
         return { described, model: "fake-model", usage };
       };
 
-    it("answers 400 without a file, 400 for a bad file and 503 without a Gemini key", async () => {
+    it("answers 400 without a file, 400 for a bad file and 503 without an AI key", async () => {
       const none = await fetch(`${baseUrl}/onboarding/describe`, {
         method: "POST",
         body: new FormData(),
@@ -409,7 +440,7 @@ describe.skipIf(!dbUp)("onboarding", () => {
         "SPREADSHEET_IMPORT_EMPTY",
       );
 
-      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      setAiKey(undefined);
       const noKey = await fetch(`${baseUrl}/onboarding/describe`, {
         method: "POST",
         body: csvBody(csv),
@@ -547,12 +578,12 @@ describe.skipIf(!dbUp)("onboarding", () => {
         };
       };
 
-    it("is BAD_REQUEST without columns and SERVICE_UNAVAILABLE without a Gemini key", async () => {
+    it("is BAD_REQUEST without columns and SERVICE_UNAVAILABLE without an AI key", async () => {
       await expectTRPCError(
         caller.onboarding.suggestColumns({ ...input, columns: [] }),
         "BAD_REQUEST",
       );
-      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      setAiKey(undefined);
       await expectTRPCError(
         caller.onboarding.suggestColumns(input),
         "SERVICE_UNAVAILABLE",
@@ -660,7 +691,7 @@ describe.skipIf(!dbUp)("onboarding", () => {
 
     afterAll(async () => {
       for (const batchId of batches) {
-        await prisma.runAi.deleteMany({ where: { batchId } });
+        await prisma.aiRun.deleteMany({ where: { kind: "CELL", batchId } });
       }
     });
 
@@ -678,30 +709,75 @@ describe.skipIf(!dbUp)("onboarding", () => {
       );
     });
 
-    it("runs every AI column over the stored rows as one pending batch and sets the flag", async () => {
-      const { workspaceId, sheetId } = await stage(2);
+    it("runs every AI column over the stored rows as one pending batch, sets the flag and starts the generation that waits for the batch", async () => {
+      const triggered: string[] = [];
+      dashboardGenerationControlService.setDispatcher({
+        trigger: async (generation) => {
+          triggered.push(generation.id);
+          return { id: `run_${generation.id}` };
+        },
+        cancel: async () => {},
+      });
+      try {
+        const { workspaceId, sheetId } = await stage(2);
+        const result = await caller.onboarding.finish({ workspaceId });
+        if (result.batchId) batches.push(result.batchId);
+        expect(result.batchId).toStartWith("batch-");
+        expect(result).toMatchObject({
+          cellCount: 6,
+          rowCount: 3,
+          columnCount: 2,
+        });
+        expect(result.user.onboardingCompleted).toBe(true);
+        expect((await caller.user.me()).onboardingCompleted).toBe(true);
+
+        const active = await caller.runAi.listActive({
+          spreadsheetId: sheetId,
+        });
+        expect(active).toHaveLength(6);
+        expect(new Set(active.map((run) => run.batchId))).toEqual(
+          new Set([result.batchId ?? ""]),
+        );
+        expect(active.every((run) => run.status === "pending")).toBe(true);
+
+        // The generation: for this sheet, from onboarding, waiting for the batch, handed to the worker.
+        if (!result.generationId) throw new Error("expected a generationId");
+        expect(triggered).toEqual([result.generationId]);
+        const generation = await caller.dashboardGeneration.byId({
+          id: result.generationId,
+        });
+        expect(generation).toMatchObject({
+          workspaceId,
+          spreadsheetId: sheetId,
+          source: "onboarding",
+          status: "pending",
+          phase: "queued",
+          awaitBatchId: result.batchId,
+        });
+        expect(
+          await caller.dashboardGeneration.active({ workspaceId }),
+        ).toEqual(generation);
+
+        await expectTRPCError(
+          caller.onboarding.finish({ workspaceId }),
+          "CONFLICT",
+        );
+      } finally {
+        dashboardGenerationControlService.setDispatcher(null);
+      }
+    });
+
+    it("answers generationId null without an AI key, the flag still set", async () => {
+      const { workspaceId } = await stage(1);
+      setAiKey(undefined);
       const result = await caller.onboarding.finish({ workspaceId });
       if (result.batchId) batches.push(result.batchId);
       expect(result.batchId).toStartWith("batch-");
-      expect(result).toMatchObject({
-        cellCount: 6,
-        rowCount: 3,
-        columnCount: 2,
-      });
+      expect(result.generationId).toBeNull();
       expect(result.user.onboardingCompleted).toBe(true);
-      expect((await caller.user.me()).onboardingCompleted).toBe(true);
-
-      const active = await caller.runAi.listActive({ spreadsheetId: sheetId });
-      expect(active).toHaveLength(6);
-      expect(new Set(active.map((run) => run.batchId))).toEqual(
-        new Set([result.batchId ?? ""]),
-      );
-      expect(active.every((run) => run.status === "pending")).toBe(true);
-
-      await expectTRPCError(
-        caller.onboarding.finish({ workspaceId }),
-        "CONFLICT",
-      );
+      expect(
+        await caller.dashboardGeneration.latest({ workspaceId }),
+      ).toBeNull();
     });
 
     it("honours rowLimit", async () => {
@@ -718,7 +794,7 @@ describe.skipIf(!dbUp)("onboarding", () => {
       });
     });
 
-    it("sets the flag without a batch when the sheet has no AI column", async () => {
+    it("sets the flag without a batch when the sheet has no AI column; the generation then waits for nothing", async () => {
       const { workspaceId, sheetId } = await stage(0);
       const result = await caller.onboarding.finish({ workspaceId });
       expect(result).toMatchObject({
@@ -731,6 +807,55 @@ describe.skipIf(!dbUp)("onboarding", () => {
       expect(await caller.runAi.listActive({ spreadsheetId: sheetId })).toEqual(
         [],
       );
+      if (!result.generationId) throw new Error("expected a generationId");
+      expect(
+        await caller.dashboardGeneration.byId({ id: result.generationId }),
+      ).toMatchObject({
+        source: "onboarding",
+        awaitBatchId: null,
+        status: "pending",
+      });
+    });
+  });
+
+  describe("onboarding.skip", () => {
+    it("creates the named workspace with an empty sheet and sets the flag; a second skip is a conflict", async () => {
+      await expectTRPCError(
+        caller.onboarding.skip({ name: "   " }),
+        "BAD_REQUEST",
+      );
+      await expectTRPCError(
+        caller.onboarding.skip({ name: "x".repeat(201) }),
+        "BAD_REQUEST",
+      );
+
+      const result = await caller.onboarding.skip({ name: "  Fresh start  " });
+      created.push(result.workspace.id);
+      expect(result.user).toMatchObject({
+        id: userId,
+        onboardingCompleted: true,
+      });
+      expect(result.workspace.name).toBe("Fresh start");
+      expect((await caller.user.me()).onboardingCompleted).toBe(true);
+
+      const sheetId = result.workspace.spreadsheetId;
+      if (!sheetId) throw new Error("expected the workspace's sheet");
+      expect(await caller.spreadsheet.byId({ id: sheetId })).toMatchObject({
+        totalColumns: 0,
+      });
+      expect((await caller.spreadsheet.rows({ id: sheetId })).rows).toEqual([]);
+      expect(
+        await caller.dashboardGeneration.latest({
+          workspaceId: result.workspace.id,
+        }),
+      ).toBeNull();
+
+      const before = await workspaceCount();
+      await expectTRPCError(
+        caller.onboarding.skip({ name: "Again" }),
+        "CONFLICT",
+      );
+      expect(await workspaceCount()).toBe(before);
     });
   });
 });
@@ -738,5 +863,57 @@ describe.skipIf(!dbUp)("onboarding", () => {
 describe.skipIf(dbUp)("onboarding contract (no database configured)", () => {
   it("is skipped without a reachable DATABASE_URL", () => {
     expect(dbUp).toBe(false);
+  });
+});
+
+describe("onboarding prompts with a company profile (pure)", () => {
+  const company = compileCompanyContext({
+    companyId: "company-1",
+    name: "Acme",
+    website: null,
+    useCases: ["HIRING", "OTHER"],
+    useCaseOther: "Scoring partner agencies",
+    summary: null,
+    rules: null,
+    documents: [],
+  });
+  if (!company) throw new Error("fixture");
+  const upload = {
+    columns: [{ name: "Name", type: "string" }],
+    sampleRows: [["Ada"]],
+  };
+
+  it("describe starts with the company block, which names the use cases", () => {
+    const { system } = buildDescribePrompt(
+      { filename: "people.csv", rowCount: 1, ...upload },
+      company,
+    );
+    expect(system.startsWith(`${company.text}\n\n`)).toBe(true);
+    expect(system).toContain("- Hiring — screening candidates, CVs and fit");
+    expect(system).toContain("- Other: Scoring partner agencies");
+  });
+
+  it("suggest starts with the company block and asks for columns that serve the use cases", () => {
+    const { system } = buildSuggestColumnsPrompt(
+      { name: "People", description: "", purpose: "", ...upload },
+      5,
+      company,
+    );
+    expect(system.startsWith(`${company.text}\n\n`)).toBe(true);
+    expect(system).toContain(COMPANY_USE_CASE_RULE);
+  });
+
+  it("both prompts are as before without a profile", () => {
+    const describe = buildDescribePrompt({
+      filename: "people.csv",
+      rowCount: 1,
+      ...upload,
+    });
+    const suggest = buildSuggestColumnsPrompt(
+      { name: "People", description: "", purpose: "", ...upload },
+      5,
+    );
+    expect(describe.system).not.toContain("<company-context>");
+    expect(suggest.system).not.toContain(COMPANY_USE_CASE_RULE);
   });
 });

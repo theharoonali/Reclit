@@ -15,13 +15,12 @@ if (process.env.NODE_ENV === "production") {
 }
 
 // Children before parents. Every cascade would do most of this from `user`
-// alone, but RunAi has no foreign key and nothing else references it.
+// alone, but cell runs (`AiRun` of kind CELL) have no foreign key.
 const deleted = await prisma.$transaction([
-  prisma.runAi.deleteMany(),
-  prisma.assistantRun.deleteMany(),
+  prisma.aiRun.deleteMany(),
   prisma.externalApi.deleteMany(),
+  prisma.companyDocument.deleteMany(),
   prisma.dashboardWidget.deleteMany(),
-  prisma.dashboard.deleteMany(),
   prisma.cell.deleteMany(),
   prisma.row.deleteMany(),
   prisma.column.deleteMany(),

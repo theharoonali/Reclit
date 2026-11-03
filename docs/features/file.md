@@ -17,7 +17,7 @@ file exists.
 | Path | Layer | Responsibility |
 | --- | --- | --- |
 | `apps/api/src/modules/file/file.schema.ts` | schema | `uploadedFileSchema`, `deleteFileInput`, `deletedFileSchema` |
-| `apps/api/src/modules/file/file.service.ts` | service | lazy Supabase client, `upload()`, `remove()`, pure `uploadPathFromUrl()` |
+| `apps/api/src/modules/file/file.service.ts` | service | lazy Supabase client, `upload()`, `remove()`, `ownsUrl()`, `uploadBaseUrl()`, pure `uploadPathFromUrl()` |
 | `apps/api/src/modules/file/file.errors.ts` | errors | `FileStorageNotConfiguredError`, `FileUploadFailedError`, `FileUrlNotDeletableError`, `FileDeleteFailedError` |
 | `apps/api/src/modules/file/file.controller.ts` | controller | `POST /files` — the multipart plumbing is shared (`common/upload.ts`: `@UploadFile()` + `requireFile()`, 25 MB); `DELETE /files` — JSON `{ url }` |
 
@@ -45,6 +45,10 @@ REST only — multipart does not belong on the tRPC link.
   with an empty list and no error. That is reported as `removed: false`, which
   makes the route idempotent; the contract test asserts `removed: true` right
   after an upload, which is what catches a key without delete rights.
+- `ownsUrl(url)` is the same check without a delete: true exactly for what
+  `upload` returns (false when storage is not configured). The company
+  documents accept only such URLs, so the worker never fetches a
+  client-chosen address ([company.md](company.md)).
 - `remove` does **not** check whether a cell still stores the URL: `Cell.value`
   is unindexed JSON, and the only caller deletes draft uploads that no row
   references yet.
@@ -61,3 +65,5 @@ REST only — multipart does not belong on the tRPC link.
   `spreadsheet.setCell`.
 - `/form/[spreadsheetId]` ([route doc](../routes/form.md)) — uploads on pick,
   deletes on remove or replace.
+- `/onboarding` and `/settings` — company documents upload through
+  `POST /files`, then `company.addDocument` ([company.md](company.md)).

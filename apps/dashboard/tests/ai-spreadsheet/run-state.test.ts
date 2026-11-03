@@ -11,7 +11,6 @@ function run(over: Partial<RunAi> & { id: string }): RunAi {
     spreadsheetId: SHEET,
     batchId: "b",
     status: "pending",
-    credit: 0,
     result: null,
     createdAt: new Date("2026-09-02T10:00:00Z"),
     updatedAt: new Date("2026-09-02T10:00:00Z"),

@@ -7,6 +7,8 @@ import type {
   CellValue,
   ColumnTypeWire,
 } from "../modules/spreadsheet/spreadsheet.schema";
+import { type CompanyContext, withCompanyContext } from "./company-context";
+import { emailRecipients } from "./email-prompt";
 
 // Pure: turns a run's input into what the model is asked, and describes the
 // shape its answer must have for the target column's type. No SDK, no
@@ -44,9 +46,25 @@ export const SEARCH_RULES = [
 ].join("\n");
 
 /**
+ * The sentences that make a cell a Mail cell: write one personalized email
+ * per recipient worth contacting, pick every address from the allowed list,
+ * answer with an empty list when it is unclear who to email, forward the
+ * previous step verbatim when asked. `buildCellMessages` adds them, plus the
+ * allowed recipients, for an `email` target in place of the "Answer with …"
+ * line; exported so the contract test asserts the wording without an API key.
+ */
+export const EMAIL_RULES = [
+  "This is a Mail cell: write the emails the instruction asks for. Each one is sent as soon as you answer.",
+  'Answer with an "emails" list, one entry per recipient, each with "to", "subject" and "body". Write each email personally for its recipient from this row — never the same text twice.',
+  '"to" must be copied exactly from the allowed recipients below — never invent, guess or change an address. Email only the recipients the instruction makes clear should be written to; when it is not clear who to email, answer with an empty list and nothing is sent.',
+  "When there is output of a previous step, it is your primary input; when the instruction says to send it (or a named column) as it is, put that text in the body verbatim.",
+  "Write each body as plain text with line breaks: no markdown, no HTML, no placeholders like [Name] — use the row's values instead.",
+].join("\n");
+
+/**
  * The zod shape of the model's structured answer for a column type, wrapped
  * as `{ value }` because structured output wants an object at the root.
- * `null` for `json`: Gemini rejects open objects (`additionalProperties`), so
+ * `null` for `json`: the model rejects open objects (`additionalProperties`), so
  * a JSON column is asked for free JSON instead and validated afterwards.
  */
 export function cellOutputSchema(
@@ -134,6 +152,35 @@ function crawledContentBlocks(
 }
 
 /**
+ * The first line of every cell's instruction, whichever node runs: the part
+ * an explicit prompt cache holds after the company block (`cachedCellSystem`).
+ */
+export const CELL_PREAMBLE = "You fill in one cell of a spreadsheet row.";
+
+/**
+ * What an explicit cache's `systemInstruction` is (ai/prompt-cache.ts): the
+ * company block, then the preamble. Every cell's implicit `system` starts
+ * with exactly these bytes too, so both caching paths share one prefix.
+ */
+export function cachedCellSystem(company: CompanyContext): string {
+  return withCompanyContext(CELL_PREAMBLE, company);
+}
+
+/** Both shapes of one cell's prompt (see `buildCellMessages`). */
+export type CellMessages = {
+  /** The implicit path: company block, preamble, the column's instruction. */
+  system: string;
+  /** The row, then the target. */
+  prompt: string;
+  /**
+   * The explicit-cache path: the cache already holds the company block and
+   * the preamble, and the model refuses a `system` next to a cache — so the
+   * column's instruction opens the user message instead, then `prompt`.
+   */
+  cachedPrompt: string;
+};
+
+/**
  * The instruction (`system`) and the context (`prompt`). The column's prompt
  * *is* the instruction; the row goes in as one line per column in the
  * sheet's sort order, then the target is named so the model knows which
@@ -143,15 +190,15 @@ function crawledContentBlocks(
  * their website, in blocks after the row (cell-crawls.ts). From the second
  * AI column of a row on, the previous step's output is named as the primary
  * input. A `google_search` target gets `SEARCH_RULES` on top; everything
- * else is the same, so both nodes read the row the same way.
+ * else is the same, so both nodes read the row the same way. The company
+ * block (`company`) comes first of all; `cachedPrompt` is the same call for
+ * a request that runs on an explicit cache.
  */
 export function buildCellMessages(
   input: RunAiInput,
   notes: CellSourceNotes = new Map(),
-): {
-  system: string;
-  prompt: string;
-} {
+  company: CompanyContext | null = null,
+): CellMessages {
   const { prompt, target, row, previous } = input;
   const attached = [...notes.values()].some((n) => n.kind === "attached");
   const crawled = [...notes.values()].some((n) => n.kind === "crawled");
@@ -161,14 +208,21 @@ export function buildCellMessages(
     ...(crawled ? [", including the crawled website content"] : []),
     ".",
   ].join("");
-  const system = [
-    "You fill in one cell of a spreadsheet row.",
+  const instruction = [
     `The cell belongs to the column "${target.name}" (type: ${target.type}).`,
     "Instruction for this column:",
     prompt,
     "",
     ...(target.node === "google_search" ? [SEARCH_RULES, ""] : []),
-    `Answer with ${TYPE_RULES[target.type]}, and nothing else. ${context}`,
+    ...(target.node === "email"
+      ? [
+          EMAIL_RULES,
+          `Allowed recipients: ${emailRecipients(input).join(", ") || "none"}`,
+          context,
+        ]
+      : [
+          `Answer with ${TYPE_RULES[target.type]}, and nothing else. ${context}`,
+        ]),
     ...(previous
       ? [
           `The previous step of this row filled the column "${previous.name}"; its output below is your primary input, the rest of the row is context.`,
@@ -188,5 +242,9 @@ export function buildCellMessages(
       : []),
     `Fill the column "${target.name}".`,
   ].join("\n");
-  return { system, prompt: promptText };
+  return {
+    system: withCompanyContext(`${CELL_PREAMBLE}\n${instruction}`, company),
+    prompt: promptText,
+    cachedPrompt: `${instruction}\n\n${promptText}`,
+  };
 }

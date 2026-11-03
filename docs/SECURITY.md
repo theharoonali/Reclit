@@ -4,12 +4,16 @@ Security posture of the template.
 
 ## Auth
 
-**There is no authentication.** Every tRPC procedure is `publicProcedure` and
-every REST route (`GET /health`, `/spreadsheets/*`, `/populate/*`,
-`POST /files`, `DELETE /files`) is open.
-When auth is added, introduce a `protectedProcedure` in
-`apps/api/src/trpc/init.ts` that reads the request in `createTRPCContext`, and
-a Nest guard for the controllers.
+**Auth is a single env-backed login** ([docs/features/auth.md](features/auth.md)):
+`auth.login` checks `AUTH_EMAIL` / `AUTH_PASSWORD` and sets a stateless signed
+httpOnly cookie; `DEV=TRUE` authenticates every request with no credentials.
+`protectedProcedure` (`apps/api/src/trpc/init.ts`) guards only the `user`
+router so far — enough to force the dashboard through `/login`, because every
+page blocks on `user.me`. **Every other tRPC router and every REST route**
+(`GET /health`, `/spreadsheets/*`, `/populate/*`, `POST /files`,
+`DELETE /files`, `POST /onboarding`, `POST /assistant/transcribe`) **is still
+open.** Widening enforcement means switching routers to `protectedProcedure`
+and adding a Nest guard for the controllers.
 
 Two open routes deserve naming, because they are *meant* for outsiders:
 
@@ -51,7 +55,7 @@ The dashboard sets `X-Frame-Options: DENY` on all routes (`next.config.ts`).
 ## Secrets
 
 `DATABASE_URL` is the one required secret. `SUPABASE_KEY`,
-`TRIGGER_SECRET_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY` are optional: without
+`TRIGGER_SECRET_KEY` and `AI_API_KEY` are optional: without
 them uploads answer 503, runs stay `pending`, the worker fails a run with a
 clear message and the dashboard's AI recommendations answer 503
 (`SERVICE_UNAVAILABLE`). `.env` files are gitignored; `.env.example` lists

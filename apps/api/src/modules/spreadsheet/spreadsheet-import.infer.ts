@@ -20,6 +20,8 @@ export type InferredSheet = {
   columns: InferredColumn[];
   /** Row-major, `[rowIndex][columnIndex]`. `undefined` writes no cell record. */
   cells: (CellValue | undefined)[][];
+  /** The trimmed text behind `cells`, for re-typing against another column. */
+  raw: string[][];
 };
 
 // Words only, deliberately not "1"/"0". Boolean is tried before number, so
@@ -144,6 +146,20 @@ function refineUrl(values: string[]): ColumnTypeWire {
 }
 
 /**
+ * `raw` as a value of `type`, or `undefined` when it does not fit — the same
+ * test inference applies, so a merged value is one the API would accept.
+ */
+export function coerceTo(
+  raw: string,
+  type: ColumnTypeWire,
+): CellValue | undefined {
+  const value = coerce(raw, type);
+  return value !== undefined && cellValueMatchesType(value, type)
+    ? value
+    : undefined;
+}
+
+/**
  * A type is chosen only when EVERY non-empty value in the column fits it, so
  * one stray value demotes the whole column to `string` rather than dropping it.
  */
@@ -164,7 +180,7 @@ function inferColumn(values: string[]): ColumnTypeWire {
  * service refuses a duplicate), and a file's headers need not be: a repeat
  * becomes `Name (2)`, `Name (3)`, … Claims the name it returns.
  */
-function uniqueName(name: string, taken: Set<string>): string {
+export function uniqueName(name: string, taken: Set<string>): string {
   let candidate = name;
   for (let n = 2; taken.has(candidate.toLowerCase()); n += 1) {
     candidate = `${name} (${n})`;
@@ -218,7 +234,7 @@ export function inferSheet(grid: string[][]): InferredSheet {
     }
   }
 
-  return { columns, cells };
+  return { columns, cells, raw: rows };
 }
 
 /**

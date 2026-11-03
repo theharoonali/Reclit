@@ -27,7 +27,6 @@ const run = (
     spreadsheetId: sheet,
     batchId: "batch-1",
     status,
-    credit: 0,
     result: null,
     createdAt: new Date(),
     updatedAt: new Date(),

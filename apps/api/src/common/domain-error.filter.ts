@@ -12,6 +12,7 @@ import { DomainError } from "./errors";
 const KIND_TO_STATUS: Record<DomainErrorKind, number> = {
   not_found: 404,
   bad_request: 400,
+  unauthorized: 401,
   conflict: 409,
   unavailable: 503,
   upstream: 502,

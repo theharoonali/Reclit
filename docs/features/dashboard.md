@@ -9,23 +9,26 @@ stored: the browser reads the sheet and runs every widget.
 responses, the query shape, the formula grammar, the per-type rules and every
 error code live in its header. Do not duplicate them here.
 
-## Table `Dashboard`
+## Columns on `Workspace`
+
+The dashboard is not a table of its own: one per workspace, stored on the
+workspace row ([workspace.md](workspace.md)). On the wire `DashboardDetail`
+keeps its own shape — its `id` (and each widget's `dashboardId`) is the
+workspace id, `createdAt` is `dashboardCreatedAt`, `updatedAt` the
+workspace's.
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | `String` | pk, `@default(uuid())` |
-| `workspaceId` | `String` | fk cascade → `Workspace`, **unique** (one per workspace) |
-| `title` | `String?` | null → the page's default title |
-| `description` | `String?` | null → the page's default subtitle |
-| `createdAt` | `DateTime` | `@default(now())` |
-| `updatedAt` | `DateTime` | `@updatedAt` |
+| `dashboardCreatedAt` | `DateTime?` | null = the workspace has no dashboard (`byWorkspace` answers null); set by the first widget write, cleared by `remove` |
+| `dashboardTitle` | `String?` | null → the page's default title |
+| `dashboardDescription` | `String?` | null → the page's default subtitle |
 
 ## Table `DashboardWidget`
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | `String` | pk, `@default(uuid())` |
-| `dashboardId` | `String` | fk cascade → `Dashboard` |
+| `workspaceId` | `String` | fk cascade → `Workspace`; `dashboardId` on the wire |
 | `spreadsheetId` | `String` | fk cascade → `Spreadsheet`, indexed — the sheet the widget reads |
 | `name` | `String` | the card title (data, not a message key) |
 | `description` | `String?` | the card subtitle |
@@ -37,23 +40,25 @@ error code live in its header. Do not duplicate them here.
 | `createdAt` | `DateTime` | `@default(now())` |
 | `updatedAt` | `DateTime` | `@updatedAt` |
 
-Indexes: `Dashboard.workspaceId` (unique), `DashboardWidget(dashboardId, row,
-sort)`, `DashboardWidget.spreadsheetId` · Relations: `Workspace.dashboard?`,
+Indexes: `DashboardWidget(workspaceId, row, sort)`,
+`DashboardWidget.spreadsheetId` · Relations: `Workspace.dashboardWidgets[]`,
 `Spreadsheet.dashboardWidgets[]` · Migrations:
-`apps/api/prisma/migrations/20261015211411_add_dashboard/`.
+`apps/api/prisma/migrations/20261015211411_add_dashboard/`,
+`apps/api/prisma/migrations/20261103180000_consolidate_tables/` (the
+dashboard folded into `Workspace`).
 
 ## Files
 
 | Path | Layer | Responsibility |
 | --- | --- | --- |
 | `packages/dashboard-engine/` | engine | `WidgetQuery` + the vocabularies, the formula parser/evaluator, `validateWidget` (every semantic rule), `checkLayout`, `placeWidget` / `placeWidgets` (top-first placement), `profileColumns` (fill, cardinality, ranges and a heuristic role per column), `runWidget` (browser side) — shared with the dashboard app |
-| `apps/api/prisma/schema.prisma` | model | `Dashboard`, `DashboardWidget`, the two enums |
+| `apps/api/prisma/schema.prisma` | model | the `Workspace` dashboard columns, `DashboardWidget`, the two enums |
 | `apps/api/src/modules/dashboard/dashboard.schema.ts` | schema | zod inputs/outputs (structural), wire ↔ db enum mirrors, `toWidgetQuery` (the typecheck tie to the engine type) |
 | `apps/api/src/modules/dashboard/dashboard.errors.ts` | errors | the eight `Dashboard*Error`s, `formatPath` |
-| `apps/api/src/modules/dashboard/dashboard.shape.ts` | shape | the selects, `toDashboardWidget` / `toDashboardDetail` |
+| `apps/api/src/modules/dashboard/dashboard.shape.ts` | shape | the selects (`dashboardSelect` is a `Workspace` select), `toDashboardWidget` (`workspaceId` → `dashboardId`) / `toDashboardDetail` (null while `dashboardCreatedAt` is null) |
 | `apps/api/src/modules/dashboard/dashboard-validate.ts` | pure + reads | `createSheetResolver` (sheet default + ownership + columns, cached per id), `assertWidgetValid` (engine issue → domain error), `assertLayoutValid`, `prepareWidgets` |
 | `apps/api/src/modules/dashboard/dashboard-starter.ts` | pure | `buildStarterWidgets(columns)` |
-| `apps/api/src/modules/dashboard/dashboard.service.ts` | service | `byWorkspace`, `byId`, `replace`, `update`, `remove`, `createStarter` |
+| `apps/api/src/modules/dashboard/dashboard.service.ts` | service | `byWorkspace`, `byId` (by the workspace id), `replace`, `update`, `remove`, `createStarter`; `ensureDashboard(tx, workspaceId)` (sets `dashboardCreatedAt` when null), `written` |
 | `apps/api/src/modules/dashboard/dashboard-widgets.service.ts` | service | `createWidget`, `updateWidget`, `removeWidget` |
 | `apps/api/src/trpc/routers/dashboard.ts` | router | thin delegation |
 
@@ -81,10 +86,14 @@ sort)`, `DashboardWidget.spreadsheetId` · Relations: `Workspace.dashboard?`,
   widget was written is an issue in that card, never a crash.
 - **`replace` is validate-then-swap.** `prepareWidgets` resolves and
   validates every widget (reading each sheet once), checks the layout, and
-  only then one transaction upserts the dashboard, deletes the old widgets
-  and `createMany`s the new ones. A failure anywhere changes nothing.
+  only then one transaction creates the dashboard if needed, writes the
+  title / description, deletes the old widgets and `createMany`s the new
+  ones. A failure anywhere changes nothing.
 - **The dashboard is created lazily** by `replace` and `createWidget`
-  (`upsert` on the unique `workspaceId`); `byWorkspace` is null until then.
+  (`ensureDashboard`: a guarded `updateMany` setting `dashboardCreatedAt`
+  where it is null); `byWorkspace` is null until then. `remove` clears the
+  three columns and deletes the widgets; `update` refuses
+  (`DASHBOARD_NOT_FOUND`) while there is none.
 - **`createWidget` places what it is not told.** With `row` and `sort`
   omitted the widget takes the first row (ascending) with room for its
   `column`, after that row's last card, else a new bottom row — the engine's
@@ -100,7 +109,7 @@ sort)`, `DashboardWidget.spreadsheetId` · Relations: `Workspace.dashboard?`,
   precedent: the service is the only writer and every write passed the
   schema and the engine.
 - **Cascades do the deleting:** a sheet takes its widgets with it, a workspace
-  its dashboard.
+  its dashboard (its own columns) and widgets.
 - **Column references are names**, matched trimmed and case-insensitively like
   the sheet's own uniqueness rule. Series keys must be identifiers because
   the chart primitive turns them into CSS variables.
@@ -119,9 +128,11 @@ sort)`, `DashboardWidget.spreadsheetId` · Relations: `Workspace.dashboard?`,
 ## Used by
 
 - `/` ([route doc](../routes/root.md)) — `byWorkspace` on load,
-  `createStarter` from the empty state, `createWidget` (without a slot) from
-  the AI recommendations' Add.
+  `createStarter` from the empty state.
 - The assistant's dashboard tools ([assistant.md](assistant.md)) —
   `createWidget`, `updateWidget`, `removeWidget`, `update`.
+- The `generate-dashboard` task
+  ([dashboard-generation.md](dashboard-generation.md)) — `replace` with the
+  packed, verified cards of the best attempt.
 - Nothing calls `replace` or `remove` from the UI: they are the surface an
   API caller rebuilds the dashboard through.

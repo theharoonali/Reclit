@@ -2,7 +2,7 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { AssistantUsage } from "../modules/assistant/assistant.schema";
 import { assistantModelId, toUsage } from "./assistant-step";
-import { gemini } from "./gemini";
+import { aiModel } from "./model";
 
 // The onboarding wizard's two one-shot calls — describe the uploaded sheet,
 // then propose AI columns — as `generateText` with a JSON response schema and
@@ -74,7 +74,7 @@ export const generateSheetDescription: DescribeGenerator = async ({
 }) => {
   const modelId = assistantModelId();
   const result = await generateText({
-    model: gemini(modelId),
+    model: aiModel(modelId),
     system,
     prompt,
     output: Output.object({ schema: describeOutputSchema }),
@@ -92,7 +92,7 @@ export const generateColumnSuggestions: SuggestGenerator = async ({
 }) => {
   const modelId = assistantModelId();
   const result = await generateText({
-    model: gemini(modelId),
+    model: aiModel(modelId),
     system,
     prompt,
     output: Output.object({ schema: suggestOutputSchema }),

@@ -1,3 +1,4 @@
+import { isAiConfigured } from "../../ai/model";
 import {
   generateColumnSuggestions,
   type SuggestGeneration,
@@ -6,6 +7,8 @@ import {
 import { buildSuggestColumnsPrompt } from "../../ai/onboarding-prompt";
 import { describeError } from "../../common/errors";
 import { readAllRows } from "../assistant/assistant-context";
+import { companyContextService } from "../company/company-context.service";
+import { dashboardGenerationControlService } from "../dashboard-generation/dashboard-generation-control.service";
 import { MAX_RUN_AI_BATCH_CELLS } from "../run-ai/run-ai.schema";
 import { isRunnable, runAiBatchService } from "../run-ai/run-ai-batch.service";
 import { SpreadsheetNotFoundError } from "../spreadsheet/spreadsheet.errors";
@@ -21,18 +24,21 @@ import {
   type FinishOnboardingInput,
   MAX_SUGGESTED_COLUMNS,
   type OnboardingFinish,
+  type OnboardingSkip,
   type OnboardingSuggestions,
+  type SkipOnboardingInput,
   type SuggestColumnsInput,
   type SuggestedColumn,
   suggestedColumnSchema,
 } from "./onboarding.schema";
 
 // The tRPC half of the wizard, parser-free: `suggestColumns` works from the
-// parse summary `describe` handed the client (no file, nothing read), and
-// `finish` runs the new sheet's AI columns and sets the flag. Prisma-free
-// too — every read and write goes through the other features' services. The
-// generator is injectable so the contract test covers the filtering without
-// a key (assistant-recommend.service.ts is the template).
+// parse summary `describe` handed the client (no file, nothing read),
+// `finish` runs the new sheet's AI columns, sets the flag and starts the
+// dashboard generation, and `skip` creates an empty workspace and sets the
+// flag. Prisma-free too — every read and write goes through the other
+// features' services. The generator is injectable so the contract test covers
+// the filtering without a key.
 
 export type SuggestDeps = { generate: SuggestGenerator };
 
@@ -58,10 +64,14 @@ export class OnboardingWizardService {
     input: SuggestColumnsInput,
     deps: SuggestDeps = { generate: generateColumnSuggestions },
   ): Promise<OnboardingSuggestions> {
-    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    if (!isAiConfigured()) {
       throw new OnboardingAiUnavailableError();
     }
-    const messages = buildSuggestColumnsPrompt(input, MAX_SUGGESTED_COLUMNS);
+    const messages = buildSuggestColumnsPrompt(
+      input,
+      MAX_SUGGESTED_COLUMNS,
+      await companyContextService.forCurrentUser(),
+    );
     let generated: SuggestGeneration;
     try {
       generated = await deps.generate(messages);
@@ -102,10 +112,25 @@ export class OnboardingWizardService {
   }
 
   /**
+   * No file: the named workspace with its empty sheet, and the flag. The
+   * dashboard then shows its empty state.
+   */
+  async skip({ name }: SkipOnboardingInput): Promise<OnboardingSkip> {
+    const me = await userService.me();
+    if (me.onboardingCompleted) throw new OnboardingAlreadyCompletedError();
+    const workspace = await workspaceService.create({ name });
+    const user = await userService.completeOnboarding();
+    return { user, workspace };
+  }
+
+  /**
    * The last step: every runnable column of the workspace's sheet over its
    * first stored rows (within `rowLimit` and the batch's cell cap) as one
-   * run-ai batch, then the flag. A dispatch failure propagates with the flag
-   * still false, so the step can be retried.
+   * run-ai batch, then the flag, then the dashboard generation that waits for
+   * that batch. A dispatch failure of the batch propagates with the flag
+   * still false, so the step can be retried; a generation that cannot start
+   * (no AI key, dispatch failed) answers `generationId: null` — the
+   * dashboard's own pill is the fallback.
    */
   async finish({
     workspaceId,
@@ -136,13 +161,36 @@ export class OnboardingWizardService {
         : [];
 
     const user = await userService.completeOnboarding();
+    const batchId = runs[0]?.batchId ?? null;
     return {
       user,
-      batchId: runs[0]?.batchId ?? null,
+      batchId,
       cellCount: runs.length,
       rowCount: rowIndexes.length,
       columnCount: columns.length,
+      generationId: await this.startGeneration(workspaceId, batchId),
     };
+  }
+
+  /** The generation after the batch — best effort: the flag is already set, the pill can retry. */
+  private async startGeneration(
+    workspaceId: string,
+    awaitBatchId: string | null,
+  ): Promise<string | null> {
+    try {
+      const generation = await dashboardGenerationControlService.start({
+        workspaceId,
+        source: "onboarding",
+        awaitBatchId,
+      });
+      return generation.id;
+    } catch (error) {
+      console.error(
+        "[onboarding] dashboard generation not started:",
+        describeError(error).message,
+      );
+      return null;
+    }
   }
 }
 

@@ -27,13 +27,20 @@
  * - DELETE is idempotent: a URL that holds nothing answers 200 with
  *   `removed: false`. It does not check whether a cell still stores the URL.
  * - Without storage env DELETE answers 503 before it looks at the URL.
+ * - `fileService.ownsUrl(url)` (service only) is true exactly for a URL an
+ *   upload returned; features that let the worker fetch a client-supplied URL
+ *   check it first (company documents).
  * - The publishable (anon) key must be allowed to insert into — and delete
  *   from — the bucket; if its RLS rejects anon writes, put the service-role
  *   key in SUPABASE_KEY.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { uploadPathFromUrl } from "../modules/file/file.service";
+import {
+  fileService,
+  uploadBaseUrl,
+  uploadPathFromUrl,
+} from "../modules/file/file.service";
 import type { TestServer } from "./support/http";
 import { jsonInit, startTestServer } from "./support/http";
 
@@ -149,6 +156,26 @@ describe("uploadPathFromUrl", () => {
       `${base}uploads/${id}/a.txt?download=1`,
     ];
     for (const url of refused) expect(uploadPathFromUrl(url, base)).toBeNull();
+  });
+});
+
+describe.skipIf(!storageConfigured)("fileService.ownsUrl (service)", () => {
+  it("is true exactly for what an upload returns", async () => {
+    const form = new FormData();
+    form.append("file", new Blob(["owned"]), "owned.txt");
+    const uploaded = (await (
+      await fetch(`${baseUrl}/files`, { method: "POST", body: form })
+    ).json()) as { url: string };
+    try {
+      expect(fileService.ownsUrl(uploaded.url)).toBe(true);
+      expect(uploaded.url.startsWith(uploadBaseUrl() ?? "-")).toBe(true);
+      expect(fileService.ownsUrl(`${uploadBaseUrl()}other/owned.txt`)).toBe(
+        false,
+      );
+      expect(fileService.ownsUrl("https://example.com/owned.txt")).toBe(false);
+    } finally {
+      await fileService.remove(uploaded.url).catch(() => {});
+    }
   });
 });
 

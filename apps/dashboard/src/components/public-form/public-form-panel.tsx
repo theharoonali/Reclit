@@ -26,7 +26,17 @@ import {
 export function PublicFormPanel({ spreadsheetId }: { spreadsheetId: string }) {
   const t = useTranslations("publicForm");
   const trpc = useTRPC();
-  const form = useQuery(trpc.populate.form.queryOptions({ id: spreadsheetId }));
+  const form = useQuery(
+    trpc.populate.form.queryOptions(
+      { id: spreadsheetId },
+      {
+        // An unknown sheet is a definite answer, not a hiccup: say so at once
+        // instead of retrying behind "Loading form…".
+        retry: (failureCount, error) =>
+          error.data?.code !== "NOT_FOUND" && failureCount < 2,
+      },
+    ),
+  );
   const [submission, setSubmission] = useState<PublicFormSubmission | null>(
     null,
   );

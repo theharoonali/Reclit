@@ -60,7 +60,21 @@ export class SpreadsheetController {
     return spreadsheetService.remove(id);
   }
 
-  /** 200, not 201: an import replaces a grid and creates no new resource. */
+  /** 200: a preview writes nothing. */
+  @Post(":id/import/preview")
+  @HttpCode(200)
+  @UploadFile()
+  previewImport(@Param("id") id: string, @UploadedFile() file?: MulterFile) {
+    const upload = requireFile(file);
+    return spreadsheetImportService.preview(
+      id,
+      upload.buffer,
+      upload.originalname,
+      upload.mimetype,
+    );
+  }
+
+  /** 200, not 201: an import merges into a sheet; no new resource. */
   @Post(":id/import")
   @HttpCode(200)
   @UploadFile()

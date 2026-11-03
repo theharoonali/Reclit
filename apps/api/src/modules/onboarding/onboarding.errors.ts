@@ -2,14 +2,12 @@ import { DomainError } from "../../common/errors";
 
 // Named domain errors (docs/rules/BACKEND.md §Errors).
 
-/** The wizard's model calls without a `GOOGLE_GENERATIVE_AI_API_KEY` on the api. */
+/** The wizard's model calls without a `AI_API_KEY` on the api. */
 export class OnboardingAiUnavailableError extends DomainError {
   readonly kind = "unavailable";
   readonly code = "ONBOARDING_AI_UNAVAILABLE";
   constructor() {
-    super(
-      "Onboarding AI is not configured: GOOGLE_GENERATIVE_AI_API_KEY is not set",
-    );
+    super("Onboarding AI is not configured: AI_API_KEY is not set");
     this.name = "OnboardingAiUnavailableError";
   }
 }

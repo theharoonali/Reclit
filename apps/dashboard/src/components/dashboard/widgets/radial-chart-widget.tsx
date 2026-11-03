@@ -15,6 +15,7 @@ import {
   RadialBar,
   RadialBarChart,
 } from "recharts";
+import { figureFormatter } from "@/lib/dashboard/format";
 import { toChartConfig, WIDGET_HEIGHT } from "@/lib/dashboard/layout";
 import type { ResolvedWidget } from "@/lib/dashboard/widget-state";
 
@@ -62,6 +63,7 @@ export function RadialChartWidget({ widget }: { widget: ResolvedWidget }) {
   const categoryKey = data.categoryKey ?? "";
   const valueKey = data.valueKey ?? "";
   const config = toChartConfig(data.series);
+  const valueFormatter = figureFormatter(data.series);
   const className = cn("aspect-auto w-full", WIDGET_HEIGHT[height]);
   const slices = data.rows.map((record) => ({
     ...record,
@@ -84,7 +86,9 @@ export function RadialChartWidget({ widget }: { widget: ResolvedWidget }) {
           startAngle={180}
         >
           <ChartTooltip
-            content={<ChartTooltipContent hideLabel />}
+            content={
+              <ChartTooltipContent hideLabel valueFormatter={valueFormatter} />
+            }
             cursor={false}
           />
           <PolarRadiusAxis axisLine={false} tick={false} tickLine={false}>
@@ -142,7 +146,13 @@ export function RadialChartWidget({ widget }: { widget: ResolvedWidget }) {
     <ChartContainer className={className} config={config}>
       <RadialBarChart data={slices} innerRadius="25%" outerRadius="100%">
         <ChartTooltip
-          content={<ChartTooltipContent hideLabel nameKey={categoryKey} />}
+          content={
+            <ChartTooltipContent
+              hideLabel
+              nameKey={categoryKey}
+              valueFormatter={valueFormatter}
+            />
+          }
           cursor={false}
         />
         <RadialBar background dataKey={valueKey} isAnimationActive={false} />

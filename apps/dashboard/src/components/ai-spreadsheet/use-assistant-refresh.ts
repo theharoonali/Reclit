@@ -12,7 +12,7 @@ import { useTRPC } from "@/trpc/client";
  * - before a run starts, the pending debounced writes are flushed — the
  *   worker reads the database, not the grid;
  * - after the assistant changed something, they are flushed again (the
- *   user's own edits survive, unlike the import's `discardPending`), the
+ *   user's own edits survive, as they do across an import), the
  *   editor is reset (the active cell may be in a column that is gone), and
  *   the rows query is invalidated — the import's refresh path, which
  *   re-renders the grid in place rather than remounting it.

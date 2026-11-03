@@ -28,7 +28,7 @@ import {
 // schema per tool — plus the summary of a call's input that is stored on the
 // run and streamed to the capsule. No service, no SDK: the contract test
 // covers this file without an API key. Shapes stay flat (unions of
-// primitives only, no nested unions): Gemini's function declarations reject
+// primitives only, no nested unions): the provider's function declarations reject
 // anything richer, and the executor maps them onto the services' inputs.
 
 export const MAX_READ_ROWS = 50;
@@ -138,7 +138,7 @@ export const ASSISTANT_TOOLS = {
   },
   createColumn: {
     description:
-      "Adds a column at the end. A node (ai, google_search) needs a prompt; email has no executor.",
+      "Adds a column at the end. A node (ai, google_search, email) needs a prompt. An email node sends a real email, drafted from its prompt, to one of the row's email cells when it runs; it must be a string or json column.",
     inputSchema: z.object({
       name: z.string().trim().min(1).max(200),
       type: columnTypeWire.default("string"),
@@ -258,12 +258,12 @@ export const ASSISTANT_TOOLS = {
 } satisfies Record<AssistantToolName, AssistantToolSpec>;
 
 /**
- * One proposed card, as `assistant.recommendWidgets` validates each item of
- * the model's answer: the strict twin of the lenient generation schema in
- * `src/ai/assistant-recommend.ts` (Gemini drops `pattern` and array caps from
+ * One proposed card, as the generate-dashboard pipeline validates each item
+ * of the model's answer: the strict twin of the lenient generation schema in
+ * `src/ai/dashboard-propose.ts` (the model drops `pattern` and array caps from
  * a response schema, so the strict checks run here, per card).
  */
-export const recommendationCardSchema = z.object({
+export const proposalCardSchema = z.object({
   name: widgetFields.name,
   description: widgetFields.description.optional(),
   type: widgetFields.type,
@@ -272,7 +272,7 @@ export const recommendationCardSchema = z.object({
   column: widgetFields.column.optional(),
   query: widgetFields.query,
 });
-export type RecommendationCard = z.infer<typeof recommendationCardSchema>;
+export type ProposalCard = z.infer<typeof proposalCardSchema>;
 
 /** A tool's parsed input, as its handler receives it. */
 export type ToolInput<N extends AssistantToolName> = z.infer<

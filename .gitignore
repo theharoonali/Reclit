@@ -62,3 +62,5 @@ logs
 *.njsproj
 *.sln
 *.sw?
+
+ignore/

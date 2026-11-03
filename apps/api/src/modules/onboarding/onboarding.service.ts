@@ -1,3 +1,4 @@
+import { isAiConfigured } from "../../ai/model";
 import {
   type DescribeGeneration,
   type DescribeGenerator,
@@ -6,6 +7,7 @@ import {
 import { buildDescribePrompt, toSampleRows } from "../../ai/onboarding-prompt";
 import { describeError } from "../../common/errors";
 import { prisma } from "../../db/prisma";
+import { companyContextService } from "../company/company-context.service";
 import type { ColumnDraftInput } from "../spreadsheet/spreadsheet.schema";
 import { spreadsheetService } from "../spreadsheet/spreadsheet.service";
 import { toSheetColumn } from "../spreadsheet/spreadsheet.shape";
@@ -54,8 +56,8 @@ export class OnboardingService {
       filename,
       mimeType,
     );
-    // `gemini()` would throw a plain Error; name the condition instead.
-    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    // `aiModel()` would throw a plain Error; name the condition instead.
+    if (!isAiConfigured()) {
       throw new OnboardingAiUnavailableError();
     }
     const sampleRows = toSampleRows(
@@ -63,12 +65,15 @@ export class OnboardingService {
       plan.columns.length,
       ONBOARDING_SAMPLE_ROWS,
     );
-    const messages = buildDescribePrompt({
-      filename,
-      rowCount: plan.cells.length,
-      columns: plan.columns,
-      sampleRows,
-    });
+    const messages = buildDescribePrompt(
+      {
+        filename,
+        rowCount: plan.cells.length,
+        columns: plan.columns,
+        sampleRows,
+      },
+      await companyContextService.forCurrentUser(),
+    );
     let generated: DescribeGeneration;
     try {
       generated = await deps.generate(messages);

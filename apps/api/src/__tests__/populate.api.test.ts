@@ -35,7 +35,9 @@
  * - A column is fillable when it is not a formula and carries no node; AI
  *   columns are computed, never filled. `form.fields` is in display order.
  * - `form.outputs` are the columns a submission runs (node `ai` or
- *   `google_search` with a prompt), in display order, listed whether or not
+ *   `google_search` with a prompt, or `email` with a prompt on a string /
+ *   json column — that one SENDS an email to the submitted row's email
+ *   address; see run-ai contract), in display order, listed whether or not
  *   `outputEnabled` is set; an AI column without a prompt is in neither list.
  *   `outputEnabled` is `Spreadsheet.formOutputEnabled`, false by default, set
  *   only by `populate.setOutput` (tRPC only, no REST twin): when true the
@@ -126,8 +128,8 @@ beforeAll(async () => {
 afterAll(async () => {
   runAiBatchService.setDispatcher(null);
   if (!dbUp) return;
-  await prisma.runAi.deleteMany({
-    where: { spreadsheetId: { in: [sheet, plainSheet] } },
+  await prisma.aiRun.deleteMany({
+    where: { kind: "CELL", spreadsheetId: { in: [sheet, plainSheet] } },
   });
   for (const id of workspaceIds) await removeWorkspace(id);
 });
@@ -175,6 +177,34 @@ describe.skipIf(!dbUp)("populate.form", () => {
     expect((await caller.populate.form({ id: plainSheet })).outputs).toEqual(
       [],
     );
+  });
+
+  it("lists a Mail column as an output, so a submission sends its email", async () => {
+    const workspace = await makeWorkspace("populate contract mail");
+    workspaceIds.push(workspace.id);
+    const mailSheet = workspace.spreadsheetId ?? "";
+    const add = (
+      input: Parameters<typeof caller.spreadsheet.createColumn>[0],
+    ) => caller.spreadsheet.createColumn(input).then((c) => c.index);
+    const contact = await add({
+      id: mailSheet,
+      name: "Contact",
+      type: "email",
+    });
+    const mail = await add({
+      id: mailSheet,
+      name: "Welcome",
+      type: "json",
+      node: "email",
+      prompt: "Thank them for signing up",
+    });
+    const form = await caller.populate.form({ id: mailSheet });
+    expect(form.fields).toEqual([
+      { name: "Contact", type: "email", columnIndex: contact },
+    ]);
+    expect(form.outputs).toEqual([
+      { name: "Welcome", type: "json", columnIndex: mail },
+    ]);
   });
 
   it("rejects an unknown sheet", async () => {

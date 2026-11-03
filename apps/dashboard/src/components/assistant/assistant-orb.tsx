@@ -8,7 +8,7 @@ import { useLatestRef } from "@/hooks/use-latest-ref";
 export type OrbState = "idle" | "listening" | "running";
 
 /**
- * How fast the ribbons play, per state. Idle is the design's own tempo;
+ * How fast the cube plays, per state. Idle is the canvas's own tempo;
  * listening and running speed the same motion up.
  */
 const TEMPO: Record<OrbState, number> = {
@@ -17,169 +17,253 @@ const TEMPO: Record<OrbState, number> = {
   running: 2.6,
 };
 
-/** The still frame when the user prefers reduced motion. */
+/** Seconds into the motion when the user prefers reduced motion. */
 const STILL_TIME = 1.15;
 
-type Rgb = readonly [number, number, number];
+/** The solving canvas's playback rate, applied on top of `TEMPO`. */
+const SPEED = 1.82 * 0.8;
 
-type Wave = {
-  shift: number;
-  color: Rgb;
-  core: Rgb;
+/** The 28px icon the cube was tuned for. Larger canvases scale that frame. */
+const ICON_PX = 28;
+
+const CELLS = 3;
+const CUBE = 0.72;
+const CELL = (2 * CUBE) / CELLS;
+const HALF_STICKER = (CELL * 0.92) / 2;
+
+const CORNERS = [
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+] as const;
+
+type Axis = 0 | 1 | 2;
+type Layer = -1 | 0 | 1;
+
+type Move = {
+  axis: Axis;
+  layer: Layer;
+  ang: number;
 };
 
-/** Two waves across the disc. Colours are the orb's own, not theme tokens. */
-const WAVES: Wave[] = [
-  { shift: 0, color: [64, 168, 255], core: [236, 247, 255] },
-  { shift: 1, color: [255, 52, 36], core: [255, 186, 150] },
-];
+type Twist = {
+  amount: number[];
+  active: number;
+};
 
-const STEPS = 140;
+type Point = [number, number, number];
 
-function motion(time: number) {
-  const morph = 0.5 + 0.5 * Math.sin(time * 0.27);
-  return {
-    freq: 0.92 + morph * 0.78,
-    amp: 0.24 + morph * 0.14,
-    split: 0.35 + 2.35 * (0.5 + 0.5 * Math.sin(time * 0.19)),
+type Sticker = {
+  corners: Point[];
+  z: number;
+  white: number;
+};
+
+function layerOf(coord: number): Layer {
+  if (coord < -0.24) return -1;
+  if (coord > 0.24) return 1;
+  return 0;
+}
+
+function axisAt(axis: Axis, step: number): Axis {
+  const next = (axis + step) % 3;
+  if (next === 1) return 1;
+  if (next === 2) return 2;
+  return 0;
+}
+
+function setAxis(point: Point, axis: Axis, value: number) {
+  if (axis === 0) point[0] = value;
+  else if (axis === 1) point[1] = value;
+  else point[2] = value;
+}
+
+function addAxis(point: Point, axis: Axis, value: number) {
+  if (axis === 0) point[0] += value;
+  else if (axis === 1) point[1] += value;
+  else point[2] += value;
+}
+
+const MOVES: Move[] = [];
+for (const axis of [0, 1, 2] as const) {
+  for (const layer of [-1, 0, 1] as const) {
+    MOVES.push({
+      axis,
+      layer,
+      ang: (layer === 0 ? -1 : 1) * (Math.PI / 2),
+    });
+  }
+}
+
+function project(yaw: number, pitch: number, size: number) {
+  const sp = Math.sin(pitch);
+  const cp = Math.cos(pitch);
+  const sy = Math.sin(yaw);
+  const cy = Math.cos(yaw);
+  const ox = size / 2;
+  const oy = size / 2;
+  const scale = (size / 2) * 0.82;
+  return (x: number, y: number, z: number) => {
+    const u = -x * sy + z * cy;
+    return [
+      ox + (x * cy + z * sy) * scale,
+      oy - (y * cp - u * sp) * scale,
+      y * sp + u * cp,
+    ] as const;
   };
 }
 
-function waveY(across: number, time: number, shift: number) {
-  const m = motion(time);
-  const breathe = 0.84 + 0.16 * Math.sin(time * 0.58 + shift * 1.7);
-  const phase = time * 0.82 + shift * m.split;
-  const p = across * Math.PI * m.freq + phase;
-  const shape = Math.sin(p) + 0.14 * Math.sin(p * 2 + 0.5);
-  const env = Math.max(0, 1 - across * across) ** 0.72;
-  return shape * m.amp * breathe * env;
-}
-
-function ribbonPath(
-  ctx: CanvasRenderingContext2D,
-  time: number,
-  shift: number,
-  cx: number,
-  cy: number,
-  radius: number,
-  bulk: number,
-) {
-  const upper: [number, number][] = [];
-  const lower: [number, number][] = [];
-  for (let i = 0; i <= STEPS; i++) {
-    const across = (i / STEPS) * 2 - 1;
-    const env = Math.max(0, 1 - across * across) ** 0.8;
-    const y = waveY(across, time, shift) * radius;
-    const half = radius * bulk * (0.05 + 0.95 * env);
-    const x = cx + across * radius * 0.985;
-    upper.push([x, cy + y - half]);
-    lower.push([x, cy + y + half]);
+function twist(time: number, count: number): Twist {
+  const span = 2 * count * 0.42 + 1.2;
+  const t = time % span;
+  const amount = Array.from({ length: count }, () => 0);
+  let active = -1;
+  if (t < 2 * count * 0.42) {
+    const step = Math.floor(t / 0.42);
+    const p = Math.min(1, (t - 0.42 * step) / 0.42 / 0.7);
+    const eased = 1 - (1 - p) ** 3;
+    if (step < count) {
+      for (let j = 0; j < step; j++) amount[j] = 1;
+      amount[step] = eased;
+      active = step;
+    } else {
+      const back = 2 * count - 1 - step;
+      for (let k = 0; k < back; k++) amount[k] = 1;
+      amount[back] = 1 - eased;
+      active = back;
+    }
   }
-  const start = upper[0];
-  if (!start) return;
-  ctx.beginPath();
-  ctx.moveTo(start[0], start[1]);
-  for (let i = 1; i < upper.length; i++) {
-    const point = upper[i];
-    if (point) ctx.lineTo(point[0], point[1]);
+  return { amount, active };
+}
+
+function spin(
+  axis: Axis,
+  c: number,
+  s: number,
+  px: number,
+  py: number,
+  pz: number,
+): Point {
+  if (axis === 0) return [px, py * c - pz * s, py * s + pz * c];
+  if (axis === 1) return [px * c + pz * s, py, -px * s + pz * c];
+  return [px * c - py * s, px * s + py * c, pz];
+}
+
+function turn(point: Point, state: Twist): Point {
+  let x = point[0];
+  let y = point[1];
+  let z = point[2];
+  for (let i = 0; i < MOVES.length; i++) {
+    const amount = state.amount[i] ?? 0;
+    if (amount <= 0) continue;
+    const move = MOVES[i];
+    if (!move) continue;
+    const coord = move.axis === 0 ? x : move.axis === 1 ? y : z;
+    if (layerOf(coord) !== move.layer) continue;
+    const ang = move.ang * amount;
+    const next = spin(move.axis, Math.cos(ang), Math.sin(ang), x, y, z);
+    x = next[0];
+    y = next[1];
+    z = next[2];
   }
-  for (let i = lower.length - 1; i >= 0; i--) {
-    const point = lower[i];
-    if (point) ctx.lineTo(point[0], point[1]);
+  return [x, y, z];
+}
+
+function turnWith(point: Point, anchor: Point, state: Twist): Point {
+  let x = point[0];
+  let y = point[1];
+  let z = point[2];
+  let ax = anchor[0];
+  let ay = anchor[1];
+  let az = anchor[2];
+  for (let i = 0; i < MOVES.length; i++) {
+    const amount = state.amount[i] ?? 0;
+    if (amount <= 0) continue;
+    const move = MOVES[i];
+    if (!move) continue;
+    const coord = move.axis === 0 ? ax : move.axis === 1 ? ay : az;
+    if (layerOf(coord) !== move.layer) continue;
+    const ang = move.ang * amount;
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    const next = spin(move.axis, c, s, x, y, z);
+    x = next[0];
+    y = next[1];
+    z = next[2];
+    const nextAnchor = spin(move.axis, c, s, ax, ay, az);
+    ax = nextAnchor[0];
+    ay = nextAnchor[1];
+    az = nextAnchor[2];
   }
-  ctx.closePath();
+  return [x, y, z];
 }
 
-function centerPath(
-  ctx: CanvasRenderingContext2D,
-  time: number,
-  shift: number,
-  cx: number,
-  cy: number,
-  radius: number,
-) {
-  ctx.beginPath();
-  for (let i = 0; i <= STEPS; i++) {
-    const across = (i / STEPS) * 2 - 1;
-    const x = cx + across * radius * 0.985;
-    const y = cy + waveY(across, time, shift) * radius;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-}
-
-function rgba(rgb: Rgb, alpha: number) {
-  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
-}
-
-function paintWave(
-  ctx: CanvasRenderingContext2D,
-  time: number,
-  wave: Wave,
-  cx: number,
-  cy: number,
-  radius: number,
-) {
-  ctx.save();
-  ctx.globalCompositeOperation = "lighter";
-  ctx.shadowColor = `rgb(${wave.color[0]}, ${wave.color[1]}, ${wave.color[2]})`;
-  ctx.fillStyle = rgba(wave.color, 0.16);
-  ctx.shadowBlur = radius * 0.22;
-  ribbonPath(ctx, time, wave.shift, cx, cy, radius, 0.018);
-  ctx.fill();
-
-  ctx.shadowBlur = radius * 0.045;
-  ctx.fillStyle = rgba(wave.color, 0.78);
-  ribbonPath(ctx, time, wave.shift, cx, cy, radius, 0.011);
-  ctx.fill();
-
-  const core = ctx.createLinearGradient(cx - radius, cy, cx + radius, cy);
-  core.addColorStop(0, rgba(wave.core, 0));
-  core.addColorStop(0.16, rgba(wave.core, 0.2));
-  core.addColorStop(0.5, "rgba(255, 255, 255, 0.8)");
-  core.addColorStop(0.84, rgba(wave.core, 0.2));
-  core.addColorStop(1, rgba(wave.core, 0));
-  ctx.shadowBlur = radius * 0.012;
-  ctx.strokeStyle = core;
-  ctx.lineWidth = Math.max(1, radius * 0.007);
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  centerPath(ctx, time, wave.shift, cx, cy, radius);
-  ctx.stroke();
-  ctx.restore();
-}
-
-type Gloss = { x: number; y: number; color: string; alpha: number };
-
-function glossSpots(time: number): Gloss[] {
-  return [
-    {
-      x: Math.cos(time * 0.9) * 0.46,
-      y: Math.sin(time * 0.7) * 0.4,
-      color: "80, 180, 255",
-      alpha: 0.5,
-    },
-    {
-      x: Math.cos(time * 0.75 + 2.1) * 0.5,
-      y: Math.sin(time * 1.05 + 1) * 0.42,
-      color: "255, 70, 160",
-      alpha: 0.4,
-    },
-    {
-      x: Math.cos(time * 0.62 + 4) * 0.42,
-      y: Math.sin(time * 0.84 + 2.4) * 0.48,
-      color: "255, 100, 40",
-      alpha: 0.36,
-    },
+function rubik(size: number, time: number): Sticker[] {
+  const yaw = 0.7 + 0.55 * time;
+  const pitch = 0.5 + 0.08 * Math.sin(0.9 * time);
+  const cam = project(yaw, pitch, size);
+  const toward: Point = [
+    -Math.sin(yaw) * Math.cos(pitch),
+    Math.sin(pitch),
+    Math.cos(yaw) * Math.cos(pitch),
   ];
+  const state = twist(time, MOVES.length);
+  const stickers: Sticker[] = [];
+  for (const axis of [0, 1, 2] as const) {
+    for (const face of [0, 1] as const) {
+      for (let i = 0; i < CELLS; i++) {
+        for (let j = 0; j < CELLS; j++) {
+          const center: Point = [0, 0, 0];
+          setAxis(center, axis, face === 0 ? -CUBE : CUBE);
+          setAxis(center, axisAt(axis, 1), -CUBE + CELL * (i + 0.5));
+          setAxis(center, axisAt(axis, 2), -CUBE + CELL * (j + 0.5));
+          const corners: Point[] = [];
+          for (const [su, sv] of CORNERS) {
+            const corner: Point = [center[0], center[1], center[2]];
+            addAxis(corner, axisAt(axis, 1), su * HALF_STICKER);
+            addAxis(corner, axisAt(axis, 2), sv * HALF_STICKER);
+            const spun = turnWith(corner, center, state);
+            const projected = cam(spun[0], spun[1], spun[2]);
+            corners.push([projected[0], projected[1], projected[2]]);
+          }
+          const mid = turn(center, state);
+          const outward: Point = [0, 0, 0];
+          outward[axis] = face === 0 ? -1 : 1;
+          const turned = turnWith(
+            [
+              center[0] + outward[0],
+              center[1] + outward[1],
+              center[2] + outward[2],
+            ],
+            center,
+            state,
+          );
+          const facing =
+            (turned[0] - mid[0]) * toward[0] +
+            (turned[1] - mid[1]) * toward[1] +
+            (turned[2] - mid[2]) * toward[2];
+          if (facing <= 0) continue;
+          const p = cam(mid[0], mid[1], mid[2]);
+          const bit = axis * 18 + face * 9 + i * 3 + j;
+          stickers.push({
+            corners,
+            z: p[2],
+            white: 0.16 + (((bit * 19) % 54) / 53) * 0.7,
+          });
+        }
+      }
+    }
+  }
+  stickers.sort((a, b) => a.z - b.z);
+  return stickers;
 }
 
 /**
- * Circular wave orb: a dark disc with a rotating blue–purple–pink–orange
- * sweep, three drifting gloss spots and a white sheen, two filled ribbons
- * clipped inside it, then a shade and a gradient rim. Coordinates are CSS
- * pixels. Self-contained on purpose — the component around it handles
- * sizing, timing and pausing.
+ * The solving cube: grayscale stickers on a transparent ground, one shade
+ * per square, layers twisting. Coordinates are CSS pixels. The component
+ * around it handles sizing, timing and pausing. Ink is the canvas's own
+ * grayscale, not a theme token.
  */
 function paint(
   ctx: CanvasRenderingContext2D,
@@ -187,94 +271,36 @@ function paint(
   height: number,
   time: number,
 ) {
-  const cx = width / 2;
-  const cy = height / 2;
-  const radius = Math.min(width, height) * 0.5;
-
+  const size = Math.min(width, height);
   ctx.clearRect(0, 0, width, height);
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.clip();
-
-  ctx.fillStyle = "#07030c";
-  ctx.fillRect(0, 0, width, height);
-
-  const spin = time * 0.65;
-  const sweep = ctx.createLinearGradient(
-    cx + Math.cos(spin) * radius,
-    cy + Math.sin(spin) * radius,
-    cx - Math.cos(spin) * radius,
-    cy - Math.sin(spin * 0.85) * radius,
-  );
-  sweep.addColorStop(0, "rgba(70, 165, 255, 0.62)");
-  sweep.addColorStop(0.34, "rgba(186, 64, 255, 0.4)");
-  sweep.addColorStop(0.66, "rgba(255, 64, 130, 0.36)");
-  sweep.addColorStop(1, "rgba(255, 96, 42, 0.48)");
-  ctx.fillStyle = sweep;
-  ctx.fillRect(0, 0, width, height);
-
-  for (const spot of glossSpots(time)) {
-    const wash = ctx.createRadialGradient(
-      cx + spot.x * radius,
-      cy + spot.y * radius,
-      radius * 0.02,
-      cx,
-      cy,
-      radius * 0.78,
-    );
-    wash.addColorStop(0, `rgba(${spot.color}, ${spot.alpha})`);
-    wash.addColorStop(0.45, `rgba(${spot.color}, ${spot.alpha * 0.22})`);
-    wash.addColorStop(1, "rgba(0, 0, 0, 0)");
-    ctx.fillStyle = wash;
-    ctx.fillRect(0, 0, width, height);
+  if (size <= 0) return;
+  const zoom = size / ICON_PX;
+  const stickers = rubik(ICON_PX, time);
+  const ox = (width - size) / 2;
+  const oy = (height - size) / 2;
+  for (const sticker of stickers) {
+    const g = Math.round(Math.min(1, Math.max(0, sticker.white)) * 255);
+    ctx.fillStyle = `rgba(${g},${g},${g},1)`;
+    ctx.beginPath();
+    for (let index = 0; index < sticker.corners.length; index++) {
+      const corner = sticker.corners[index];
+      if (!corner) continue;
+      const x = ox + corner[0] * zoom;
+      const y = oy + corner[1] * zoom;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
   }
-
-  for (const wave of WAVES) paintWave(ctx, time, wave, cx, cy, radius);
-
-  const sheen = ctx.createRadialGradient(
-    cx + Math.sin(time * 0.8) * radius * 0.32,
-    cy - radius * 0.4 + Math.cos(time * 0.55) * radius * 0.1,
-    radius * 0.02,
-    cx,
-    cy - radius * 0.05,
-    radius * 0.75,
-  );
-  sheen.addColorStop(0, "rgba(255, 255, 255, 0.28)");
-  sheen.addColorStop(0.35, "rgba(255, 255, 255, 0.08)");
-  sheen.addColorStop(1, "rgba(255, 255, 255, 0)");
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = sheen;
-  ctx.fillRect(0, 0, width, height);
-
-  const shade = ctx.createRadialGradient(cx, cy, radius * 0.55, cx, cy, radius);
-  shade.addColorStop(0, "rgba(0, 0, 0, 0)");
-  shade.addColorStop(0.82, "rgba(0, 0, 0, 0.08)");
-  shade.addColorStop(1, "rgba(0, 0, 0, 0.42)");
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = shade;
-  ctx.fillRect(0, 0, width, height);
-  ctx.restore();
-
-  const rimWidth = Math.max(2, radius * 0.018);
-  const rim = ctx.createLinearGradient(cx, cy - radius, cx, cy + radius);
-  rim.addColorStop(0, "rgba(255, 255, 255, 0.9)");
-  rim.addColorStop(0.22, "rgba(255, 255, 255, 0.45)");
-  rim.addColorStop(0.5, "rgba(190, 150, 170, 0.22)");
-  rim.addColorStop(1, "rgba(255, 122, 78, 0.42)");
-  ctx.beginPath();
-  ctx.arc(cx, cy, Math.max(0, radius - rimWidth * 0.5), 0, Math.PI * 2);
-  ctx.strokeStyle = rim;
-  ctx.lineWidth = rimWidth;
-  ctx.stroke();
 }
 
 /**
- * The island's animated orb: a `size-orb` canvas driven by
+ * The island's animated mark: a `size-orb` canvas driven by
  * `requestAnimationFrame`. `state` only changes the tempo. The loop stops
  * while the tab is hidden or the user prefers reduced motion, leaving one
  * still frame, and resumes when either changes back. Decorative — the
- * capsule's text carries the meaning.
+ * capsule's text carries the meaning. Onboarding uses the same mark, larger.
  */
 export function AssistantOrb({
   state,
@@ -290,7 +316,7 @@ export function AssistantOrb({
     const ctx = ctxRef.current;
     const { width, height } = sizeRef.current;
     if (ctx && width > 0 && height > 0) {
-      paint(ctx, width, height, timeRef.current);
+      paint(ctx, width, height, timeRef.current * SPEED);
     }
   }, []);
   const { canvasRef, ctxRef, sizeRef } = useCanvasSurface(drawFrame);
@@ -332,10 +358,7 @@ export function AssistantOrb({
   return (
     <span
       aria-hidden="true"
-      className={cn(
-        "relative block size-orb shrink-0 overflow-hidden rounded-full",
-        className,
-      )}
+      className={cn("relative block size-orb shrink-0", className)}
     >
       <canvas className="block" ref={canvasRef} />
     </span>

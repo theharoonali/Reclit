@@ -4,6 +4,8 @@ export {
   checkLayout,
   type DashboardRow,
   type LayoutIssue,
+  type PackedCard,
+  packDashboard,
   placeWidget,
   placeWidgets,
   toRows,
@@ -30,4 +32,5 @@ export {
   type SheetPayloadLike,
 } from "./sheet";
 export { validateWidget } from "./validate";
+export * from "./verify";
 export * from "./widget";

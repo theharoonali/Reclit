@@ -13,7 +13,11 @@ import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { ErrorState } from "@/components/common/error-state";
 import { LoadingState } from "@/components/common/loading-state";
-import { COLUMN_SPAN, WIDGET_HEIGHT } from "@/lib/dashboard/layout";
+import {
+  COLUMN_SPAN,
+  WIDGET_HEIGHT,
+  WIDGET_MIN_HEIGHT,
+} from "@/lib/dashboard/layout";
 import {
   type ResolvedWidget,
   type WidgetState,
@@ -92,9 +96,10 @@ function WidgetStatus({
 
 /**
  * The card frame every widget renders in — a stored one or a proposed one:
- * a `Card` spanning `column` of the row's 12 columns, its data in `state`.
- * A stat draws its whole body; every other type gets the title, description,
- * body and footer. `action` is a trailing row (the recommendation's Add).
+ * a `Card` spanning `column` of the row's 12 columns and the row's full
+ * height, its data in `state`. A stat draws its whole body, at least its
+ * `height` tall; every other type gets the title, description, body and
+ * footer. `action` is a trailing row (the recommendation's Add).
  */
 export function WidgetCard({
   widget,
@@ -109,12 +114,17 @@ export function WidgetCard({
 
   if (widget.type === "stat") {
     return (
-      <Card className={cn("flex min-w-0 flex-col", span)}>
-        <div className="flex-1">
+      <Card className={cn("flex h-full min-w-0 flex-col", span)}>
+        <div
+          className={cn(
+            "flex flex-1 flex-col",
+            WIDGET_MIN_HEIGHT[widget.height],
+          )}
+        >
           {state.status === "ready" ? (
             <StatWidget widget={{ ...widget, data: state.data }} />
           ) : (
-            <div className="flex h-full flex-col gap-4 p-6">
+            <div className="flex flex-1 flex-col gap-4 p-6">
               <p className="text-label">{widget.name}</p>
               <WidgetStatus
                 className="h-spinner-lg justify-start p-0 text-left"
@@ -130,7 +140,7 @@ export function WidgetCard({
 
   const footer = state.status === "ready" ? state.data : null;
   return (
-    <Card className={cn("flex min-w-0 flex-col", span)}>
+    <Card className={cn("flex h-full min-w-0 flex-col", span)}>
       <CardHeader>
         <CardTitle>{widget.name}</CardTitle>
         {widget.description && (

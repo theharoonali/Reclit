@@ -4,6 +4,7 @@ import { Delete02Icon, FileExportIcon } from "@hugeicons/core-free-icons";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAssistantPageAction } from "@/components/assistant/use-page-action";
+import { emailCellCounts, isEmailNode } from "@/lib/ai-spreadsheet/email-cell";
 import { sheetToCsv } from "@/lib/ai-spreadsheet/export-csv";
 import type {
   ColumnDraft,
@@ -12,6 +13,7 @@ import type {
   SheetPayload,
 } from "@/lib/ai-spreadsheet/types";
 import { AiSpreadsheetBody } from "./ai-spreadsheet-body";
+import { AiSpreadsheetCellDialog } from "./ai-spreadsheet-cell-dialog";
 import { AiSpreadsheetColumnForm } from "./ai-spreadsheet-column-form";
 import { AiSpreadsheetDateEditor } from "./ai-spreadsheet-date-editor";
 import { AiSpreadsheetDragChip } from "./ai-spreadsheet-drag-chip";
@@ -19,10 +21,10 @@ import { AiSpreadsheetHeader } from "./ai-spreadsheet-header";
 import { AiSpreadsheetHeaderAction } from "./ai-spreadsheet-header-action";
 import { AiSpreadsheetImportButton } from "./ai-spreadsheet-import-button";
 import { AiSpreadsheetInputProxy } from "./ai-spreadsheet-input-proxy";
-import { AiSpreadsheetJsonEditor } from "./ai-spreadsheet-json-editor";
 import { AiSpreadsheetSelectionBar } from "./ai-spreadsheet-selection-bar";
 import { AiSpreadsheetSidePanel } from "./ai-spreadsheet-side-panel";
 import { AiSpreadsheetUploadEditor } from "./ai-spreadsheet-upload-editor";
+import { EmailCountChips } from "./email-count-chips";
 import { useAssistantRefresh } from "./use-assistant-refresh";
 import { useColumnRemove } from "./use-column-remove";
 import { useColumnReorder } from "./use-column-reorder";
@@ -87,8 +89,14 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     cancelEditRef.current();
   }, [discardPending]);
 
+  // JSON and Mail cells open a modal dialog, not the side panel: a table of
+  // keys and values, edited as a draft and written once on Save.
+  const [cellDialog, setCellDialog] = useState<{
+    row: number;
+    columnId: string;
+  } | null>(null);
   const openJson = useCallback((row: number, columnId: string) => {
-    setPanel({ kind: "json", row, columnId });
+    setCellDialog({ row, columnId });
   }, []);
   const openDate = useCallback((row: number, columnId: string) => {
     setPanel({ kind: "date", row, columnId });
@@ -99,7 +107,12 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   const openFile = useCallback((row: number, columnId: string) => {
     setPanel({ kind: "file", row, columnId });
   }, []);
+  // Bumped on every column open and part of the form's key. The panel stays
+  // mounted while closed, so without it "+" after an add would reuse the
+  // "new" form — still holding the name just submitted.
+  const [columnFormSession, setColumnFormSession] = useState(0);
   const openColumn = useCallback((columnId?: string) => {
+    setColumnFormSession((session) => session + 1);
     setPanel({ kind: "column", columnId });
   }, []);
   const closePanel = useCallback(() => setPanel({ kind: "closed" }), []);
@@ -151,6 +164,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     formatters,
     getCell,
     setCell,
+    setCells: sync.setCells,
     setCellLocal: model.setCell,
     runListening: runListening.listening,
     onRunEnded: runListening.ended,
@@ -276,7 +290,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
 
   const importer = useSheetImport({
     sheetId: payload.spreadsheet.id,
-    discardPending: sync.discardPending,
+    flushPending: sync.flushPending,
     onBeforeRefresh: resetEditor,
   });
 
@@ -314,10 +328,12 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     closePanel();
   };
 
-  const changeJson = (value: JsonObject | null) => {
-    const target = shownRef.current;
-    if (target.kind !== "json") return;
-    setCell(target.row, target.columnId, value);
+  const saveCellDialog = (value: JsonObject | null) => {
+    if (cellDialog === null) return;
+    setCell(cellDialog.row, cellDialog.columnId, value);
+    setCellDialog(null);
+    // A JSON cell's entries drive its row height, so the save re-fits.
+    canvas.invalidateLayout();
     canvas.requestPaint();
   };
 
@@ -394,26 +410,52 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
       ? columns.find((column) => column.id === shown.columnId)
       : undefined;
 
+  // A Mail column's overview: its sends summed over the loaded cells. Read
+  // when the panel opens (the model ref is not reactive), which is also when
+  // the numbers are looked at — `isOpen` is in the deps for exactly that.
+  const emailTotals = useMemo(() => {
+    if (!editedColumn || !isEmailNode(editedColumn)) return null;
+    const cells = modelRef.current?.cells;
+    if (!cells) return null;
+    let sent = 0;
+    let failed = 0;
+    const suffix = `:${editedColumn.id}`;
+    for (const [key, value] of cells) {
+      if (!key.endsWith(suffix)) continue;
+      const counts = emailCellCounts(value);
+      if (!counts) continue;
+      sent += counts.sent;
+      failed += counts.failed;
+    }
+    return { sent, failed };
+  }, [editedColumn, modelRef, isOpen]);
+
   const panelTitle =
-    shown.kind === "json"
-      ? t("panel.jsonTitle")
-      : shown.kind === "date"
-        ? t("panel.dateTitle")
-        : shown.kind === "audio"
-          ? t("panel.audioTitle")
-          : shown.kind === "file"
-            ? t("panel.fileTitle")
-            : editedColumn
-              ? t("panel.editColumn")
-              : t("panel.addColumn");
+    shown.kind === "date"
+      ? t("panel.dateTitle")
+      : shown.kind === "audio"
+        ? t("panel.audioTitle")
+        : shown.kind === "file"
+          ? t("panel.fileTitle")
+          : editedColumn
+            ? t("panel.editColumn")
+            : t("panel.addColumn");
+
+  const dialogColumn =
+    cellDialog === null
+      ? undefined
+      : columns.find((column) => column.id === cellDialog.columnId);
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
       <AiSpreadsheetImportButton
         errorMessage={importError}
-        labels={{ import: t("import.label"), importing: t("import.importing") }}
-        onPick={importer.run}
-        status={importer.status}
+        importer={importer}
+        labels={{
+          import: t("import.label"),
+          reading: t("import.reading"),
+          importing: t("import.importing"),
+        }}
       />
 
       <AiSpreadsheetHeaderAction
@@ -481,6 +523,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
           spacerRef={canvas.spacerRef}
         >
           <AiSpreadsheetInputProxy
+            clipboard={canvas.clipboard}
             editor={canvas.editor}
             label={t("cellInput")}
           />
@@ -493,10 +536,21 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
           open={isOpen}
           title={panelTitle}
         >
+          {shown.kind === "column" && emailTotals && (
+            <EmailCountChips
+              className="mb-4"
+              failed={emailTotals.failed}
+              labels={{
+                sent: t("column.emailSent"),
+                failed: t("column.emailFailed"),
+              }}
+              sent={emailTotals.sent}
+            />
+          )}
           {shown.kind === "column" && (
             <AiSpreadsheetColumnForm
               column={editedColumn}
-              key={shown.columnId ?? "new"}
+              key={`${columnFormSession}:${shown.columnId ?? "new"}`}
               labels={{
                 name: t("column.name"),
                 namePlaceholder: t("column.namePlaceholder"),
@@ -505,6 +559,8 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
                 node: t("column.node"),
                 prompt: t("column.prompt"),
                 promptPlaceholder: t("column.promptPlaceholder"),
+                mailPromptPlaceholder: t("column.mailPromptPlaceholder"),
+                mailTypeLocked: t("column.mailTypeLocked"),
                 submit: editedColumn ? t("column.save") : t("column.add"),
                 cancel: t("column.cancel"),
                 typeNames: labels.typeNames,
@@ -512,6 +568,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
                   none: t("nodes.none"),
                   ai: t("nodes.ai"),
                   email: t("nodes.email"),
+                  api: t("nodes.api"),
                   google_search: t("nodes.google_search"),
                 },
               }}
@@ -520,21 +577,6 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
               otherNames={columns
                 .filter((column) => column.id !== shown.columnId)
                 .map((column) => column.name)}
-            />
-          )}
-
-          {shown.kind === "json" && (
-            <AiSpreadsheetJsonEditor
-              key={`${shown.row}:${shown.columnId}`}
-              labels={{
-                key: t("json.key"),
-                value: t("json.value"),
-                add: t("json.add"),
-                remove: t("json.remove"),
-                empty: t("json.empty"),
-              }}
-              onChange={changeJson}
-              value={asJsonObject(getCell(shown.row, shown.columnId))}
             />
           )}
 
@@ -585,6 +627,29 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
             />
           )}
         </AiSpreadsheetSidePanel>
+
+        {cellDialog !== null && (
+          <AiSpreadsheetCellDialog
+            key={`${cellDialog.row}:${cellDialog.columnId}`}
+            labels={{
+              key: t("json.key"),
+              value: t("json.value"),
+              add: t("json.add"),
+              remove: t("json.remove"),
+              empty: t("json.empty"),
+              save: t("json.save"),
+              cancel: t("json.cancel"),
+            }}
+            onClose={() => setCellDialog(null)}
+            onSave={saveCellDialog}
+            title={
+              dialogColumn && isEmailNode(dialogColumn)
+                ? t("json.mailTitle")
+                : t("json.title")
+            }
+            value={asJsonObject(getCell(cellDialog.row, cellDialog.columnId))}
+          />
+        )}
       </div>
     </div>
   );

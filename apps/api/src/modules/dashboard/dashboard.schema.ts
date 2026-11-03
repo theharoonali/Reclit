@@ -141,6 +141,7 @@ export const toWidgetQuery = (
 
 export const dashboardWidgetSchema = z.object({
   id: z.string(),
+  /** The dashboard's id — which is its workspace's id. */
   dashboardId: z.string(),
   spreadsheetId: z.string(),
   name: z.string(),
@@ -158,6 +159,7 @@ export const dashboardWidgetSchema = z.object({
 
 /** The one dashboard of a workspace, widgets ordered by (row, sort). */
 export const dashboardDetailSchema = z.object({
+  /** The workspace's id: a dashboard is stored on its workspace. */
   id: z.string(),
   workspaceId: z.string(),
   /** null → the page's default title / subtitle. */

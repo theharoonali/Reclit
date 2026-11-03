@@ -1,4 +1,5 @@
 import { Prisma } from "../../../generated/prisma/client";
+import { present } from "../../common/ai-run";
 import {
   isRecordNotFound,
   isUniqueViolation,
@@ -36,9 +37,13 @@ import {
 // every transition. The API creates a run and may cancel it or record the
 // user's answer to a confirmation; the Trigger.dev task owns every other
 // transition. The database enforces one active run per workspace (partial
-// unique index `AssistantRun_active_workspace_key`). Starting, cancelling and
+// unique index `AiRun_active_assistant_key`). Starting, cancelling and
 // responding — the parts that reach the worker — live in
 // assistant-control.service.ts; the live stream in assistant-changes.service.ts.
+// Assistant runs are the `ASSISTANT` kind of the shared `AiRun` table: every
+// query below carries `KIND`.
+
+const KIND = { kind: "ASSISTANT" } as const;
 
 const assistantSelect = {
   id: true,
@@ -62,22 +67,22 @@ const assistantSelect = {
 const REPLAY_LIMIT = 100;
 
 /** The `where` half of "still active": any status but the terminal three. */
-const ACTIVE: Prisma.StringFilter<"AssistantRun"> = {
+const ACTIVE: Prisma.StringFilter<"AiRun"> = {
   notIn: [...ASSISTANT_TERMINAL_STATUSES_DB],
 };
 
-type AssistantRecord = Prisma.AssistantRunGetPayload<{
+type AssistantRecord = Prisma.AiRunGetPayload<{
   select: typeof assistantSelect;
 }>;
 
 function toAssistantRun(record: AssistantRecord): AssistantRun {
   return {
     id: record.id,
-    workspaceId: record.workspaceId,
+    workspaceId: present(record.workspaceId, "workspaceId", record.id),
     spreadsheetId: record.spreadsheetId,
-    scope: toWireAssistantScope(record.scope),
-    source: toWireAssistantSource(record.source),
-    prompt: record.prompt,
+    scope: toWireAssistantScope(present(record.scope, "scope", record.id)),
+    source: toWireAssistantSource(present(record.source, "source", record.id)),
+    prompt: present(record.prompt, "prompt", record.id),
     status: toWireAssistantStatus(record.status),
     // The service is the only writer of these columns and every write passed
     // the schema (the `ExternalApi.output` precedent).
@@ -104,13 +109,15 @@ function clip(text: string | null | undefined, max: number): string | null {
 export class AssistantService {
   async create(input: CreateAssistantRunInput): Promise<AssistantRun> {
     try {
-      const record = await prisma.assistantRun.create({
+      const record = await prisma.aiRun.create({
         data: {
+          ...KIND,
           workspaceId: input.workspaceId,
           spreadsheetId: input.spreadsheetId,
           scope: toDbAssistantScope(input.scope),
           source: toDbAssistantSource(input.source),
           prompt: input.prompt,
+          steps: [],
         },
         select: assistantSelect,
       });
@@ -125,8 +132,8 @@ export class AssistantService {
 
   /** A run, or null. The stream uses this: a row deleted between a notify and its read is not an event. */
   async find(id: string): Promise<AssistantRun | null> {
-    const record = await prisma.assistantRun.findUnique({
-      where: { id },
+    const record = await prisma.aiRun.findUnique({
+      where: { id, ...KIND },
       select: assistantSelect,
     });
     return record ? toAssistantRun(record) : null;
@@ -140,8 +147,8 @@ export class AssistantService {
 
   /** The workspace's one active run — the index allows at most one. */
   async active(workspaceId: string): Promise<AssistantRun | null> {
-    const record = await prisma.assistantRun.findFirst({
-      where: { workspaceId, status: ACTIVE },
+    const record = await prisma.aiRun.findFirst({
+      where: { ...KIND, workspaceId, status: ACTIVE },
       orderBy: { createdAt: "desc" },
       select: assistantSelect,
     });
@@ -153,8 +160,8 @@ export class AssistantService {
     workspaceId: string,
     since: Date,
   ): Promise<AssistantRun[]> {
-    const records = await prisma.assistantRun.findMany({
-      where: { workspaceId, updatedAt: { gte: since } },
+    const records = await prisma.aiRun.findMany({
+      where: { ...KIND, workspaceId, updatedAt: { gte: since } },
       orderBy: { updatedAt: "asc" },
       take: REPLAY_LIMIT,
       select: assistantSelect,
@@ -164,8 +171,8 @@ export class AssistantService {
 
   /** The workspace's newest `updatedAt` in ms — the snapshot's event id; "0" with no runs. */
   async latestEventId(workspaceId: string): Promise<string> {
-    const latest = await prisma.assistantRun.findFirst({
-      where: { workspaceId },
+    const latest = await prisma.aiRun.findFirst({
+      where: { ...KIND, workspaceId },
       orderBy: { updatedAt: "desc" },
       select: { updatedAt: true },
     });
@@ -178,8 +185,8 @@ export class AssistantService {
     triggerRunId: string | null;
     pendingAction: AssistantPendingAction | null;
   }> {
-    const record = await prisma.assistantRun.findUnique({
-      where: { id },
+    const record = await prisma.aiRun.findUnique({
+      where: { id, ...KIND },
       select: { status: true, triggerRunId: true, pendingAction: true },
     });
     if (!record) throw new AssistantNotFoundError(id);
@@ -280,8 +287,8 @@ export class AssistantService {
       ...run.pendingAction,
       response: { approved, at: nowIso() },
     };
-    const { count } = await prisma.assistantRun.updateMany({
-      where: { id, status: "AWAITING_CONFIRMATION" },
+    const { count } = await prisma.aiRun.updateMany({
+      where: { id, ...KIND, status: "AWAITING_CONFIRMATION" },
       data: { pendingAction: toJsonInput(action) },
     });
     if (count === 0) throw new AssistantNotAwaitingError(id);
@@ -321,10 +328,10 @@ export class AssistantService {
   /** A guarded write: only an active run changes; a finished one is reported, never revived. */
   private async updateActive(
     id: string,
-    data: Prisma.AssistantRunUpdateManyMutationInput,
+    data: Prisma.AiRunUpdateManyMutationInput,
   ): Promise<AssistantRun> {
-    const { count } = await prisma.assistantRun.updateMany({
-      where: { id, status: ACTIVE },
+    const { count } = await prisma.aiRun.updateMany({
+      where: { id, ...KIND, status: ACTIVE },
       data,
     });
     if (count === 0) {
@@ -337,11 +344,11 @@ export class AssistantService {
   /** One statement, no read-then-write: a miss surfaces as P2025. */
   private async update(
     id: string,
-    data: Prisma.AssistantRunUpdateInput,
+    data: Prisma.AiRunUpdateInput,
   ): Promise<AssistantRun> {
     try {
-      const record = await prisma.assistantRun.update({
-        where: { id },
+      const record = await prisma.aiRun.update({
+        where: { id, ...KIND },
         data,
         select: assistantSelect,
       });

@@ -1,48 +1,68 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { OnboardingDescription } from "@/lib/onboarding/api";
-import { workspaceNameFromFile } from "@/lib/onboarding/api";
 import { toCreateColumns } from "@/lib/onboarding/column-draft";
 import { type OnboardingStage, progressFor } from "@/lib/onboarding/progress";
 import { useTRPC } from "@/trpc/client";
 import { useOnboardingColumns } from "./use-onboarding-columns";
+import { useOnboardingCompany } from "./use-onboarding-company";
 import { useOnboardingCreate } from "./use-onboarding-create";
 import { useOnboardingDescribe } from "./use-onboarding-describe";
 import { useOnboardingFinish } from "./use-onboarding-finish";
-import { useOnboardingWidgets } from "./use-onboarding-widgets";
+import { useOnboardingSkip } from "./use-onboarding-skip";
 
 const DESCRIPTION_MAX = 1000;
 
-/** The workspace the cards step works on, once it exists. */
+/** The workspace the finishing step works on, once it exists. */
 type Created = {
   workspaceId: string;
   spreadsheetId: string;
-  rowCount: number | null;
+};
+
+/** The screens the user moves between; `finishing` follows from the workspace existing. */
+type EditableStage = Exclude<OnboardingStage, "finishing">;
+
+const PREVIOUS: Record<EditableStage, EditableStage> = {
+  purpose: "purpose",
+  website: "purpose",
+  documents: "website",
+  name: "documents",
+  upload: "name",
+  review: "upload",
+  columns: "review",
 };
 
 /**
- * The wizard's state machine. Four screens: `upload` (the file; described
- * as soon as it is picked), `review` (the AI's name, label and description,
- * edited), `columns` (the AI's proposals, edited, then the workspace is
- * created) and `widgets` (the cards, then Run AI). The workspace exists from
- * the columns step on, so a reload resumes at the cards step from
- * `workspace.list` — the flag is still false until Run AI, which keeps the
- * gate from redirecting.
+ * The wizard's state machine. First the company profile — `purpose` (the
+ * use cases), `website` (read at once, crawled behind), `documents` (files
+ * and rules); see `useOnboardingCompany`. A company with no use cases
+ * starts at `purpose`; one with use cases starts at `name`. Then five
+ * screens: `name` (the workspace name, the
+ * source of truth from here on), `upload` (the file, described as soon as it
+ * is picked — or Skip, which creates the named empty workspace and leaves),
+ * `review` (the AI's label and description, edited), `columns` (the AI's
+ * proposals, edited, then the workspace is created) and `finishing` (the AI
+ * columns run over the first rows and the dashboard is generated, watched
+ * live). The workspace exists from the finishing step on, so a reload
+ * resumes there from `workspace.list` and calls `finish` again — the flag is
+ * still false until `finish` answers, which keeps the gate from redirecting.
  */
 export function useOnboardingWizard() {
   const trpc = useTRPC();
   const workspaces = useQuery(trpc.workspace.list.queryOptions());
 
-  const [stage, setStage] =
-    useState<Exclude<OnboardingStage, "widgets">>("upload");
+  // `null` until the user moves: the start follows the company's state.
+  const [chosenStage, setStage] = useState<EditableStage | null>(null);
+  const company = useOnboardingCompany(setStage);
+  const stage: EditableStage =
+    chosenStage ?? (company.hasUseCases ? "name" : "purpose");
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [purpose, setPurpose] = useState("");
   const [touched, setTouched] = useState({
-    name: false,
     description: false,
     purpose: false,
   });
@@ -54,48 +74,47 @@ export function useOnboardingWizard() {
 
   const describe = useOnboardingDescribe((result) => {
     setDescribed(result);
-    if (!touched.name) setName(result.suggestedName);
     if (!touched.description) setDescription(result.description);
     if (!touched.purpose) setPurpose(result.purpose);
   });
   const columns = useOnboardingColumns();
+  const skip = useOnboardingSkip();
   const create = useOnboardingCreate((result) =>
     setCreated({
       workspaceId: result.workspace.id,
       spreadsheetId: result.spreadsheet.id,
-      rowCount: result.import.rowCount,
     }),
   );
 
-  const resumed = workspaces.data?.[0];
+  // A skip's workspace appears in `workspace.list` before the gate moves on:
+  // it is not a resume.
+  const resumed = skip.isPending ? undefined : workspaces.data?.[0];
   const active: Created | null =
     created ??
     (resumed?.spreadsheetId
-      ? {
-          workspaceId: resumed.id,
-          spreadsheetId: resumed.spreadsheetId,
-          rowCount: null,
-        }
+      ? { workspaceId: resumed.id, spreadsheetId: resumed.spreadsheetId }
       : null);
-  const widgets = useOnboardingWidgets(
-    active?.workspaceId ?? "",
-    active?.spreadsheetId ?? "",
-  );
-  const finish = useOnboardingFinish(
-    active?.workspaceId ?? "",
-    active?.spreadsheetId ?? "",
-  );
-  const currentStage: OnboardingStage = active ? "widgets" : stage;
+  const finish = useOnboardingFinish(active?.workspaceId ?? "");
+  const currentStage: OnboardingStage = active ? "finishing" : stage;
+
+  // The workspace exists (just created, or found on reload): run the last
+  // step once. CONFLICT means it already ran — the hook moves the gate on.
+  const finishStarted = useRef(false);
+  const { run: runFinish } = finish;
+  useEffect(() => {
+    if (!active || finishStarted.current) return;
+    finishStarted.current = true;
+    void runFinish();
+  }, [active, runFinish]);
 
   const pickFile = useCallback(
     (picked: File) => {
       describe.reset();
       setFile(picked);
       setDescribed(null);
-      setName(workspaceNameFromFile(picked.name));
       setDescription("");
       setPurpose("");
-      setTouched({ name: false, description: false, purpose: false });
+      setTouched({ description: false, purpose: false });
       describe.run(picked);
     },
     [describe],
@@ -104,7 +123,7 @@ export function useOnboardingWizard() {
   const suggestInput = (nextDescription: string) =>
     described && file
       ? {
-          name: name.trim() || workspaceNameFromFile(file.name) || "Workspace",
+          name: name.trim(),
           description: nextDescription.trim().slice(0, DESCRIPTION_MAX),
           purpose: purpose.trim(),
           columns: described.columns,
@@ -143,27 +162,37 @@ export function useOnboardingWizard() {
   };
 
   const isWorking =
+    company.isWorking ||
     describe.isPending ||
     columns.isPending ||
+    skip.isPending ||
     create.isPending ||
-    widgets.isRecommending ||
-    finish.isPending;
+    finish.isRunning ||
+    finish.isActive;
   const progress = progressFor({
     stage: currentStage,
+    hasUseCases: company.hasUseCases,
+    hasWebsite: Boolean(company.company?.website),
+    isScraping: company.isScraping,
+    hasDocuments:
+      (company.company?.documents.length ?? 0) > 0 ||
+      Boolean(company.company?.rules),
+    isUploading: company.documents.isUploading,
     hasFile: file !== null || active !== null,
     isDescribing: describe.isPending,
     isDescribed: described !== null || active !== null,
     isSuggesting: columns.isPending,
     isCreating: create.isPending,
     isCreated: active !== null,
-    isRecommending: widgets.isRecommending || widgets.isLoadingColumns,
-    isRunning: finish.isPending,
+    isRunning: finish.isRunning,
+    hasGeneration: finish.generationId !== null,
+    generation: finish.generation,
   });
 
   return {
     stage: currentStage,
-    isResuming: workspaces.isPending,
-    resumeError: workspaces.isError,
+    isResuming: workspaces.isPending || company.isPending,
+    resumeError: workspaces.isError || company.isError,
     isWorking,
     progress,
     details: {
@@ -171,10 +200,7 @@ export function useOnboardingWizard() {
       name,
       description,
       purpose,
-      setName: (value: string) => {
-        setName(value);
-        setTouched((current) => ({ ...current, name: true }));
-      },
+      setName,
       setDescription: (value: string) => {
         setDescription(value);
         setTouched((current) => ({ ...current, description: true }));
@@ -183,20 +209,35 @@ export function useOnboardingWizard() {
         setPurpose(value);
         setTouched((current) => ({ ...current, purpose: true }));
       },
+      canSubmitName: name.trim() !== "",
+      submitName: () => {
+        if (name.trim() !== "") setStage("upload");
+      },
       pickFile,
       submitUpload: () => {
         if (file) setStage("review");
       },
+      skip: () => void skip.run(name.trim()),
+      isSkipping: skip.isPending,
       isDescribing: describe.isPending,
       described,
-      errorKey: describe.errorKey,
+      errorKey: describe.errorKey ?? skip.errorKey,
       canContinue: file !== null && described !== null && !describe.isPending,
       continue: continueReview,
-      /** One screen back: review → upload, columns → review. Not past a created workspace. */
-      back: () => setStage(stage === "columns" ? "review" : "upload"),
+      /** One screen back, to the previous stage. Not past a created workspace. */
+      back: () => {
+        company.resetErrors();
+        setStage(PREVIOUS[stage]);
+      },
       canGoBack:
-        currentStage !== "widgets" && !columns.isPending && !create.isPending,
+        currentStage !== "finishing" &&
+        !company.isSaving &&
+        !company.isScraping &&
+        !columns.isPending &&
+        !create.isPending &&
+        !skip.isPending,
     },
+    company,
     columns: {
       ...columns,
       moreContext,
@@ -207,12 +248,17 @@ export function useOnboardingWizard() {
       createErrorKey: create.errorKey,
       fileColumnNames: described?.columns.map((column) => column.name) ?? [],
     },
-    widgets: {
-      ...widgets,
-      rowCount: active?.rowCount ?? null,
-      run: () => finish.run(widgets.drafts),
-      isRunning: finish.isPending,
-      runErrorKey: finish.errorKey,
+    finishing: {
+      spreadsheetId: active?.spreadsheetId ?? "",
+      generation: finish.generation,
+      isRunning: finish.isRunning,
+      isActive: finish.isActive,
+      hasGenerationFailed: finish.hasGenerationFailed,
+      canLeave: finish.canLeave,
+      errorKey: finish.errorKey,
+      retry: () => void finish.run(),
+      cancel: () => void finish.cancelGeneration(),
+      goToDashboard: () => void finish.goToDashboard(),
     },
   };
 }

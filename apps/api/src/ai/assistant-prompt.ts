@@ -1,4 +1,5 @@
 import type { ColumnProfile } from "@reclit/dashboard-engine";
+import { type CompanyContext, withCompanyContext } from "./company-context";
 
 // Pure: the assistant's system prompt from a plain description of the
 // workspace — no service, no SDK, no database — so the contract test asserts
@@ -58,6 +59,8 @@ export type AssistantPromptContext = {
     description: string | null;
     widgets: PromptWidget[];
   } | null;
+  /** The workspace owner's company profile; first in every prompt built from this context. */
+  company?: CompanyContext | null;
 };
 
 export const UNTRUSTED_DATA_RULE =
@@ -258,8 +261,8 @@ function describeWidgets(widgets: PromptWidget[]): string {
     .join("\n");
 }
 
-/** The tagged data blocks both prompts carry: the workspace, its columns (and their profile), sample rows and, for the dashboard, its cards. */
-function describeData(context: AssistantPromptContext): string[] {
+/** The tagged data blocks every prompt carries: the workspace, its columns (and their profile), sample rows and, for the dashboard, its cards. Shared with the generation prompts (dashboard-prompt.ts). */
+export function describeData(context: AssistantPromptContext): string[] {
   const parts = [
     `Workspace "${context.workspaceName}", sheet "${context.sheet.name}" with ${context.sheet.storedRows} stored rows.`,
   ];
@@ -297,28 +300,8 @@ export function buildAssistantSystemPrompt(
     context.scope === "spreadsheet"
       ? SPREADSHEET_RULES
       : [WIDGET_GRAMMAR, CHART_SENSE_RULES];
-  return [...SHARED_RULES, ...rules, ...describeData(context)].join("\n\n");
-}
-
-/**
- * The one-shot recommendation call (`assistant.recommendWidgets`): no tools,
- * so none of the tool-loop rules — the data rule, the grammar, the chart
- * rules and the data blocks as `system`, and the task as the user `prompt`.
- */
-export function buildRecommendationPrompt(
-  context: AssistantPromptContext,
-  max: number,
-): { system: string; prompt: string } {
-  const system = [
-    UNTRUSTED_DATA_RULE,
-    WIDGET_GRAMMAR,
-    CHART_SENSE_RULES,
-    ...describeData({ ...context, scope: "dashboard" }),
-  ].join("\n\n");
-  const prompt = [
-    `Propose up to ${max} dashboard cards for this sheet, as JSON: { "cards": [{ name, description, type, variant, height, column, query }] }.`,
-    "Start with two to four stat cards when the sheet has measures (totals, averages, the row count), then the charts, then at most one table. Widths (column): 3 for a stat, 6 for a chart, 12 for a table or a long time series. Leave row and sort out.",
-    "Skip anything that is not meaningful for this data: fewer good cards beat more. Answer with the JSON only.",
-  ].join(" ");
-  return { system, prompt };
+  return withCompanyContext(
+    [...SHARED_RULES, ...rules, ...describeData(context)].join("\n\n"),
+    context.company,
+  );
 }

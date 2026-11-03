@@ -9,13 +9,20 @@ import {
 } from "@reclit/ui/chart";
 import { cn } from "@reclit/ui/cn";
 import { Pie, PieChart } from "recharts";
+import {
+  MAX_LEGEND_CHARS,
+  MAX_LEGEND_ITEMS,
+  truncateLabel,
+} from "@/lib/dashboard/axis";
+import { figureFormatter } from "@/lib/dashboard/format";
 import { toChartConfig, WIDGET_HEIGHT } from "@/lib/dashboard/layout";
 import type { ResolvedWidget } from "@/lib/dashboard/widget-state";
 
 /**
  * shadcn's pie chart. Each record is a slice: `categoryKey` names it (and
  * picks its series colour), `valueKey` sizes it. `donut` hollows the centre;
- * `label` prints each slice's value on it.
+ * `label` prints each slice's value on it. Past `MAX_LEGEND_ITEMS` slices
+ * the legend and the labels go — the tooltip names each slice.
  */
 export function PieChartWidget({ widget }: { widget: ResolvedWidget }) {
   const { data, variant, height } = widget;
@@ -24,6 +31,7 @@ export function PieChartWidget({ widget }: { widget: ResolvedWidget }) {
     ...record,
     fill: `var(--color-${record[categoryKey]})`,
   }));
+  const annotated = data.rows.length <= MAX_LEGEND_ITEMS;
 
   return (
     <ChartContainer
@@ -32,7 +40,13 @@ export function PieChartWidget({ widget }: { widget: ResolvedWidget }) {
     >
       <PieChart>
         <ChartTooltip
-          content={<ChartTooltipContent hideLabel nameKey={categoryKey} />}
+          content={
+            <ChartTooltipContent
+              hideLabel
+              nameKey={categoryKey}
+              valueFormatter={figureFormatter(data.series)}
+            />
+          }
           cursor={false}
         />
         <Pie
@@ -40,11 +54,20 @@ export function PieChartWidget({ widget }: { widget: ResolvedWidget }) {
           dataKey={data.valueKey ?? ""}
           innerRadius={variant === "donut" ? "55%" : 0}
           isAnimationActive={false}
-          label={variant === "label"}
+          label={variant === "label" && annotated}
           nameKey={categoryKey}
           strokeWidth={2}
         />
-        <ChartLegend content={<ChartLegendContent nameKey={categoryKey} />} />
+        {annotated && (
+          <ChartLegend
+            content={
+              <ChartLegendContent
+                formatter={(label) => truncateLabel(label, MAX_LEGEND_CHARS)}
+                nameKey={categoryKey}
+              />
+            }
+          />
+        )}
       </PieChart>
     </ChartContainer>
   );

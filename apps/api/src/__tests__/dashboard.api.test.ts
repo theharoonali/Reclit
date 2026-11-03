@@ -3,15 +3,16 @@
  * Feature doc: docs/features/dashboard.md · Rules: docs/rules/TESTING.md
  *
  * TABLES
- *   Dashboard        id (pk uuid), workspaceId (fk cascade → Workspace,
- *                    UNIQUE — one dashboard per workspace), title?,
- *                    description?, createdAt, updatedAt
- *   DashboardWidget  id (pk uuid), dashboardId (fk cascade → Dashboard),
+ *   Workspace        the dashboard is stored on its workspace (one per
+ *                    workspace): dashboardCreatedAt? (null = no dashboard;
+ *                    set by the first write, cleared by `remove`),
+ *                    dashboardTitle?, dashboardDescription?
+ *   DashboardWidget  id (pk uuid), workspaceId (fk cascade → Workspace),
  *                    spreadsheetId (fk cascade → Spreadsheet, indexed), name,
  *                    description?, type DashboardWidgetType, variant
  *                    (default "default"), row, column, sort, height
  *                    DashboardWidgetHeight (default MD), query Json,
- *                    createdAt, updatedAt, index(dashboardId, row, sort)
+ *                    createdAt, updatedAt, index(workspaceId, row, sort)
  *
  * DashboardWidgetType (db): STAT AREA BAR LINE PIE RADAR RADIAL HEATMAP TABLE
  * DashboardWidgetHeight (db): SM MD LG — lowercase on the wire ("bar", "md").
@@ -24,11 +25,11 @@
  * gets a precise error to fix instead of a blank card.
  *
  * MODELS (wire)
- *   DashboardDetail = { id; workspaceId; title: string | null;
+ *   DashboardDetail = { id (= workspaceId); workspaceId; title: string | null;
  *                       description: string | null; widgets: DashboardWidget[]
  *                       (ordered by row, then sort); createdAt: Date;
  *                       updatedAt: Date }
- *   DashboardWidget = { id; dashboardId; spreadsheetId; name;
+ *   DashboardWidget = { id; dashboardId (= workspaceId); spreadsheetId; name;
  *                       description: string | null; type; variant; row;
  *                       column (1..12, the span); sort; height: "sm"|"md"|"lg";
  *                       query: WidgetQuery; createdAt; updatedAt }

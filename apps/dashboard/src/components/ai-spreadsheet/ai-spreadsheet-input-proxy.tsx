@@ -2,9 +2,12 @@
 
 import { type KeyboardEvent, useRef } from "react";
 import type { CellEditorApi } from "./use-cell-editor";
+import type { SheetClipboardHandlers } from "./use-sheet-clipboard";
 
 type AiSpreadsheetInputProxyProps = {
   editor: CellEditorApi;
+  /** Idle-mode Ctrl+C/X/V; while editing the textarea's own behaviour wins. */
+  clipboard: SheetClipboardHandlers;
   label: string;
 };
 
@@ -26,7 +29,7 @@ type AiSpreadsheetInputProxyProps = {
  * on the canvas instead.
  */
 export function AiSpreadsheetInputProxy(props: AiSpreadsheetInputProxyProps) {
-  const { editor, label } = props;
+  const { editor, clipboard, label } = props;
   const composingRef = useRef(false);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -40,6 +43,19 @@ export function AiSpreadsheetInputProxy(props: AiSpreadsheetInputProxyProps) {
     if (state.mode === "editing") {
       switch (event.key) {
         case "Enter":
+          // Alt+Enter inserts a newline (Excel's rule); Enter commits.
+          if (event.altKey) {
+            event.preventDefault();
+            const proxy = event.currentTarget;
+            proxy.setRangeText(
+              "\n",
+              proxy.selectionStart ?? proxy.value.length,
+              proxy.selectionEnd ?? proxy.value.length,
+              "end",
+            );
+            editor.syncFromProxy();
+            return;
+          }
           event.preventDefault();
           editor.commit(back ? "up" : "down");
           return;
@@ -128,8 +144,11 @@ export function AiSpreadsheetInputProxy(props: AiSpreadsheetInputProxyProps) {
       onCompositionStart={() => {
         composingRef.current = true;
       }}
+      onCopy={clipboard.onCopy}
+      onCut={clipboard.onCut}
       onInput={editor.syncFromProxy}
       onKeyDown={handleKeyDown}
+      onPaste={clipboard.onPaste}
       onSelect={editor.syncFromProxy}
       spellCheck={false}
     />

@@ -2,28 +2,32 @@
  * CONTRACT — assistant
  * Feature doc: docs/features/assistant.md · Rules: docs/rules/TESTING.md
  *
- * TABLE `AssistantRun`
+ * TABLE `AiRun`, kind ASSISTANT (the table every AI run shares — docs/features/assistant.md)
  *   id             String           pk, uuid
- *   workspaceId    String           fk cascade → Workspace; indexed with updatedAt
- *   spreadsheetId  String?          fk cascade → Spreadsheet (the workspace's sheet, resolved at start)
- *   scope          AssistantScope   DASHBOARD | SPREADSHEET
- *   source         AssistantSource  USER | SYSTEM, default USER
- *   prompt         String           ≤ 2000
+ *   kind           AiRunKind        "ASSISTANT" for every row this feature reads or writes
+ *   workspaceId    String?          fk cascade → Workspace; indexed with kind, updatedAt; required (CHECK)
+ *   spreadsheetId  String?          the workspace's sheet, resolved at start; deleting the sheet deletes
+ *                                   the run (trigger `ai_run_spreadsheet_cascade`)
+ *   scope          AssistantScope?  DASHBOARD | SPREADSHEET; required (CHECK)
+ *   source         AiRunSource?     USER | SYSTEM; required (CHECK)
+ *   prompt         String?          ≤ 2000; required (CHECK)
  *   status         String           uppercase; PENDING | THINKING | WORKING | AWAITING_CONFIRMATION |
  *                                   COMPLETED | FAILED | CANCELLED; the last three are terminal
- *   steps          Json             AssistantStep[] (default [])
+ *   steps          Json?            AssistantStep[] ([] on create; required (CHECK))
  *   pendingAction  Json?            the delete waiting for the user, while AWAITING_CONFIRMATION
  *   summary        String?          the model's closing message (≤ 2000)
  *   error          Json?            { name, message }
  *   model          String?          the model id that answered
- *   usage          Json?            { inputTokens, outputTokens, totalTokens }, every step summed
+ *   usage          Json?            { inputTokens, outputTokens, totalTokens, cachedInputTokens? }, every step summed
  *   transcript     Json?            the model conversation — audit only, NEVER on the wire
  *   triggerRunId   String?          the Trigger.dev run id — cancel's handle, never on the wire
  *   createdAt      DateTime         now(), indexed
  *   updatedAt      DateTime         @updatedAt; its ms value is the SSE event id
- *   Partial unique index `AssistantRun_active_workspace_key` (workspaceId WHERE status
- *   NOT IN terminal): one active run per workspace. Trigger `assistant_run_notify`
- *   publishes every insert/update id on channel `assistant_run_changed`.
+ *   (the cell runs' and dashboard generation's columns stay null on an ASSISTANT row)
+ *   Partial unique index `AiRun_active_assistant_key` (workspaceId WHERE kind =
+ *   ASSISTANT AND status NOT IN terminal): one active run per workspace. Trigger
+ *   `ai_run_notify` publishes every ASSISTANT insert/update id on channel
+ *   `assistant_run_changed`.
  *
  * MODEL  AssistantRun = {
  *   id: string; workspaceId: string; spreadsheetId: string | null;
@@ -31,7 +35,7 @@
  *   status: "pending" | "thinking" | "working" | "awaiting_confirmation" | "completed" | "failed" | "cancelled";
  *   steps: AssistantStep[]; pendingAction: PendingAction | null;
  *   summary: string | null; error: { name: string; message: string } | null;
- *   model: string | null; usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
+ *   model: string | null; usage: { inputTokens: number; outputTokens: number; totalTokens: number; cachedInputTokens?: number } | null;
  *   createdAt: Date; updatedAt: Date;
  * }
  * AssistantStep = {                       // one tool call, in call order
@@ -63,10 +67,6 @@
  *   | { type: "run"; run: AssistantRun }               // one run after an insert or update
  *   | { type: "closed" }                               // the run finished and nothing is active; last event
  * AssistantTranscription = { text: string; languageCode: string | null }
- * AssistantRecommendation = { name; description: string | null; type; variant; height;
- *   column: 1..12; query: WidgetQuery }   // a dashboard WidgetInput without its slot
- * AssistantRecommendations = { spreadsheetId: string; recommendations: AssistantRecommendation[] (≤ 6);
- *   skipped: number; model: string; usage: { inputTokens, outputTokens, totalTokens } }
  * Dates cross the wire as real Date objects (superjson). Status, scope and
  * source are lowercase on the wire and uppercase in the database.
  *
@@ -79,7 +79,6 @@
  * | assistant.cancel          | mutation     | { id }                                               | AssistantRun (cancelled)        | BAD_REQUEST, NOT_FOUND, CONFLICT                         |
  * | assistant.respond         | mutation     | { id; approved: boolean }                            | AssistantRun                    | BAD_REQUEST, NOT_FOUND, CONFLICT                         |
  * | assistant.onChange        | subscription | { workspaceId; lastEventId? }                        | SSE of tracked AssistantChange  | BAD_REQUEST                                              |
- * | assistant.recommendWidgets| mutation     | { workspaceId }                                      | AssistantRecommendations        | BAD_REQUEST, NOT_FOUND, SERVICE_UNAVAILABLE, BAD_GATEWAY |
  * | POST /assistant/transcribe| REST         | multipart "file": an audio recording ≤ 10 MB         | 200 AssistantTranscription      | 400, 502, 503                                            |
  *
  * NOTES
@@ -144,20 +143,12 @@
  *   `ELEVENLABS_API_KEY` on the api it is 503
  *   (`ASSISTANT_TRANSCRIPTION_UNAVAILABLE`); an upstream failure is 502
  *   (`ASSISTANT_TRANSCRIPTION_FAILED`). Error bodies are `{ code, message }`.
- * - `recommendWidgets` is one synchronous model call, no run row: the
- *   workspace's sheet is profiled (the first 2,000 rows: fill, cardinality, a
- *   role per column — identifier, year, time, flag, category, measure, text)
- *   and the model answers with cards as JSON. Each card is then parsed
- *   against the dashboard contract, validated with the engine against the
- *   sheet's columns and dropped when it fails, dropped when it repeats a card
- *   the dashboard already has (same type and query), and the first 6 are
- *   answered with their defaults filled (`variant` "default", `height` "md",
- *   `column` by type: stat 3, table 12, else 6); `skipped` counts the rest.
- *   A recommendation has no `row` / `sort`: `dashboard.createWidget` places
- *   it. An unknown workspace or one without a sheet is NOT_FOUND; without a
- *   `GOOGLE_GENERATIVE_AI_API_KEY` on the api it is SERVICE_UNAVAILABLE
- *   (`ASSISTANT_RECOMMENDATIONS_UNAVAILABLE`); a model failure is BAD_GATEWAY
- *   (`ASSISTANT_RECOMMENDATIONS_FAILED`).
+ * - The model's system prompt starts with the workspace owner's compiled
+ *   company profile (`<company-context>`, company contract) when there is
+ *   one. `usage.cachedInputTokens` is the part of the input a prompt cache
+ *   served (runs recorded before it was measured have none).
+ * - Generating a whole dashboard from the sheet is not the assistant's: see
+ *   the dashboard-generation contract (`dashboardGeneration.start`).
  * - Every procedure is public; there is no auth yet.
  */
 
@@ -165,7 +156,6 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ColumnProfile } from "@reclit/dashboard-engine";
 import {
   buildAssistantSystemPrompt,
-  buildRecommendationPrompt,
   CHART_SENSE_RULES,
   MAX_SAMPLE_ROWS,
   PENDING_AI_COLUMN_RULE,
@@ -175,18 +165,17 @@ import {
   WIDGET_GRAMMAR,
   withPendingAiColumns,
 } from "../ai/assistant-prompt";
-import type { RecommendationGenerator } from "../ai/assistant-recommend";
 import {
   addUsage,
   toolResultsMessage,
   toUsage,
   trimTranscript,
 } from "../ai/assistant-step";
+import { compileCompanyContext } from "../ai/company-prompt";
 import { pingDatabase, prisma } from "../db/prisma";
 import {
   AssistantFinishedError,
   AssistantNotAwaitingError,
-  AssistantRecommendationsFailedError,
 } from "../modules/assistant/assistant.errors";
 import { assistantFeed } from "../modules/assistant/assistant.feed";
 import type {
@@ -211,7 +200,6 @@ import {
   AssistantExecutor,
   type ConfirmationOutcome,
 } from "../modules/assistant/assistant-executor";
-import { assistantRecommendService } from "../modules/assistant/assistant-recommend.service";
 import {
   coerceToolValue,
   resolveColumn,
@@ -374,8 +362,8 @@ afterAll(async () => {
   assistantControlService.setDispatcher(null);
   await assistantFeed.stop();
   if (workspaceId) {
-    await prisma.assistantRun
-      .deleteMany({ where: { workspaceId } })
+    await prisma.aiRun
+      .deleteMany({ where: { kind: "ASSISTANT", workspaceId } })
       .catch(() => {});
     await removeWorkspace(workspaceId);
   }
@@ -484,8 +472,8 @@ describe.skipIf(!dbUp)("assistant.start", () => {
     });
     try {
       await expectTRPCError(startRun(), "BAD_GATEWAY");
-      const failed = await prisma.assistantRun.findFirst({
-        where: { workspaceId },
+      const failed = await prisma.aiRun.findFirst({
+        where: { kind: "ASSISTANT", workspaceId },
         orderBy: { createdAt: "desc" },
         select: { id: true, status: true, error: true },
       });
@@ -707,12 +695,12 @@ describe.skipIf(!dbUp)("the worker's transitions (service)", () => {
       const usage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
       const completed = await assistantService.complete(run.id, {
         summary: "x".repeat(MAX_ASSISTANT_SUMMARY + 500),
-        model: "gemini-test",
+        model: "model-test",
         usage,
       });
       expect(completed.status).toBe("completed");
       expect(completed.summary?.length).toBe(MAX_ASSISTANT_SUMMARY);
-      expect(completed.model).toBe("gemini-test");
+      expect(completed.model).toBe("model-test");
       expect(completed.usage).toEqual(usage);
 
       await expectError(
@@ -1256,171 +1244,6 @@ describe.skipIf(!dbUp)("POST /assistant/transcribe", () => {
   });
 });
 
-describe.skipIf(!dbUp)("assistant.recommendWidgets", () => {
-  let savedKey: string | undefined;
-  const usage = { inputTokens: 1, outputTokens: 2, totalTokens: 3 };
-  const card = (over: Record<string, unknown> = {}) => ({
-    name: "Total fees",
-    type: "stat",
-    query: {
-      series: [{ key: "sum", label: "Total", formula: "SUM({Fees})" }],
-    },
-    ...over,
-  });
-  const generator =
-    (cards: unknown[]): RecommendationGenerator =>
-    async () => ({ cards, model: "fake-model", usage });
-
-  beforeAll(() => {
-    savedKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  });
-
-  afterAll(async () => {
-    if (savedKey === undefined) delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    else process.env.GOOGLE_GENERATIVE_AI_API_KEY = savedKey;
-    await caller.dashboard.remove({ workspaceId }).catch(() => {});
-  });
-
-  it("is NOT_FOUND for an unknown workspace and SERVICE_UNAVAILABLE without a Gemini key on the api", async () => {
-    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    await expectTRPCError(
-      caller.assistant.recommendWidgets({ workspaceId: "does-not-exist" }),
-      "NOT_FOUND",
-    );
-    await expectTRPCError(
-      caller.assistant.recommendWidgets({ workspaceId }),
-      "SERVICE_UNAVAILABLE",
-    );
-  });
-
-  it("keeps the cards that pass the contract and the engine, fills their defaults and counts the rest", async () => {
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY = "contract-test-key";
-    const result = await assistantRecommendService.recommend(
-      { workspaceId },
-      {
-        generate: generator([
-          card(),
-          card({
-            name: "Fees by country",
-            description: "Where the fees come from",
-            type: "bar",
-            height: "lg",
-            column: 12,
-            query: {
-              groupBy: { column: "Country" },
-              series: [{ key: "fees", label: "Fees", formula: "SUM({Fees})" }],
-            },
-          }),
-          card({
-            name: "Unknown column",
-            query: {
-              series: [{ key: "x", label: "X", formula: "SUM({Nope})" }],
-            },
-          }),
-          card({
-            name: "Two series pie",
-            type: "pie",
-            query: {
-              groupBy: { column: "Country" },
-              series: [
-                { key: "a", label: "A", formula: "COUNT()" },
-                { key: "b", label: "B", formula: "COUNT()" },
-              ],
-            },
-          }),
-          card({
-            name: "Bad key",
-            query: {
-              series: [{ key: "total fees", label: "T", formula: "COUNT()" }],
-            },
-          }),
-          { name: "", type: "stat" },
-          card({ name: "Repeat" }),
-        ]),
-      },
-    );
-    expect(result).toMatchObject({
-      spreadsheetId: sheetId,
-      skipped: 5,
-      model: "fake-model",
-      usage,
-    });
-    expect(result.recommendations).toEqual([
-      {
-        name: "Total fees",
-        description: null,
-        type: "stat",
-        variant: "default",
-        height: "md",
-        column: 3,
-        query: {
-          filters: [],
-          groupBy: null,
-          series: [{ key: "sum", label: "Total", formula: "SUM({Fees})" }],
-        },
-      },
-      {
-        name: "Fees by country",
-        description: "Where the fees come from",
-        type: "bar",
-        variant: "default",
-        height: "lg",
-        column: 12,
-        query: {
-          filters: [],
-          groupBy: { column: "Country", bucket: "none" },
-          series: [{ key: "fees", label: "Fees", formula: "SUM({Fees})" }],
-        },
-      },
-    ]);
-  });
-
-  it("skips a card the dashboard already has and caps the set at six", async () => {
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY = "contract-test-key";
-    await caller.dashboard.createWidget({
-      workspaceId,
-      name: "Total fees",
-      type: "stat",
-      column: 3,
-      query: {
-        series: [{ key: "sum", label: "Total", formula: "SUM({Fees})" }],
-      },
-    });
-    const counts = Array.from({ length: 8 }, (_, index) =>
-      card({
-        name: `Count ${index}`,
-        query: {
-          series: [{ key: `c${index}`, label: "Rows", formula: "COUNT()" }],
-        },
-      }),
-    );
-    const result = await assistantRecommendService.recommend(
-      { workspaceId },
-      { generate: generator([card(), ...counts]) },
-    );
-    expect(result.recommendations.map((item) => item.name)).toEqual(
-      counts.slice(0, 6).map((item) => item.name),
-    );
-    expect(result.skipped).toBe(3);
-  });
-
-  it("is BAD_GATEWAY when the model call fails", async () => {
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY = "contract-test-key";
-    const error = await expectError(
-      assistantRecommendService.recommend(
-        { workspaceId },
-        {
-          generate: async () => {
-            throw new Error("quota exhausted");
-          },
-        },
-      ),
-      AssistantRecommendationsFailedError,
-    );
-    expect(error.message).toContain("quota exhausted");
-  });
-});
-
 /* ------------------------------------------------ pure, no key, no database */
 
 describe("the tool table", () => {
@@ -1849,19 +1672,6 @@ describe("the prompt and the step helpers", () => {
     expect(sheet).not.toContain(CHART_SENSE_RULES);
   });
 
-  it("builds the recommendation prompt without the tool-loop rules", () => {
-    const { system, prompt } = buildRecommendationPrompt(
-      { ...context, scope: "dashboard", dashboard: null },
-      6,
-    );
-    expect(system).toContain(UNTRUSTED_DATA_RULE);
-    expect(system).toContain(WIDGET_GRAMMAR);
-    expect(system).toContain(CHART_SENSE_RULES);
-    expect(system).toContain("has no dashboard yet");
-    expect(system).not.toContain("one tool call at a time");
-    expect(prompt).toContain("up to 6 dashboard cards");
-  });
-
   it("marks an empty AI column as pending with a role from its type", () => {
     const blank = {
       rows: 3,
@@ -1900,57 +1710,79 @@ describe("the prompt and the step helpers", () => {
     expect(roleForType("email")).toBe("category");
     expect(roleForType("json")).toBe("other");
 
-    const { system } = buildRecommendationPrompt(
-      {
-        ...context,
-        scope: "dashboard",
-        dashboard: null,
-        profile: marked,
-        profiledRows: 3,
-      },
-      6,
-    );
+    const system = buildAssistantSystemPrompt({
+      ...context,
+      scope: "dashboard",
+      dashboard: null,
+      profile: marked,
+      profiledRows: 3,
+    });
     expect(system).toContain(
       '- Score (number, measure, PENDING AI COLUMN): no values yet; the AI fills every row from the prompt "Score 1-10" — chart it as if populated',
     );
     expect(system).toContain(PENDING_AI_COLUMN_RULE);
 
-    const plain = buildRecommendationPrompt(
-      {
-        ...context,
-        scope: "dashboard",
-        dashboard: null,
-        profile,
-        profiledRows: 3,
-      },
-      6,
-    );
-    expect(plain.system).not.toContain(PENDING_AI_COLUMN_RULE);
+    const plain = buildAssistantSystemPrompt({
+      ...context,
+      scope: "dashboard",
+      dashboard: null,
+      profile,
+      profiledRows: 3,
+    });
+    expect(plain).not.toContain(PENDING_AI_COLUMN_RULE);
   });
 
   it("carries the sheet's description and label as an untrusted block", () => {
-    const { system } = buildRecommendationPrompt(
-      {
-        ...context,
-        sheet: {
-          ...context.sheet,
-          description: "One row per applicant.",
-          purpose: "Hiring Pipeline",
-        },
-        scope: "dashboard",
-        dashboard: null,
+    const system = buildAssistantSystemPrompt({
+      ...context,
+      sheet: {
+        ...context.sheet,
+        description: "One row per applicant.",
+        purpose: "Hiring Pipeline",
       },
-      6,
-    );
+      scope: "dashboard",
+      dashboard: null,
+    });
     expect(system).toContain(
       "<sheet-description>\nLabel: Hiring Pipeline\nDescription: One row per applicant.\n</sheet-description>",
     );
     expect(UNTRUSTED_DATA_RULE).toContain("<sheet-description>");
-    const { system: bare } = buildRecommendationPrompt(
-      { ...context, scope: "dashboard", dashboard: null },
-      6,
-    );
+    const bare = buildAssistantSystemPrompt({
+      ...context,
+      scope: "dashboard",
+      dashboard: null,
+    });
     expect(bare).not.toContain("</sheet-description>");
+  });
+
+  it("starts both scopes' prompts with the company block, byte-identical", () => {
+    const company = compileCompanyContext({
+      companyId: "company-1",
+      name: "Acme",
+      website: "https://acme.example",
+      useCases: ["CUSTOMER_INSIGHTS"],
+      useCaseOther: null,
+      summary: "Acme makes widgets.",
+      rules: "Be brief.",
+      documents: [],
+    });
+    if (!company) throw new Error("fixture");
+    const sheet = buildAssistantSystemPrompt({
+      ...context,
+      scope: "spreadsheet",
+      company,
+    });
+    const dashboard = buildAssistantSystemPrompt({
+      ...context,
+      scope: "dashboard",
+      dashboard: null,
+      company,
+    });
+    expect(sheet.startsWith(`${company.text}\n\n`)).toBe(true);
+    expect(dashboard.startsWith(`${company.text}\n\n`)).toBe(true);
+    expect(
+      buildAssistantSystemPrompt({ ...context, scope: "spreadsheet" }),
+    ).toBe(sheet.slice(company.text.length + 2));
   });
 
   it("truncates values to one line", () => {
@@ -1971,13 +1803,42 @@ describe("the prompt and the step helpers", () => {
       inputTokens: 3,
       outputTokens: 4,
       totalTokens: 7,
+      cachedInputTokens: 0,
     });
+    expect(
+      toUsage({
+        inputTokens: 1000,
+        outputTokens: 10,
+        totalTokens: 1010,
+        inputTokenDetails: {
+          noCacheTokens: 200,
+          cacheReadTokens: 800,
+          cacheWriteTokens: undefined,
+        },
+      } as never).cachedInputTokens,
+    ).toBe(800);
     expect(
       addUsage(
         { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
         { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
       ),
     ).toEqual({ inputTokens: 3, outputTokens: 4, totalTokens: 7 });
+    expect(
+      addUsage(
+        { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        {
+          inputTokens: 2,
+          outputTokens: 3,
+          totalTokens: 5,
+          cachedInputTokens: 2,
+        },
+      ),
+    ).toEqual({
+      inputTokens: 3,
+      outputTokens: 4,
+      totalTokens: 7,
+      cachedInputTokens: 2,
+    });
     expect(
       toolResultsMessage([
         {

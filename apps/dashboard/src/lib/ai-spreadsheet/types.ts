@@ -10,6 +10,7 @@
  */
 
 import type { RouterOutputs } from "@reclit/api/trpc/routers/_app";
+import type { SheetLayout } from "./layout";
 
 /**
  * The column vocabulary is the API's own — `"string"`, not `"text"` — so there
@@ -198,6 +199,8 @@ export type Viewport = {
   /** `rowCount` plus the blank tail — the current scrollable row extent. */
   rowExtent: number;
   columnCount: number;
+  /** Fitted column widths and grown row heights (layout.ts). */
+  layout: SheetLayout;
 };
 
 export type EditorState = {
@@ -222,6 +225,8 @@ export type EditorState = {
   selection: [number, number];
   /** Horizontal scroll *within* the cell, so a long value keeps the caret. */
   innerScrollX: number;
+  /** Vertical twin: scrolls once the wrapped buffer passes MAX_CELL_LINES. */
+  innerScrollY: number;
   caretVisible: boolean;
 };
 
@@ -229,7 +234,6 @@ export type PanelState =
   | { kind: "closed" }
   /** No `columnId` means "add a new column". */
   | { kind: "column"; columnId?: string }
-  | { kind: "json"; row: number; columnId: string }
   | { kind: "date"; row: number; columnId: string }
   | { kind: "audio"; row: number; columnId: string }
   | { kind: "file"; row: number; columnId: string };
@@ -259,8 +263,8 @@ export type SheetPalette = {
 export type SheetLabels = {
   boolTrue: string;
   boolFalse: string;
-  jsonCapsule: (count: number) => string;
-  jsonEmpty: string;
+  /** The "+N more" line when a JSON cell's entries outgrow the row cap. */
+  jsonMore: (count: number) => string;
   typeNames: Record<ColumnType, string>;
   /** The label of a working run's capsule; known statuses are copy, a custom stage is data. */
   runStatus: (status: string) => string;

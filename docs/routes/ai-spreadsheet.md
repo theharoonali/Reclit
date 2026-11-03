@@ -20,14 +20,18 @@ change.
 | `…/ai-spreadsheet-grid.tsx` | client | the main component; takes `payload`, owns panel state, mounts every header control |
 | `…/ai-spreadsheet-header.tsx` | client | header canvas (`h-sheet-header`), pointer routing, the screen-reader "add column" button, the grip tooltip anchor |
 | `…/ai-spreadsheet-body.tsx` | client | body canvas, scroll container, scroll spacer |
-| `…/ai-spreadsheet-input-proxy.tsx` | client | the hidden textarea and the key bindings |
+| `…/ai-spreadsheet-input-proxy.tsx` | client | the hidden textarea, the key bindings and the clipboard events |
 | `…/ai-spreadsheet-side-panel.tsx` | client | the docked panel frame (`w-panel`) |
 | `…/ai-spreadsheet-column-form.tsx` | client | add **and** edit a column (name, type, node, prompt) |
-| `…/ai-spreadsheet-json-editor.tsx` | client | the stacked key/value entries behind a JSON cell |
+| `…/ai-spreadsheet-cell-dialog.tsx` | client | the modal key/value table behind a JSON or Mail cell; draft + Save/Cancel |
+| `lib/ai-spreadsheet/layout.ts` | pure | fitted column widths, grown row heights, `wrapRanges`, `rowAt`/`colAt` |
+| `lib/ai-spreadsheet/clipboard.ts` | pure | TSV in and out: `selectionToTsv`, `parseTsv` |
+| `…/use-sheet-clipboard.ts` | hook | Ctrl+C/X/V on the proxy: copy TSV, simple cut, batched paste |
 | `…/ai-spreadsheet-date-editor.tsx` | client | UTC calendar behind a date cell |
 | `…/ai-spreadsheet-upload-editor.tsx` | client | upload panel behind file and audio cells (`POST /files`) |
 | `…/ai-spreadsheet-header-action.tsx` | client | one header control (`HeaderActions` + error + `Button`, Hugeicons glyph); `iconOnly` moves the label to `aria-label` + a tooltip; every toolbar control is an instance of it (Run is the assistant capsule's) |
-| `…/ai-spreadsheet-import-button.tsx` | client | Import: the header action with a hidden file input (`useFilePicker`) |
+| `…/ai-spreadsheet-import-button.tsx` | client | Import: the header action with a hidden file input (`useFilePicker`), and the preview dialog a picked file opens |
+| `…/ai-spreadsheet-import-dialog.tsx` · `ai-spreadsheet-import-sample.tsx` | client | the read-only import preview: file column → existing / new column, values left blank, the first rows as stored; Cancel / Import N rows |
 | `apps/dashboard/src/components/assistant/use-page-action.ts` | hook | `useAssistantPageAction` — publishes Run to the header's assistant capsule as its right-hand pill while the selection holds an AI cell with a prompt ("Run N cells" for more than one; "Working…" and disabled while any of them is working) — label, busy state and the refusal copy; withdrawn otherwise. Shared with the dashboard's AI Recommendations pill ([root.md](root.md)) |
 | `…/ai-spreadsheet-selection-bar.tsx` | client | "N rows selected" + Delete rows; renders nothing without a whole-row selection |
 | `…/ai-spreadsheet-drag-chip.tsx` | client | the card that rides the pointer during a column drag |
@@ -40,7 +44,7 @@ change.
 | `…/use-sheet-selection.ts` | hook | the whole-row selection read off the editor's rectangle (`row-selection.ts`), the batch delete mutation |
 | `…/use-sheet-drag-select.ts` | hook | the press-and-drag selection: pointer capture, cells / rows mode, edge autoscroll |
 | `…/use-column-remove.ts` · `use-column-reorder.ts` · `use-column-drag.ts` | hook | per-column delete · the (optimistic) reorder mutation · the drag: capture, threshold, drop slot, autoscroll |
-| `…/use-sheet-import.ts` | hook | uploads a CSV/XLSX, then refreshes the grid without remounting it |
+| `…/use-sheet-import.ts` | hook | `pick` previews a CSV/XLSX/DOCX, `confirm` flushes pending writes, merges it and refreshes the grid without remounting it, `cancel` drops the preview |
 | `…/use-sheet-audio.ts` | hook | one shared `Audio` element and which audio cell is playing |
 | `…/use-run-cells.ts` · `use-run-listening.ts` · `use-sheet-runs.ts` | hook | Run: what the selection would run (`planRunBatches`) + one `runAi.runCells` call per batch · whether the sheet streams · the `runAi.onChange` subscription and the per-cell working-run map (`seed` takes the whole batch) |
 | `apps/dashboard/src/lib/ai-spreadsheet/*.ts` | pure | types, geometry (`HEADER_HEIGHT` from `@reclit/ui/tokens`), palette (`theme-colors.ts`, read from the CSS variables with a fallback built from `colors.light`), formatting, text metrics, five painters, `run-state.ts`, `run-status.ts`, `run-targets.ts` (`selectionRect`, `selectionRects`, `planRunBatches`, the run caps in lockstep with the contract), `row-selection.ts` (`rowRangeAddresses`, `selectedRowRange`, `storedRowBounds`, `storedRowsIn`, `selectAllState` — a row selection is the rectangle spanning every column), `short-ids.ts`, `export-csv.ts`, `import-file.ts` (`fetchAllRows` lives in the shared `lib/spreadsheet/fetch-all-rows.ts`) (`uploadFile` lives in the shared `lib/upload-file.ts`) |
@@ -72,7 +76,8 @@ Feature: [spreadsheet](../features/spreadsheet.md) ·
 | `runAi.runCells` | Run; pending writes are flushed and awaited first, the stream is opened, the returned `pending` runs are seeded into their cells in one paint | — |
 | `runAi.listActive` · `runAi.onChange` (SSE) | `listActive` on load resumes a sheet mid-run; `onChange` streams while any run is working and ends with `closed` | — (a completed run's output is written into the model) |
 | `POST /files` (REST, multipart) | file / audio cell upload; the cell stores the returned URL | — |
-| `POST /spreadsheets/:id/import` (REST, multipart) | Import; replaces the whole grid | `spreadsheet.rows` — the one invalidation |
+| `POST /spreadsheets/:id/import/preview` (REST, multipart) | a picked file; opens the preview, writes nothing | — |
+| `POST /spreadsheets/:id/import` (REST, multipart) | Import confirmed; merges the file into the sheet | `spreadsheet.rows` — the one invalidation |
 | Export | no API — CSV serialised from the in-memory model (`export-csv.ts`) | — |
 
 The assistant island's calls (`assistant.start` / `active` / `onChange` /
@@ -90,29 +95,61 @@ the optimistic `addColumn` id needs no reconciliation.
 **Mutations do not invalidate `spreadsheet.rows`** (a recorded deviation from
 the mutations-invalidate rule): a refetch would hand the grid a new payload and
 remount — blank — the canvas. After an edit the mutated model ref is already
-the truth. Import is the exception: it replaces the sheet, so it invalidates on
-purpose, having discarded every pending write first; that is safe because
+the truth. Import is the exception: it adds rows and columns server-side, so it
+invalidates on purpose, having flushed every pending write first; that is safe because
 `invalidateQueries` leaves the query `success`, so the grid re-renders instead
 of remounting. Never `resetQueries`/`removeQueries` here.
 
 ## Behaviour
 
 - **Rows.** `totalRows` rows plus a blank tail that grows by 1,000 as the
-  viewport approaches it; blank rows are ordinary editable cells.
+  viewport approaches it; blank rows are ordinary editable cells. A row
+  grows with its tallest string cell's wrapped text, up to 10 lines
+  (`MAX_CELL_LINES`, `lib/ai-spreadsheet/layout.ts`); past the cap the
+  display ends in an ellipsis and the full value is reached by selecting
+  the cell (it scrolls in place) or editing it. Heights (and fitted widths)
+  come from a `SheetLayout` built
+  from the loaded cells, rebuilt on cell/column/font changes — never per
+  frame.
 - **Scroll.** The spacer is capped at 8,000,000px and offsets are mapped
   through a ratio, so 5,000,000 rows stay under browser element limits. The
   wheel is handled directly (a notch ≈ three rows); scrollbars are hidden.
 - **Columns.** Types come from the payload; unknown types degrade to `string`.
   Clicking a header opens the panel to edit; the `+` after the last column adds
-  one. Widths are uniform and fixed. Hovering a header shows a red × (delete)
-  at the right and a six-dot grip (reorder) at the left; the grip's lane is
-  reserved on every column so the name never shifts.
-- **Column nodes.** The form offers None / AI / Email / Google Search;
-  choosing a node reveals a Prompt textarea, the node's whole configuration.
-  A column whose node has a glyph (`ai` → ✨, `NODE_GLYPHS` in
-  `paint-header.ts`) paints it before its name. An `ai` or `google_search`
-  column's prompt is what Run executes; a Google Search column searches
-  Google about the row before answering.
+  one, always on a blank form (every open remounts it, since the closed panel
+  keeps rendering its last content while it slides away). Each column
+  auto-fits its widest content between 96px and 360px (`MIN_COL_WIDTH` /
+  `MAX_COL_WIDTH` in `layout.ts`); there is no drag-resize. There is no cell
+  hover tooltip (removed by request): a cell's full content is reached by
+  selecting it (the in-place scroller), editing it, or the cell dialog.
+  Hovering a header shows a red × (delete) at the right and a six-dot grip
+  (reorder) at the left; the grip's lane is reserved on every column so the
+  name never shifts.
+- **Column nodes.** The form offers None / AI / Mail / API / Google Search.
+  API is locked (a lock on the capsule; it cannot be selected) and is not a
+  wire node. Mail is the wire node `email`. Choosing an unlocked node reveals
+  a Prompt textarea, the node's whole configuration; Mail gets its own
+  placeholder (`column.mailPromptPlaceholder`) saying it sends on Run, locks
+  the Type select to JSON (`column.mailTypeLocked` explains why), and — when
+  editing an existing Mail column — shows the column's totals above the form
+  (`EmailCountChips`: a green circle counting sent emails, a red one when
+  any failed, summed from the loaded cells). A column whose node has an icon
+  (`ai` → Hugeicons `AiSparklesIcon` in the primary orange, `email` →
+  `Mail01Icon`; `NODE_ICONS` / `NODE_ICON_ACCENT` in
+  `lib/ai-spreadsheet/node-icons.ts`) shows it on its picker capsule and
+  paints the same path data before its name in the header. An `ai` or
+  `google_search` column's prompt is what Run executes; a Google Search
+  column searches Google about the row before answering.
+- **Mail columns.** Run finds addresses in the column's prompt and in any of
+  the row's cells, writes one personalized email per recipient the model
+  decides to contact, and sends them through Resend (run-ai contract); no
+  address, or no clear recipient, fails the cell without sending. The cell
+  then holds `{address: sent email | "FAILED"}` and paints two count
+  capsules — green sent, red failed (red only when any failed); the cell
+  dialog shows the full object. Typing and Delete on a Mail cell only select —
+  accidental edits cannot touch what was sent — while Enter, F2 or a
+  double-click opens the cell dialog, where the object is edited
+  deliberately. A legacy string Mail column is not runnable.
 - **Run.** The Run control is the outlined "Run AI" pill at the right end
   of the header's assistant capsule (the count is in its tooltip), present
   only while the selection holds an AI cell with a prompt; the toolbar has no
@@ -139,9 +176,21 @@ of remounting. Never `resetQueries`/`removeQueries` here.
 - **Editing.** One click selects, a second (or Enter / F2) opens. Text,
   selection and caret are painted; a 1×1 hidden textarea holds focus and
   captures keys, IME and paste. Enter/Tab/Escape/arrows behave as in a
-  spreadsheet; moving away commits, only Escape discards. Text that does not
-  parse for its column type stays local-only and paints in the destructive
-  colour, so the server never sees a value it would reject.
+  spreadsheet; moving away commits, only Escape discards. Alt+Enter inserts
+  a newline; the editor wraps at the cell's width, grows with the text up to
+  10 lines and scrolls inside the cell past that (`innerScrollY`). Text that
+  does not parse for its column type stays local-only and paints in the
+  destructive colour, so the server never sees a value it would reject.
+- **Clipboard.** Excel's dialect (`lib/ai-spreadsheet/clipboard.ts`), hung on
+  the proxy textarea's own clipboard events, idle mode only (an open editor
+  keeps the textarea's native behaviour). Ctrl+C writes the current
+  rectangle as TSV (objects as JSON, cells holding tabs/newlines/quotes
+  double-quoted), clamped to the stored rows and 5,000 cells. Ctrl+X is
+  copy plus an immediate clear of the source. Ctrl+V parses TSV (or a lone
+  value) from Excel/Sheets/this sheet and writes it anchored at the active
+  cell, each value parsed per its target column's type — one batched
+  `spreadsheet.updateCells` call with all-or-nothing rollback, never a
+  request per cell.
 - **Multi-cell selection.** The selection is a set of areas. Shift+arrows or
   a press-and-drag extend the current area into a rectangle from its anchor
   (the drag captures the pointer and autoscrolls within 48px of an edge; a
@@ -157,8 +206,11 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   (`onSelectionChange`), never per keystroke.
 - **Capsule cells.** JSON, file, audio and boolean values paint as chips at
   one shared inset; a value that does not match its column falls back to
-  destructive text. JSON: labelled with the key count, edited in the panel as
-  stacked key/value entries (nested values pretty-printed). File: labelled
+  destructive text. JSON: labelled with the key count; the chip's click, a
+  double-click or Enter/F2 opens the cell dialog
+  (`ai-spreadsheet-cell-dialog.tsx`) — a modal key/value table edited as a
+  draft and written once on Save (Mail cells open the same dialog, titled
+  for their recipient → email object). File: labelled
   with the last path segment; click opens the file, Enter/F2/double-click
   opens the upload editor. Audio: a play/pause control before the name; one
   shared `Audio` element, so one note at a time; a URL that fails to load
@@ -198,8 +250,9 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   form shows an inline error and disables Save for a taken name: adds and
   renames are optimistic, so the refusal has to happen before the model
   changes.
-- **Toolbar.** Import, Export, cell clear and row delete are icon-only
-  buttons (`size="icon-sm"`, label in `aria-label` and a tooltip). Run is
+- **Toolbar.** Import is a text button labelled "Import". Export, cell clear
+  and row delete are icon-only buttons (`size="icon-sm"`, label in
+  `aria-label` and a tooltip). Run is
   not in the toolbar: it **appears** in the assistant capsule the moment the
   selection (a click, a shift-click or drag for a range, a row number) holds
   an AI cell with a prompt — a pill outlined in the primary colour, labelled
@@ -210,8 +263,11 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   create, rename, retype, reorder columns, write cells and append rows;
   removing a column or rows asks inside the capsule first. Behaviour and
   states: [root.md](root.md).
-- **Import / Export.** Both are header actions. Import replaces the grid
-  ("Importing…" while it runs, failure inline with the sheet untouched).
+- **Import / Export.** Both are header actions. Import ("Reading…" while
+  the file is read) opens a preview dialog; Import N rows merges — matching
+  columns are filled, other columns added, rows appended below — and Cancel
+  writes nothing ("Importing…" while it runs, failure inline with the sheet
+  untouched). .csv, .xlsx and .docx (every table, combined) are accepted.
   Export downloads CSV (RFC 4180 quoting, UTF-8 BOM, filename from the sheet
   name) with raw values so the file re-imports cleanly.
 - **The panel** slides in over the sheet inside the row below the header, so

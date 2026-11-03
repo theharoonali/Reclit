@@ -6,6 +6,7 @@
 export type DomainErrorKind =
   | "not_found"
   | "bad_request"
+  | "unauthorized"
   | "conflict"
   | "unavailable"
   | "upstream";

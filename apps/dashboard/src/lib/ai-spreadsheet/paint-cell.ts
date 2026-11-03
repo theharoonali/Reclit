@@ -13,15 +13,17 @@ import {
   CAPSULE_PAD_X,
   CAPSULE_PULSE_MAX,
   CELL_PAD_X,
-  COL_WIDTH,
   type Rect,
   ROW_HEIGHT,
 } from "./geometry";
+import { CELL_PAD_Y, jsonCellLayout, LINE_HEIGHT, wrapLines } from "./layout";
 import { measureWidth, truncateToWidth } from "./text-metrics";
 import { withAlpha } from "./theme-colors";
 import type {
   CellValue,
   ColumnType,
+  JsonObject,
+  NodeType,
   SheetFormatters,
   SheetLabels,
   SheetPalette,
@@ -65,8 +67,9 @@ export function capsuleRect(
   const natural = measureWidth(ctx, label) + leading + CAPSULE_PAD_X * 2;
   return {
     x: rect.x + CELL_PAD_X,
+    // First-line anchored, so chips stay put when the row grows tall.
     y: rect.y + (ROW_HEIGHT - CAPSULE_HEIGHT) / 2,
-    w: Math.min(natural, COL_WIDTH - CELL_PAD_X * 2),
+    w: Math.min(natural, rect.w - CELL_PAD_X * 2),
     h: CAPSULE_HEIGHT,
   };
 }
@@ -89,6 +92,9 @@ type CapsuleStyle = {
 
 /** How far through one breath the pulse halo is, 0..1. */
 const PULSE_HALO_ALPHA = 0.3;
+
+/** The in-place scroller wraps at most this many lines — a sanity cap. */
+const MAX_SCROLLABLE_LINES = 1_000;
 
 /** The halo's radius at `phase`: from the dot's own radius up to the max. */
 export function pulseHaloRadius(phase: number): number {
@@ -227,6 +233,66 @@ const audioStyle = (
 });
 
 /**
+ * A JSON (or Mail) cell: one row per entry — muted key, then value —
+ * separated by hairlines so the cell reads as a small table, then a muted
+ * "+N more" when the line budget ran out. The budget comes from the rect the
+ * same way the string path derives it, so it matches what the row-height
+ * pass measured through the same `jsonCellLayout`. Editing, deleting
+ * included, lives in the cell dialog that opens on double-click.
+ */
+function paintJsonCell(
+  ctx: CanvasRenderingContext2D,
+  rect: Rect,
+  value: JsonObject,
+  isEmail: boolean,
+  palette: SheetPalette,
+  labels: SheetLabels,
+  dpr: number,
+) {
+  const maxLines = Math.max(
+    1,
+    Math.floor((rect.h - CELL_PAD_Y * 2) / LINE_HEIGHT),
+  );
+  const cell = jsonCellLayout(ctx, value, rect.w, maxLines, isEmail);
+  const lineY = (top: number, index: number) =>
+    rect.y + CELL_PAD_Y + top + (index + 0.5) * LINE_HEIGHT;
+
+  for (const [index, entry] of cell.entries.entries()) {
+    ctx.fillStyle = palette.mutedText;
+    entry.keyLines.forEach((line, lineIndex) => {
+      ctx.fillText(line, rect.x + CELL_PAD_X, lineY(entry.top, lineIndex));
+    });
+    ctx.fillStyle = entry.failed ? palette.invalid : palette.text;
+    entry.valueLines.forEach((line, lineIndex) => {
+      ctx.fillText(line, rect.x + cell.valueX, lineY(entry.top, lineIndex));
+    });
+
+    // The hairline under the entry — what makes the cell read as a table.
+    // The last block's lower edge is the row's own gridline.
+    const isLastBlock =
+      index === cell.entries.length - 1 && cell.moreTop === null;
+    if (!isLastBlock) {
+      const sepY = rect.y + CELL_PAD_Y + entry.top + entry.lines * LINE_HEIGHT;
+      ctx.strokeStyle = palette.gridline;
+      ctx.lineWidth = 1 / dpr;
+      ctx.beginPath();
+      ctx.moveTo(rect.x, sepY);
+      ctx.lineTo(rect.x + rect.w, sepY);
+      ctx.stroke();
+    }
+  }
+
+  if (cell.moreTop !== null) {
+    ctx.fillStyle = palette.mutedText;
+    ctx.fillText(
+      labels.jsonMore(cell.moreCount),
+      rect.x + CELL_PAD_X,
+      lineY(cell.moreTop, 0),
+    );
+  }
+}
+
+/**
  * A working run's colour by status: grey while queued, green while running,
  * and the primary orange for any custom stage the backend reports
  * (`analyzing`, ...). Terminal runs are never painted — the run hook drops
@@ -264,6 +330,14 @@ export type CellPaintArgs = {
   rect: Rect;
   value: CellValue;
   type: ColumnType;
+  /** The column's node — a Mail (`email`) cell paints count chips. */
+  node?: NodeType | null;
+  /**
+   * Set only on the selected idle cell: its content scrolled by this many
+   * pixels within the cell, with a thumb when it overflows — the in-place
+   * scroller a click "enables". Undefined paints the normal capped view.
+   */
+  innerScrollY?: number;
   palette: SheetPalette;
   labels: SheetLabels;
   formatters: SheetFormatters;
@@ -297,9 +371,18 @@ export function paintCell(args: CellPaintArgs) {
 
   if (value === null) return;
 
+  // JSON and Mail cells (a Mail column is `type: "json"`, `node: "email"`)
+  // paint their entries as key/value rows rather than a summary chip.
   if (type === "json" && isJsonObject(value)) {
-    const label = labels.jsonCapsule(Object.keys(value).length);
-    paintCapsule(ctx, rect, label, chipStyle(palette, dpr));
+    paintJsonCell(
+      ctx,
+      rect,
+      value,
+      args.node === "email",
+      palette,
+      labels,
+      dpr,
+    );
     return;
   }
 
@@ -327,18 +410,85 @@ export function paintCell(args: CellPaintArgs) {
   else if (type === "email" || type === "url") ctx.fillStyle = palette.link;
   else ctx.fillStyle = palette.text;
 
-  const inner = COL_WIDTH - CELL_PAD_X * 2;
-  const clipped = truncateToWidth(ctx, text, inner);
+  const inner = rect.w - CELL_PAD_X * 2;
   const centerY = rect.y + ROW_HEIGHT / 2;
 
   // Numbers right-align so digits line up down the column; everything else
   // reads left-to-right from the padding edge.
   if (type === "number" && typeof value === "number") {
     ctx.textAlign = "right";
-    ctx.fillText(clipped, rect.x + COL_WIDTH - CELL_PAD_X, centerY);
+    ctx.fillText(
+      truncateToWidth(ctx, text, inner),
+      rect.x + rect.w - CELL_PAD_X,
+      centerY,
+    );
     ctx.textAlign = "left";
     return;
   }
 
-  ctx.fillText(clipped, rect.x + CELL_PAD_X, centerY);
+  // String cells wrap into the row's grown height (layout.ts decided it);
+  // every other type stays one line. The last line that fits is ellipsized
+  // when more text follows, so the cap is visible rather than silent.
+  const maxLines = Math.max(
+    1,
+    Math.floor((rect.h - CELL_PAD_Y * 2) / LINE_HEIGHT),
+  );
+  if (maxLines === 1 || type !== "string" || typeof value !== "string") {
+    const line = text.split("\n", 1)[0] ?? text;
+    ctx.fillText(
+      truncateToWidth(ctx, line, inner),
+      rect.x + CELL_PAD_X,
+      centerY,
+    );
+    return;
+  }
+  // The selected cell scrolls in place instead of eliding: every wrapped
+  // line exists, a window of them shows, and a thumb says there is more.
+  if (args.innerScrollY !== undefined) {
+    const lines = wrapLines(ctx, text, inner, MAX_SCROLLABLE_LINES);
+    const contentH = lines.length * LINE_HEIGHT + CELL_PAD_Y * 2;
+    const max = Math.max(0, contentH - rect.h);
+    const scrollY = Math.min(args.innerScrollY, max);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(rect.x, rect.y, rect.w, rect.h);
+    ctx.clip();
+    const first = Math.max(0, Math.floor(scrollY / LINE_HEIGHT) - 1);
+    const last = Math.min(
+      lines.length - 1,
+      Math.ceil((scrollY + rect.h) / LINE_HEIGHT),
+    );
+    for (let index = first; index <= last; index++) {
+      ctx.fillText(
+        lines[index] as string,
+        rect.x + CELL_PAD_X,
+        rect.y + CELL_PAD_Y + (index + 0.5) * LINE_HEIGHT - scrollY,
+      );
+    }
+    if (max > 0) {
+      const track = rect.h - 4;
+      const thumb = Math.max(16, (track * rect.h) / contentH);
+      const thumbY = rect.y + 2 + ((track - thumb) * scrollY) / max;
+      ctx.fillStyle = withAlpha(palette.mutedText, 0.5);
+      ctx.beginPath();
+      ctx.roundRect(rect.x + rect.w - 5, thumbY, 3, thumb, 1.5);
+      ctx.fill();
+    }
+    ctx.restore();
+    return;
+  }
+
+  const lines = wrapLines(ctx, text, inner, maxLines + 1);
+  const shown = lines.slice(0, maxLines);
+  for (let index = 0; index < shown.length; index++) {
+    const isLast = index === maxLines - 1 && lines.length > maxLines;
+    const line = isLast
+      ? truncateToWidth(ctx, `${shown[index]} …`, inner)
+      : (shown[index] as string);
+    ctx.fillText(
+      line,
+      rect.x + CELL_PAD_X,
+      rect.y + CELL_PAD_Y + (index + 0.5) * LINE_HEIGHT,
+    );
+  }
 }

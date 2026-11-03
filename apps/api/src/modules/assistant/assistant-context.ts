@@ -4,6 +4,8 @@ import {
   MAX_SAMPLE_ROWS,
   withPendingAiColumns,
 } from "../../ai/assistant-prompt";
+import type { CompanyContext } from "../../ai/company-context";
+import { companyContextService } from "../company/company-context.service";
 import type { DashboardDetail } from "../dashboard/dashboard.schema";
 import { dashboardService } from "../dashboard/dashboard.service";
 import type {
@@ -47,8 +49,12 @@ export type AssistantContext = {
   /** Dashboard scope only: the columns profiled over the first `profiledRows` rows. */
   profile: ColumnProfile[] | null;
   profiledRows: number;
+  /** Dashboard scope only: the rows the profile was read from — what the generation verifies its cards against. */
+  payload: SheetPayload | null;
   /** Dashboard scope only; null when the workspace has none yet. */
   dashboard: DashboardDetail | null;
+  /** The workspace owner's compiled company profile; null without one. */
+  company: CompanyContext | null;
 };
 
 export async function loadAssistantContext({
@@ -57,15 +63,17 @@ export async function loadAssistantContext({
   sheetId,
 }: AssistantContextInput): Promise<AssistantContext> {
   const forDashboard = scope === "dashboard";
-  const [workspace, meta, storedRows, payload, dashboard] = await Promise.all([
-    workspaceService.byId(workspaceId),
-    spreadsheetService.byId(sheetId),
-    spreadsheetService.countRows(sheetId),
-    readAllRows(sheetId, forDashboard ? MAX_PROFILE_ROWS : MAX_SAMPLE_ROWS),
-    forDashboard
-      ? dashboardService.byWorkspace(workspaceId)
-      : Promise.resolve(null),
-  ]);
+  const [workspace, meta, storedRows, payload, dashboard, company] =
+    await Promise.all([
+      workspaceService.byId(workspaceId),
+      spreadsheetService.byId(sheetId),
+      spreadsheetService.countRows(sheetId),
+      readAllRows(sheetId, forDashboard ? MAX_PROFILE_ROWS : MAX_SAMPLE_ROWS),
+      forDashboard
+        ? dashboardService.byWorkspace(workspaceId)
+        : Promise.resolve(null),
+      companyContextService.forSpreadsheet(sheetId),
+    ]);
   return {
     workspaceName: workspace.name,
     sheet: {
@@ -79,7 +87,9 @@ export async function loadAssistantContext({
     sampleRows: payload.rows.slice(0, MAX_SAMPLE_ROWS),
     profile: forDashboard ? profileColumns(payload) : null,
     profiledRows: payload.rows.length,
+    payload: forDashboard ? payload : null,
     dashboard,
+    company,
   };
 }
 
@@ -128,6 +138,7 @@ export function toPromptContext(
           })),
         }
       : null,
+    company: context.company,
   };
 }
 

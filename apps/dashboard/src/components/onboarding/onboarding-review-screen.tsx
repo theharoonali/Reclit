@@ -6,17 +6,18 @@ import { Spinner } from "@reclit/ui/spinner";
 import { Textarea } from "@reclit/ui/textarea";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
-import type { FormEvent } from "react";
+import { type FormEvent, useId } from "react";
+import { FormField } from "@/components/common/form-field";
 import type { OnboardingWizardApi } from "./use-onboarding-wizard";
 
 const DESCRIPTION_MAX = 1000;
 const PURPOSE_MAX = 80;
 
 /**
- * The second screen: the name, the label and the description the AI wrote
- * from the file, to review and edit — placeholders name the fields — with
- * Back and Next under them. The fields fill themselves as the description
- * arrives.
+ * The third screen: the label ("We see it as") and the description the AI
+ * wrote from the file, to review and edit, with Back and Next under them.
+ * The fields fill themselves as the description arrives; the name was
+ * settled on the first screen.
  */
 export function OnboardingReviewScreen({
   details,
@@ -27,6 +28,7 @@ export function OnboardingReviewScreen({
   isBusy: boolean;
 }) {
   const t = useTranslations("onboarding");
+  const purposeId = useId();
   const described = details.described;
 
   const handleSubmit = (event: FormEvent) => {
@@ -46,24 +48,15 @@ export function OnboardingReviewScreen({
       </div>
 
       <div className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <FormField htmlFor={purposeId} label={t("purposeLabel")}>
           <Input
-            aria-label={t("nameLabel")}
             disabled={isBusy}
-            maxLength={200}
-            onChange={(event) => details.setName(event.target.value)}
-            placeholder={t("nameLabel")}
-            value={details.name}
-          />
-          <Input
-            aria-label={t("purposeLabel")}
-            disabled={isBusy}
+            id={purposeId}
             maxLength={PURPOSE_MAX}
             onChange={(event) => details.setPurpose(event.target.value)}
-            placeholder={t("purposePlaceholder")}
             value={details.purpose}
           />
-        </div>
+        </FormField>
         <Textarea
           aria-busy={details.isDescribing || undefined}
           aria-label={t("descriptionLabel")}

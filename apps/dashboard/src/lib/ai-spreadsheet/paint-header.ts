@@ -1,6 +1,5 @@
 import {
   CELL_PAD_X,
-  COL_WIDTH,
   GUTTER_WIDTH,
   HEADER_DELETE_HIT_PAD,
   HEADER_GRIP_GAP,
@@ -14,6 +13,9 @@ import {
   plusButtonRect,
   visibleCols,
 } from "./geometry";
+import type { SheetLayout } from "./layout";
+import { colLeft, colWidth } from "./layout";
+import { NODE_ICON_ACCENT, NODE_ICON_VIEWBOX, NODE_ICONS } from "./node-icons";
 import { type CheckboxPaintState, paintCheckbox } from "./paint-checkbox";
 import { measureWidth, truncateToWidth } from "./text-metrics";
 import { withAlpha } from "./theme-colors";
@@ -28,12 +30,48 @@ import type {
 } from "./types";
 
 /**
- * The badge painted left of a column's name, keyed by its node. A node with
- * no entry (email, for now) paints nothing. Emoji ignore `fillStyle`, so no
- * colour plumbing is needed; the glyph is decorative and not hit-tested.
+ * The node's icon (`NODE_ICONS`) painted left of a column's name, stroked in
+ * the name's colour. Decorative and not hit-tested.
  */
-const NODE_GLYPHS: Partial<Record<NodeType, string>> = { ai: "✨" };
+const GLYPH_SIZE = 14;
 const GLYPH_GAP = 4;
+
+/** Each icon's paths, built once — the header repaints on every hover. */
+const glyphPaths = new Map<NodeType, Path2D[]>();
+
+function nodeGlyphPaths(node: NodeType): Path2D[] | undefined {
+  const icon = NODE_ICONS[node];
+  if (icon === undefined) return undefined;
+  let paths = glyphPaths.get(node);
+  if (paths === undefined) {
+    paths = icon.flatMap(([tag, attrs]) =>
+      tag === "path" && typeof attrs.d === "string"
+        ? [new Path2D(attrs.d)]
+        : [],
+    );
+    glyphPaths.set(node, paths);
+  }
+  return paths;
+}
+
+/** Strokes a node's icon in a GLYPH_SIZE square, vertically centred. */
+function paintGlyph(
+  ctx: CanvasRenderingContext2D,
+  paths: Path2D[],
+  x: number,
+  color: string,
+) {
+  const scale = GLYPH_SIZE / NODE_ICON_VIEWBOX;
+  ctx.save();
+  ctx.translate(x, (HEADER_HEIGHT - GLYPH_SIZE) / 2);
+  ctx.scale(scale, scale);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const path of paths) ctx.stroke(path);
+  ctx.restore();
+}
 
 /** The grip's dots: two columns of three, each this many CSS pixels square. */
 const GRIP_DOT = 2;
@@ -45,10 +83,11 @@ const GRIP_DOT_GAP = 3;
  */
 function paintGrip(
   ctx: CanvasRenderingContext2D,
+  layout: SheetLayout,
   col: number,
   palette: SheetPalette,
 ) {
-  const rect = headerGripRect(col);
+  const rect = headerGripRect(layout, col);
   const pitch = GRIP_DOT + GRIP_DOT_GAP;
   const left = rect.x + (rect.w - (GRIP_DOT * 2 + GRIP_DOT_GAP)) / 2;
   const top = rect.y + (rect.h - (GRIP_DOT * 3 + GRIP_DOT_GAP * 2)) / 2;
@@ -117,8 +156,10 @@ export function paintHeader(args: HeaderPaintArgs) {
   const visible = columns.slice(cols.first, cols.last + 1);
   let col = cols.first;
 
+  const { layout } = viewport;
   for (const column of visible) {
-    const x = col * COL_WIDTH;
+    const x = colLeft(layout, col);
+    const width = colWidth(layout, col);
 
     const dragging = draggingCol === col;
     const hovered = !dragging && isHeaderColumnHit(hover) && hover.col === col;
@@ -128,7 +169,7 @@ export function paintHeader(args: HeaderPaintArgs) {
     // shifted around this gap, which is what shows where the drop lands.
     if (dragging) {
       ctx.fillStyle = withAlpha(palette.ring, 0.1);
-      ctx.fillRect(x, 0, COL_WIDTH, HEADER_HEIGHT);
+      ctx.fillRect(x, 0, width, HEADER_HEIGHT);
       ctx.fillStyle = palette.gridline;
       ctx.fillRect(x, 0, lineW, HEADER_HEIGHT);
       col++;
@@ -136,17 +177,17 @@ export function paintHeader(args: HeaderPaintArgs) {
     }
     if (hovered) {
       ctx.fillStyle = withAlpha(palette.ring, 0.08);
-      ctx.fillRect(x, 0, COL_WIDTH, HEADER_HEIGHT);
+      ctx.fillRect(x, 0, width, HEADER_HEIGHT);
     }
     // The grip's lane is reserved on every column but only inked on the one
     // under the pointer, so revealing it does not shove the name sideways.
-    if (hovered) paintGrip(ctx, col, palette);
+    if (hovered) paintGrip(ctx, layout, col, palette);
 
     // The right edge holds the type name — swapped for the delete affordance
     // while the column is hovered; the column name gets what is left.
     let rightWidth: number;
     if (hovered) {
-      const box = headerDeleteRect(col);
+      const box = headerDeleteRect(layout, col);
       if (hover.kind === "header-delete") {
         const zone = inflateRect(box, HEADER_DELETE_HIT_PAD);
         ctx.fillStyle = withAlpha(palette.invalid, 0.12);
@@ -169,7 +210,7 @@ export function paintHeader(args: HeaderPaintArgs) {
       rightWidth = measureWidth(ctx, typeName);
       ctx.fillStyle = palette.mutedText;
       ctx.textAlign = "right";
-      ctx.fillText(typeName, x + COL_WIDTH - CELL_PAD_X, HEADER_HEIGHT / 2);
+      ctx.fillText(typeName, x + width - CELL_PAD_X, HEADER_HEIGHT / 2);
     }
 
     ctx.font = fonts.header;
@@ -179,14 +220,18 @@ export function paintHeader(args: HeaderPaintArgs) {
     // inset. Reserve it in one and not the other and names run under the type
     // label; reserve it only while hovered and they jitter as the grip fades in.
     const leftInset = CELL_PAD_X + HEADER_GRIP_WIDTH + HEADER_GRIP_GAP;
-    const glyph = column.node === null ? undefined : NODE_GLYPHS[column.node];
+    const glyph =
+      column.node === null ? undefined : nodeGlyphPaths(column.node);
     let glyphSpace = 0;
-    if (glyph !== undefined) {
-      ctx.fillText(glyph, x + leftInset, HEADER_HEIGHT / 2);
-      glyphSpace = measureWidth(ctx, glyph) + GLYPH_GAP;
+    if (glyph !== undefined && column.node !== null) {
+      // Accented nodes (the AI mark) stroke in the primary orange.
+      const glyphColor = NODE_ICON_ACCENT[column.node]
+        ? palette.ring
+        : palette.headerText;
+      paintGlyph(ctx, glyph, x + leftInset, glyphColor);
+      glyphSpace = GLYPH_SIZE + GLYPH_GAP;
     }
-    const room =
-      COL_WIDTH - leftInset - CELL_PAD_X * 2 - rightWidth - glyphSpace;
+    const room = width - leftInset - CELL_PAD_X * 2 - rightWidth - glyphSpace;
     ctx.fillText(
       truncateToWidth(ctx, column.name, room),
       x + leftInset + glyphSpace,
@@ -198,7 +243,7 @@ export function paintHeader(args: HeaderPaintArgs) {
     col++;
   }
 
-  const plus = plusButtonRect(columns.length);
+  const plus = plusButtonRect(viewport.layout);
   if (hover.kind === "plus") {
     ctx.fillStyle = withAlpha(palette.ring, 0.12);
     ctx.fillRect(plus.x, 0, plus.w, HEADER_HEIGHT);

@@ -1,7 +1,9 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@reclit/ui/button";
 import { CapsuleSelect } from "@reclit/ui/capsule-select";
+import { cn } from "@reclit/ui/cn";
 import { Input } from "@reclit/ui/input";
 import {
   Select,
@@ -13,8 +15,9 @@ import {
 import { Textarea } from "@reclit/ui/textarea";
 import { type FormEvent, useId, useState } from "react";
 import { FormField } from "@/components/common/form-field";
-import { columnTypes, nodeTypes } from "@/lib/ai-spreadsheet/cell-format";
+import { columnTypes } from "@/lib/ai-spreadsheet/cell-format";
 import { isColumnNameTaken } from "@/lib/ai-spreadsheet/column-names";
+import { NODE_ICON_ACCENT, NODE_ICONS } from "@/lib/ai-spreadsheet/node-icons";
 import type {
   ColumnDraft,
   ColumnType,
@@ -23,9 +26,37 @@ import type {
 } from "@/lib/ai-spreadsheet/types";
 
 // "No node" is this sentinel inside the capsule control and `null` everywhere
-// else — the wire never sees it.
+// else — the wire never sees it. `api` is shown locked and is not a wire node.
 const NO_NODE = "none";
-type NodeChoice = NodeType | typeof NO_NODE;
+const API_NODE = "api";
+type NodeChoice = NodeType | typeof NO_NODE | typeof API_NODE;
+
+/** API is a picker label only, not a wire node, so it cannot be picked. */
+const LOCKED_NODES = new Set<NodeChoice>([API_NODE]);
+
+/** Picker order. */
+const NODE_CHOICES: NodeChoice[] = [
+  NO_NODE,
+  "ai",
+  "email",
+  API_NODE,
+  "google_search",
+];
+
+/** The picker shows a node's icon — the same one the header paints. */
+function nodeIcon(option: NodeChoice) {
+  if (option === NO_NODE || option === API_NODE) return undefined;
+  const icon = NODE_ICONS[option];
+  return (
+    icon && (
+      <HugeiconsIcon
+        aria-hidden="true"
+        className={cn("size-icon", NODE_ICON_ACCENT[option] && "text-primary")}
+        icon={icon}
+      />
+    )
+  );
+}
 
 type AiSpreadsheetColumnFormProps = {
   /** Absent means "add a new column". One component, both jobs. */
@@ -40,10 +71,14 @@ type AiSpreadsheetColumnFormProps = {
     node: string;
     prompt: string;
     promptPlaceholder: string;
+    /** A Mail column's prompt is an email instruction, and it sends on Run. */
+    mailPromptPlaceholder: string;
+    /** Why the type select is locked on a Mail column. */
+    mailTypeLocked: string;
     submit: string;
     cancel: string;
     typeNames: Record<ColumnType, string>;
-    nodeNames: Record<NodeType | typeof NO_NODE, string>;
+    nodeNames: Record<NodeChoice, string>;
   };
   onSubmit: (draft: ColumnDraft) => void;
   onCancel: () => void;
@@ -52,15 +87,22 @@ type AiSpreadsheetColumnFormProps = {
 /**
  * Name, type, node and — when a node is chosen — its prompt, for both adding
  * and editing a column. The prompt is a node's whole configuration: an AI
- * column answers it from the row, a Google Search column searches for it.
+ * column answers it from the row, a Google Search column searches for it, a
+ * Mail column drafts and sends the email it describes.
  * Every control is a shared `@reclit/ui` primitive — see
  * `docs/rules/FRONTEND.md`.
  */
 export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
   const { column, labels } = props;
   const [name, setName] = useState(column?.name ?? "");
-  const [type, setType] = useState<ColumnType>(column?.type ?? "string");
+  const [pickedType, setPickedType] = useState<ColumnType>(
+    column?.type ?? "string",
+  );
   const [node, setNode] = useState<NodeType | null>(column?.node ?? null);
+  // A Mail column stores `{address: email | "FAILED"}`, so its type is json
+  // — the API refuses anything else. The picked type survives in state, so
+  // switching the node away restores it.
+  const type = node === "email" ? "json" : pickedType;
   const [prompt, setPrompt] = useState(column?.prompt ?? "");
   const nameId = useId();
   const typeId = useId();
@@ -108,7 +150,8 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
 
       <FormField htmlFor={typeId} label={labels.type}>
         <Select
-          onValueChange={(value) => setType(value as ColumnType)}
+          disabled={node === "email"}
+          onValueChange={(value) => setPickedType(value as ColumnType)}
           value={type}
         >
           <SelectTrigger id={typeId}>
@@ -122,15 +165,34 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
             ))}
           </SelectContent>
         </Select>
+        {node === "email" && (
+          <p className="text-caption text-muted-foreground">
+            {labels.mailTypeLocked}
+          </p>
+        )}
       </FormField>
 
       <FormField label={labels.node} labelId={nodeId}>
         <CapsuleSelect
           aria-labelledby={nodeId}
-          onValueChange={(value) => setNode(value === NO_NODE ? null : value)}
-          options={([NO_NODE, ...nodeTypes] as NodeChoice[]).map((option) => ({
+          onValueChange={(value) => {
+            if (value === NO_NODE) {
+              setNode(null);
+              return;
+            }
+            if (
+              value === "ai" ||
+              value === "google_search" ||
+              value === "email"
+            ) {
+              setNode(value);
+            }
+          }}
+          options={NODE_CHOICES.map((option) => ({
             value: option,
             label: labels.nodeNames[option],
+            locked: LOCKED_NODES.has(option),
+            icon: nodeIcon(option),
           }))}
           value={node ?? NO_NODE}
         />
@@ -141,7 +203,11 @@ export function AiSpreadsheetColumnForm(props: AiSpreadsheetColumnFormProps) {
           <Textarea
             id={promptId}
             onChange={(event) => setPrompt(event.target.value)}
-            placeholder={labels.promptPlaceholder}
+            placeholder={
+              node === "email"
+                ? labels.mailPromptPlaceholder
+                : labels.promptPlaceholder
+            }
             rows={4}
             value={prompt}
           />

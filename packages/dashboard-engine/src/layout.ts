@@ -1,4 +1,4 @@
-import { GRID_COLUMNS } from "./widget";
+import { GRID_COLUMNS, type WidgetType } from "./widget";
 
 /**
  * The grid rules. Widgets sharing a `row` sit side by side, left → right by
@@ -83,6 +83,76 @@ export function placeWidgets(spans: readonly number[]): WidgetSlot[] {
     placed.push({ ...slot, column: span });
     return slot;
   });
+}
+
+/** A card with its packed width and slot. */
+export type PackedCard<T> = T & WidgetSlot & { column: number };
+
+/**
+ * The widths `count` stat cards take so their rows divide evenly: fours of 3,
+ * threes of 4, pairs of 6. An odd count fills fours first; one left over is a
+ * 6 (it pairs with a 6-wide chart in placement), three left over are 4s.
+ */
+function statSpans(count: number): number[] {
+  if (count === 0) return [];
+  if (count % 4 === 0) return Array.from({ length: count }, () => 3);
+  if (count % 3 === 0) return Array.from({ length: count }, () => 4);
+  if (count % 2 === 0) return Array.from({ length: count }, () => 6);
+  const quads = Math.floor(count / 4) * 4;
+  const rest = count - quads === 1 ? [6] : [4, 4, 4];
+  return [...Array.from({ length: quads }, () => 3), ...rest];
+}
+
+/**
+ * Lays a generated dashboard out in full rows: stats first, then charts in
+ * their input order, then tables. Stats take `statSpans`; a chart keeps 12 if
+ * it asks for 12, else 6; a table is always 12. When the 6-wide cards (stats
+ * and charts) are an odd number the last 6-wide chart that reads well wide (a
+ * bar, line, area or heatmap — never a pie or radial, which would float in 12
+ * columns) widens to 12, so no row is left half empty. `placeWidgets` then
+ * assigns the slots.
+ */
+const WIDENS_WELL: ReadonlySet<WidgetType> = new Set([
+  "bar",
+  "line",
+  "area",
+  "heatmap",
+  "radar",
+]);
+
+export function packDashboard<T extends { type: WidgetType; column: number }>(
+  cards: readonly T[],
+): PackedCard<T>[] {
+  const stats = cards.filter((card) => card.type === "stat");
+  const charts = cards.filter(
+    (card) => card.type !== "stat" && card.type !== "table",
+  );
+  const tables = cards.filter((card) => card.type === "table");
+
+  const statWidths = statSpans(stats.length);
+  const chartWidths = charts.map((card) => (card.column === 12 ? 12 : 6));
+  const halves =
+    statWidths.filter((span) => span === 6).length +
+    chartWidths.filter((span) => span === 6).length;
+  if (halves % 2 === 1) {
+    let last = chartWidths.lastIndexOf(6);
+    for (let index = charts.length - 1; index >= 0; index--) {
+      const chart = charts[index];
+      if (chartWidths[index] === 6 && chart && WIDENS_WELL.has(chart.type)) {
+        last = index;
+        break;
+      }
+    }
+    if (last !== -1) chartWidths[last] = 12;
+  }
+
+  const ordered = [...stats, ...charts, ...tables];
+  const spans = [...statWidths, ...chartWidths, ...tables.map(() => 12)];
+  return placeWidgets(spans).map((slot, index) => ({
+    ...(ordered[index] as T),
+    column: spans[index] as number,
+    ...slot,
+  }));
 }
 
 /** One dashboard row: its index and its widgets, left → right. */

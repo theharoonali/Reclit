@@ -2,27 +2,29 @@
  * CONTRACT — run-ai
  * Feature doc: docs/features/run-ai.md · Rules: docs/rules/TESTING.md
  *
- * TABLE `RunAi`
+ * TABLE `AiRun`, kind CELL (the table every AI run shares — docs/features/run-ai.md)
  *   id             String    pk, uuid
- *   cellId         String    scoped Cell pk "<sheetId>.cell.<r>.<c>"; plain string (no fk), indexed
- *   spreadsheetId  String    the sheet half of cellId, derived on create; indexed with updatedAt
- *   batchId        String    required, indexed
+ *   kind           AiRunKind "CELL" for every row this feature reads or writes
+ *   cellId         String?   scoped Cell pk "<sheetId>.cell.<r>.<c>"; plain string (no fk), indexed;
+ *                            required for CELL (CHECK)
+ *   spreadsheetId  String?   the sheet half of cellId, derived on create; indexed with kind, updatedAt
+ *   batchId        String?   required for CELL, indexed
  *   status         String    uppercase; PENDING | RUNNING | COMPLETED | FAILED or a custom stage
  *                            (ANALYZING, …); default PENDING. COMPLETED / FAILED are terminal.
- *   credit         Int       default 0
  *   result         Json?     object or null; `result.output` is the cell value the run produced
  *   createdAt      DateTime  now(), indexed
  *   updatedAt      DateTime  @updatedAt
- *   Partial unique index `RunAi_active_cell_key` (cellId WHERE status NOT IN
- *   terminal): one working run per cell. Trigger `run_ai_notify` publishes
- *   every insert/update id on channel `run_ai_changed`.
+ *   (the assistant's and dashboard generation's columns stay null on a CELL row)
+ *   Partial unique index `AiRun_active_cell_key` (cellId WHERE kind = CELL AND
+ *   status NOT IN terminal): one working run per cell. Trigger `ai_run_notify`
+ *   publishes every CELL insert/update id on channel `run_ai_changed`.
  *
  * MODEL  RunAi = {
  *   id: string; cellId: string; spreadsheetId: string; batchId: string;
  *   status: string;                       // lowercase: "pending" | "running" | "completed" | "failed" | "<custom>"
- *   credit: number;
  *   result: ({ input?: RunAiInput; output?: CellValue;
- *              searches?: RunAiSearches }               // google_search only
+ *              searches?: RunAiSearches                 // google_search only
+ *              emails?: RunAiEmail[] }                  // email only: one entry per recipient
  *            & Record<string, unknown>) | null;
  *   createdAt: Date; updatedAt: Date;
  * }
@@ -37,7 +39,16 @@
  *   queries: string[];                    // the Google queries the model ran; never empty on a completed run
  *   sources: { url: string; title?: string }[];  // pages it grounded on: Google redirect URLs, title = the domain; deduped, at most 20
  * }
- * RunAiJobPayload = { runId: string; input: RunAiInput }       // the Trigger.dev `run-ai-cell` payload
+ * RunAiEmail = {                          // one recipient of an email (Mail) run
+ *   to: string;                           // an allowed address, as the prompt/row spells it
+ *   subject: string; body: string;        // plain text, personalized per recipient by the model
+ *   status: "sent" | "failed";
+ *   from?: string;                        // sent only; RESEND_FROM, default "Reclit <hello@reclit.com>"
+ *   messageId?: string;                   // sent only; Resend's id
+ *   sentAt?: string;                      // sent only; ISO time the send returned
+ *   error?: string;                       // failed only; why the send failed
+ * }                                        // (legacy runs may carry `email`, the pre-040 single-send record)
+ * RunAiJobPayload = { runId: string; input: RunAiInput; cacheName?: string }  // the Trigger.dev `run-ai-cell` payload
  * RunAiBatchJob = {                        // the Trigger.dev `run-ai-batch` payload — one per Run click
  *   batchId: string; spreadsheetId: string;
  *   waves: { columnIndex; columnName; cells: { runId; rowIndex }[] }[];  // one wave per runnable column, in sort order
@@ -90,7 +101,7 @@
  *   produced — then runs the wave as one Trigger.dev batch of `run-ai-cell`
  *   (a single run when the wave has one cell) and waits for it. Each cell
  *   (`src/trigger/run-ai-cell.ts`) moves its run to `running`, resolves the
- *   row's media, asks Gemini with the column prompt as the instruction, the
+ *   row's media, asks the model with the column prompt as the instruction, the
  *   previous output as the primary input and the row as context, and
  *   `complete`s with
  *   `result: { input, output, model, usage, attachments, transcripts, crawls }`
@@ -131,19 +142,64 @@
  *   ("the official website of this company", "top 10 companies working on
  *   SAP with their URLs"). A blank row still prepares; whether the row
  *   matters is the prompt's business.
- * - The cell task runs a `google_search` cell as TWO Gemini calls: a grounded
+ * - The cell task runs a `google_search` cell as TWO model calls: a grounded
  *   call with the provider's `google_search` tool and no output schema
- *   (Gemini refuses a tool and a JSON response schema in one request —
+ *   (the provider refuses a tool and a JSON response schema in one request —
  *   "Function calling with a response mime type: 'application/json' is
  *   unsupported"), whose text is the answer written from live Google
  *   results; then an extraction call with no tools that shapes that text
  *   into the column's type through the same `cellOutputSchema` an `ai` cell
- *   uses. Gemini decides whether to search and cannot be forced, so the
+ *   uses. The model decides whether to search and cannot be forced, so the
  *   grounded call's metadata is checked: a cell whose model recorded no query
  *   and no web source FAILS (`result.error.message` says so) instead of
  *   completing from memory. The queries and pages are `result.searches`;
  *   `result.attachments` is always `[]` (file cells go in as text, nothing
  *   is fetched) and `result.usage` is both calls summed.
+ * - An `email` (Mail) column SENDS REAL EMAIL. It is runnable with a node, a
+ *   prompt, and a `json` type — the create/update path refuses any other
+ *   type for a Mail column (`SPREADSHEET_EMAIL_COLUMN_TYPE`, spreadsheet
+ *   contract), and a legacy non-json one is skipped like a promptless
+ *   column. Its cells are machine-written by the run worker; the dashboard
+ *   blocks accidental inline edits and edits them deliberately through its
+ *   cell dialog. `prepare` gives it the same input as every node.
+ *   The allowed recipients are every address found in the column's PROMPT,
+ *   then in ANY cell's content (objects stringified), in row order — deduped
+ *   case-insensitively keeping the first spelling, capped at 10, the target
+ *   cell itself skipped (a re-run must not read old sends back). The cell
+ *   task asks the model once (structured output, no tools) for
+ *   `{ emails: [{ to, subject, body }] }` — one personalized email per
+ *   recipient worth contacting; the previous step's output, when there is
+ *   one, is the primary input and is copied verbatim when the prompt says to
+ *   send it. Drafts whose `to` is not allowed (trimmed, case-insensitive),
+ *   duplicated, or with an empty subject/body are dropped unsent. No
+ *   address anywhere, or no valid draft (the model could not tell who to
+ *   email), FAILS the cell before anything is sent. The valid drafts are
+ *   sent one by one through Resend (`POST https://api.resend.com/emails`,
+ *   plain text, `Idempotency-Key` = `<runId>:<address lowercase>`, so a
+ *   worker re-execution never sends twice and two recipients never share a
+ *   key). A send that fails does NOT fail the run: that address is recorded
+ *   `status: "failed"` with the reason and the rest still send. A completed
+ *   run has `result.emails` and `output` =
+ *   `{ "<to>": "Subject: <subject>\n\n<body>" | "FAILED" }` — one key per
+ *   recipient; the dashboard counts the sent and FAILED values. If the cell
+ *   write fails after the sends, the run fails WITH `result.emails`: a
+ *   failed mail run that carries it did send. Every Run is a new run and a
+ *   new send; a mail column also sends from `runRow` (every public form
+ *   submission) and from onboarding's final step.
+ * - **Every cell knows who it works for.** Whatever the node, the model's
+ *   instruction starts with the sheet owner's compiled `<company-context>`
+ *   block (company contract: company.api.test.ts), then "You fill in one
+ *   cell of a spreadsheet row." — byte-identical across every cell of one
+ *   profile version, so the provider's implicit prefix cache serves it. Each wave
+ *   of a batch also gets an explicit prompt cache of that prefix when it is
+ *   large enough (≥ 1024 tokens), reused across waves until it is 5 minutes
+ *   from expiry; `ai` and `email` cells then send no system instruction and
+ *   name the cache instead, with the column's instruction opening the user
+ *   message. A cache that fails is retried without it — it never fails a
+ *   cell. `google_search` cells use the implicit path only (a tool cannot be
+ *   combined with a cache). `result.usage` carries `cachedInputTokens` — the
+ *   input tokens a cache served — next to `inputTokens`, `outputTokens`,
+ *   `totalTokens` (undefined when the provider reports none).
  * - The stream is a generation, not a socket. A sheet should be streaming
  *   exactly while it has a run that is not `completed` / `failed`:
  *   `listActive` answers that on page load (non-empty → subscribe), the
@@ -198,10 +254,14 @@ import {
   resolveCrawlRecord,
   summariseCrawls,
 } from "../ai/cell-crawls";
+import { type CellCall, cellCalls, withCacheFallback } from "../ai/cell-output";
 import type { CellSourceNote } from "../ai/cell-prompt";
 import {
   buildCellMessages,
+  CELL_PREAMBLE,
+  cachedCellSystem,
   cellOutputSchema,
+  EMAIL_RULES,
   formatCellLine,
   SEARCH_RULES,
   TYPE_RULES,
@@ -212,7 +272,16 @@ import {
   isTranscribableCell,
   summariseTranscripts,
 } from "../ai/cell-transcripts";
+import { compileCompanyContext } from "../ai/company-prompt";
 import { type TranscribeFetch, transcribeAudio } from "../ai/elevenlabs";
+import { generateEmailCellValue } from "../ai/email-output";
+import {
+  EMAIL_FAILED_VALUE,
+  emailCellValue,
+  emailRecipients,
+  MAX_EMAIL_RECIPIENTS,
+  resolveRecipient,
+} from "../ai/email-prompt";
 import type { CrawlFetch } from "../ai/firecrawl";
 import {
   CRAWL_OPTIONS,
@@ -224,6 +293,12 @@ import {
   FirecrawlError,
   startCrawl,
 } from "../ai/firecrawl";
+import {
+  DEFAULT_RESEND_FROM,
+  RESEND_API_URL,
+  type SendEmailFetch,
+  sendEmail,
+} from "../ai/resend";
 import {
   buildSearchExtractMessages,
   MAX_SEARCH_SOURCES,
@@ -247,11 +322,15 @@ import type {
   CreateRunAiInput,
   RunAiBatchJob,
   RunAiChange,
+  RunAiEmail,
   RunAiInput,
   RunAiInputCell,
 } from "../modules/run-ai/run-ai.schema";
 import { runAiService } from "../modules/run-ai/run-ai.service";
-import { runAiBatchService } from "../modules/run-ai/run-ai-batch.service";
+import {
+  isRunnable,
+  runAiBatchService,
+} from "../modules/run-ai/run-ai-batch.service";
 import {
   SpreadsheetCellTypeMismatchError,
   SpreadsheetColumnNotFoundError,
@@ -317,7 +396,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await runAiFeed.stop();
   if (createdIds.length > 0) {
-    await prisma.runAi
+    await prisma.aiRun
       .deleteMany({ where: { id: { in: createdIds } } })
       .catch(() => {});
   }
@@ -334,7 +413,6 @@ describe.skipIf(!dbUp)("runAi.byId", () => {
       spreadsheetId: "contract-sheet",
       batchId: created.batchId,
       status: "pending",
-      credit: 0,
       result: null,
     });
     expectDate(run.createdAt);
@@ -344,14 +422,12 @@ describe.skipIf(!dbUp)("runAi.byId", () => {
   it("reads back a run created with the full payload", async () => {
     const created = await makeRun({
       cellId: "contract-sheet.cell.3.2",
-      credit: 3,
       status: "Analyzing",
     });
     const run = await caller.runAi.byId({ id: created.id });
     expect(run).toMatchObject({
       cellId: "contract-sheet.cell.3.2",
       spreadsheetId: "contract-sheet",
-      credit: 3,
       status: "analyzing",
     });
   });
@@ -373,31 +449,22 @@ describe.skipIf(!dbUp)("runAi.byId", () => {
     const run = await caller.runAi.byId({ id: created.id });
     expect(run.status).toBe("web_search");
     expect(run.result).toEqual({ query: "reclit" });
-    const stored = await prisma.runAi.findUnique({
+    const stored = await prisma.aiRun.findUnique({
       where: { id: created.id },
-      select: { status: true },
+      select: { status: true, kind: true },
     });
+    expect(stored?.kind).toBe("CELL");
     expect(stored?.status).toBe("WEB_SEARCH");
   });
 
-  it("reflects complete with a result and a credit", async () => {
+  it("reflects complete with a result", async () => {
     const created = await makeRun();
     await runAiService.complete(created.id, {
       result: { text: "hello", usage: { totalTokens: 12 } },
-      credit: 2,
     });
     const run = await caller.runAi.byId({ id: created.id });
     expect(run.status).toBe("completed");
     expect(run.result).toEqual({ text: "hello", usage: { totalTokens: 12 } });
-    expect(run.credit).toBe(2);
-  });
-
-  it("complete without a credit leaves the credit intact", async () => {
-    const created = await makeRun({ credit: 5 });
-    await runAiService.complete(created.id, { result: { text: "kept" } });
-    const run = await caller.runAi.byId({ id: created.id });
-    expect(run.status).toBe("completed");
-    expect(run.credit).toBe(5);
   });
 
   it("reflects fail with a result", async () => {
@@ -879,7 +946,9 @@ describe.skipIf(!dbUp)("runAi.runCells", () => {
   afterAll(async () => {
     runAiBatchService.setDispatcher(null);
     if (sheet) {
-      await prisma.runAi.deleteMany({ where: { spreadsheetId: sheet } });
+      await prisma.aiRun.deleteMany({
+        where: { kind: "CELL", spreadsheetId: sheet },
+      });
       const workspace = await prisma.spreadsheet.findUnique({
         where: { id: sheet },
         select: { workspaceId: true },
@@ -919,7 +988,6 @@ describe.skipIf(!dbUp)("runAi.runCells", () => {
         spreadsheetId: sheet,
         batchId: first.batchId,
         status: "pending",
-        credit: 0,
         result: null,
       });
       expectDate(run.createdAt);
@@ -993,9 +1061,11 @@ describe.skipIf(!dbUp)("runAi.runCells", () => {
         }),
         "BAD_REQUEST",
       );
-      expect(await prisma.runAi.count({ where: { spreadsheetId: wide } })).toBe(
-        0,
-      );
+      expect(
+        await prisma.aiRun.count({
+          where: { kind: "CELL", spreadsheetId: wide },
+        }),
+      ).toBe(0);
     } finally {
       await removeWorkspace(workspace.id);
     }
@@ -1027,7 +1097,9 @@ describe.skipIf(!dbUp)("runAi.runCells", () => {
     if (!first) throw new Error("no run");
     await expectTRPCError(runCells([4, 5]), "CONFLICT");
     expect(
-      await prisma.runAi.count({ where: { cellId: cellOf(5, aiColumn) } }),
+      await prisma.aiRun.count({
+        where: { kind: "CELL", cellId: cellOf(5, aiColumn) },
+      }),
     ).toBe(0);
     const error = await expectError(
       runAiBatchService.runCells({
@@ -1060,7 +1132,7 @@ describe.skipIf(!dbUp)("runAi.runCells", () => {
     });
     await expectTRPCError(runCells([2], [aiColumn, toneColumn]), "BAD_GATEWAY");
     runAiBatchService.setDispatcher(null);
-    const runs = await prisma.runAi.findMany({
+    const runs = await prisma.aiRun.findMany({
       where: { cellId: { in: [cellOf(2, aiColumn), cellOf(2, toneColumn)] } },
     });
     expect(runs).toHaveLength(2);
@@ -2629,5 +2701,476 @@ describe("run-ai-cell task crawls (pure)", () => {
     expect(prompt.indexOf("Content of the website")).toBeLessThan(
       prompt.indexOf('Fill the column "Summary".'),
     );
+  });
+});
+
+describe.skipIf(!dbUp)("email (Mail) node", () => {
+  // Contact (email) | Mail (json, email node, prompt) | Unwritten (json,
+  // email node, no prompt) — runnability is asserted against the last two;
+  // the non-json Mail column cannot be created at all (spreadsheet contract).
+  let sheet = "";
+  let workspaceId = "";
+  let contactColumn = 0;
+  let mailColumn = 0;
+  let unwrittenColumn = 0;
+
+  beforeAll(async () => {
+    const workspace = await makeWorkspace("run-ai email");
+    workspaceId = workspace.id;
+    sheet = workspace.spreadsheetId ?? "";
+    const create = (
+      name: string,
+      over: Partial<Parameters<typeof caller.spreadsheet.createColumn>[0]> = {},
+    ) =>
+      caller.spreadsheet
+        .createColumn({ id: sheet, name, ...over })
+        .then((column) => column.index);
+    contactColumn = await create("Contact", { type: "email" });
+    mailColumn = await create("Mail", {
+      type: "json",
+      node: "email",
+      prompt: "Invite them to Friday's demo",
+    });
+    unwrittenColumn = await create("Unwritten", {
+      type: "json",
+      node: "email",
+    });
+    await caller.spreadsheet.updateRow({
+      id: sheet,
+      rowIndex: 0,
+      cells: [{ columnIndex: contactColumn, value: "ada@example.test" }],
+    });
+  });
+
+  afterAll(async () => {
+    if (workspaceId) await removeWorkspace(workspaceId);
+  });
+
+  it("runs a mail column with a prompt on a json column, nothing else", async () => {
+    const runs = await caller.runAi.runCells({
+      id: sheet,
+      rowIndexes: [0],
+      columnIndexes: [contactColumn, mailColumn, unwrittenColumn],
+    });
+    expect(runs.map((run) => run.cellId)).toEqual([
+      `${sheet}.cell.0.${mailColumn}`,
+    ]);
+    await runAiService.failPending(
+      runs.map((run) => run.id),
+      { error: { name: "ContractCleanup", message: "not executed" } },
+    );
+  });
+
+  it("skips a legacy non-json mail column instead of running it", () => {
+    // Unreachable through createColumn since the json rule; isRunnable still
+    // guards the sheets that predate it.
+    expect(
+      isRunnable({
+        index: 1,
+        sortOrder: 1,
+        name: "Legacy mail",
+        type: "STRING",
+        node: "EMAIL",
+        prompt: "Say hi",
+      }),
+    ).toBe(false);
+  });
+
+  it("prepares a mail cell with the whole row and the email node", async () => {
+    const [run] = await caller.runAi.runCells({
+      id: sheet,
+      rowIndexes: [0],
+      columnIndexes: [mailColumn],
+    });
+    if (!run) throw new Error("no run");
+    const { input } = await runAiBatchService.prepare(run.id);
+    expect(input.target).toMatchObject({
+      index: mailColumn,
+      type: "json",
+      node: "email",
+    });
+    expect(input.prompt).toBe("Invite them to Friday's demo");
+    expect(emailRecipients(input)).toEqual(["ada@example.test"]);
+    await runAiService.fail(run.id);
+  });
+});
+
+describe("email (Mail) node (pure)", () => {
+  const cell = (
+    index: number,
+    name: string,
+    type: RunAiInputCell["type"],
+    value: RunAiInputCell["value"],
+  ): RunAiInputCell => ({ id: `col.${index}`, index, name, type, value });
+  const input: RunAiInput = {
+    prompt: "Invite them to Friday's demo; cc boss@corp.test",
+    target: {
+      id: "col.4",
+      index: 4,
+      name: "Mail",
+      type: "json",
+      node: "email",
+    },
+    row: {
+      id: "row.0",
+      index: 0,
+      cells: [
+        cell(0, "Name", "string", "Ada"),
+        cell(1, "Work email", "email", " Ada@Example.test "),
+        cell(
+          2,
+          "Notes",
+          "string",
+          "Reach ada@example.test or grace@example.test.",
+        ),
+        cell(3, "Backup", "email", "not-an-address"),
+        cell(5, "Data", "json", { contact: "json.guy@example.test" }),
+        // The target cell: a previous run's sends, never offered again.
+        cell(4, "Mail", "json", { "old@example.test": "Subject: x\n\ny" }),
+      ],
+    },
+  };
+  const allowed = [
+    "boss@corp.test",
+    "Ada@Example.test",
+    "grace@example.test",
+    "json.guy@example.test",
+  ];
+  const sent: RunAiEmail = {
+    to: "Ada@Example.test",
+    subject: "Demo on Friday",
+    body: "Hi Ada,\nJoin us Friday.",
+    status: "sent",
+    from: "Reclit <hello@reclit.com>",
+    messageId: "msg-1",
+    sentAt: "2026-10-21T10:00:00.000Z",
+  };
+  const failed: RunAiEmail = {
+    to: "grace@example.test",
+    subject: "Demo on Friday",
+    body: "Hi Grace,\nJoin us Friday.",
+    status: "failed",
+    error: "Resend send failed: HTTP 500",
+  };
+
+  it("finds addresses in the prompt and in any cell, deduped, never in the target cell", () => {
+    expect(emailRecipients(input)).toEqual(allowed);
+  });
+
+  it("caps the allowed list at MAX_EMAIL_RECIPIENTS", () => {
+    const many = Array.from(
+      { length: MAX_EMAIL_RECIPIENTS + 3 },
+      (_, i) => `person${i}@example.test`,
+    ).join(" ");
+    const recipients = emailRecipients({
+      ...input,
+      row: { ...input.row, cells: [cell(0, "List", "string", many)] },
+    });
+    expect(recipients).toHaveLength(MAX_EMAIL_RECIPIENTS);
+    expect(recipients[0]).toBe("boss@corp.test"); // the prompt's address first
+  });
+
+  it("accepts a draft's address only when the allowed list holds it", () => {
+    const recipients = emailRecipients(input);
+    expect(resolveRecipient("  ada@example.TEST ", recipients)).toBe(
+      "Ada@Example.test",
+    );
+    expect(resolveRecipient("grace@example.test", recipients)).toBe(
+      "grace@example.test",
+    );
+    expect(resolveRecipient("old@example.test", recipients)).toBeNull();
+    expect(resolveRecipient("eve@evil.test", recipients)).toBeNull();
+  });
+
+  it("tells a mail cell to personalize per allowed recipient instead of a typed answer", () => {
+    const { system, prompt } = buildCellMessages(input);
+    expect(system).toContain(EMAIL_RULES);
+    expect(system).toContain(`Allowed recipients: ${allowed.join(", ")}`);
+    expect(system).not.toContain(`Answer with ${TYPE_RULES.json}`);
+    expect(system).toContain("Invite them to Friday's demo");
+    expect(prompt).toContain("Work email (email):  Ada@Example.test ");
+    expect(prompt).toContain('Fill the column "Mail".');
+  });
+
+  it("names the previous step as the text to forward when there is one", () => {
+    const { system, prompt } = buildCellMessages({
+      ...input,
+      previous: cell(6, "Draft", "string", "Hello from the draft"),
+    });
+    expect(system).toContain('filled the column "Draft"');
+    expect(prompt).toContain("Draft (string): Hello from the draft");
+  });
+
+  it("records one key per recipient: the sent email, or FAILED", () => {
+    expect(emailCellValue([sent, failed])).toEqual({
+      "Ada@Example.test": "Subject: Demo on Friday\n\nHi Ada,\nJoin us Friday.",
+      "grace@example.test": EMAIL_FAILED_VALUE,
+    });
+  });
+
+  it("fails a row with no email address anywhere before drafting or sending", async () => {
+    let called = false;
+    const fetchImpl: SendEmailFetch = async () => {
+      called = true;
+      throw new Error("must not send");
+    };
+    const error = await expectError(
+      generateEmailCellValue(
+        {
+          ...input,
+          prompt: "Invite them to Friday's demo",
+          row: { ...input.row, cells: [cell(0, "Name", "string", "Ada")] },
+        },
+        { runId: "run-1", fetchImpl },
+      ),
+      Error,
+    );
+    expect(error.message).toContain("no email address was found");
+    expect(called).toBe(false);
+  });
+});
+
+describe("Resend client (pure)", () => {
+  // The key is read per call, so a fake one is enough to reach the fake fetch.
+  const originalKey = process.env.RESEND_API_KEY;
+  const originalFrom = process.env.RESEND_FROM;
+  process.env.RESEND_API_KEY = "contract-test-key";
+  delete process.env.RESEND_FROM;
+  afterAll(() => {
+    if (originalKey === undefined) delete process.env.RESEND_API_KEY;
+    else process.env.RESEND_API_KEY = originalKey;
+    if (originalFrom === undefined) delete process.env.RESEND_FROM;
+    else process.env.RESEND_FROM = originalFrom;
+  });
+
+  const email = {
+    to: "ada@example.test",
+    subject: "Demo on Friday",
+    text: "Hi Ada",
+    idempotencyKey: "run-123",
+  };
+  const answering =
+    (
+      status: number,
+      body: unknown,
+      seen?: { calls: unknown[] },
+    ): SendEmailFetch =>
+    async (url, init) => {
+      seen?.calls.push({ url, ...init, body: JSON.parse(init.body) });
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        text: async () => JSON.stringify(body),
+        json: async () => body,
+      };
+    };
+
+  it("posts one JSON email with the bearer key and the run as idempotency key", async () => {
+    const seen = { calls: [] as unknown[] };
+    const sent = await sendEmail(email, answering(200, { id: "msg-1" }, seen));
+    expect(sent).toEqual({ id: "msg-1", from: DEFAULT_RESEND_FROM });
+    expect(seen.calls).toHaveLength(1);
+    expect(seen.calls[0]).toMatchObject({
+      url: RESEND_API_URL,
+      method: "POST",
+      headers: {
+        Authorization: "Bearer contract-test-key",
+        "Content-Type": "application/json",
+        "Idempotency-Key": "run-123",
+      },
+      body: {
+        from: "Reclit <hello@reclit.com>",
+        to: ["ada@example.test"],
+        subject: "Demo on Friday",
+        text: "Hi Ada",
+      },
+    });
+  });
+
+  it("sends from RESEND_FROM when it is set", async () => {
+    process.env.RESEND_FROM = "Team <team@reclit.com>";
+    try {
+      const sent = await sendEmail(email, answering(200, { id: "msg-2" }));
+      expect(sent.from).toBe("Team <team@reclit.com>");
+    } finally {
+      delete process.env.RESEND_FROM;
+    }
+  });
+
+  it("throws on an HTTP error with the status, and on an answer with no id", async () => {
+    const refused = await expectError(
+      sendEmail(email, answering(403, { message: "domain not verified" })),
+      Error,
+    );
+    expect(refused.message).toContain("HTTP 403");
+    expect(refused.message).toContain("domain not verified");
+
+    const blank = await expectError(
+      sendEmail(email, answering(200, {})),
+      Error,
+    );
+    expect(blank.message).toBe("Resend returned no message id");
+  });
+
+  it("names the missing key instead of sending", async () => {
+    delete process.env.RESEND_API_KEY;
+    try {
+      const error = await expectError(
+        sendEmail(email, answering(200, { id: "never" })),
+        Error,
+      );
+      expect(error.message).toContain("RESEND_API_KEY is not set");
+    } finally {
+      process.env.RESEND_API_KEY = "contract-test-key";
+    }
+  });
+});
+
+describe("company context and the explicit cache (pure)", () => {
+  const company = compileCompanyContext({
+    companyId: "company-1",
+    name: "Acme",
+    website: "https://acme.example",
+    useCases: ["LEAD_RESEARCH"],
+    useCaseOther: null,
+    summary: "Acme makes widgets.",
+    rules: "Write in British English.",
+    documents: [],
+  });
+  if (!company) throw new Error("fixture");
+  const cell = (
+    name: string,
+    node: RunAiInput["target"]["node"],
+    rowIndex: number,
+  ): RunAiInput => ({
+    prompt: `Fill ${name}.`,
+    target: { id: "col.1", index: 1, name, type: "string", node },
+    row: {
+      id: `row.${rowIndex}`,
+      index: rowIndex,
+      cells: [
+        {
+          id: "col.0",
+          index: 0,
+          name: "Email",
+          type: "email",
+          value: `row${rowIndex}@acme.example`,
+        },
+      ],
+    },
+  });
+
+  it("puts the company block first, byte-identical across cells of every node", () => {
+    const prefix = cachedCellSystem(company);
+    expect(prefix).toBe(`${company.text}\n\n${CELL_PREAMBLE}`);
+    const systems = [
+      buildCellMessages(cell("Score", "ai", 0), new Map(), company).system,
+      buildCellMessages(cell("Notes", "ai", 7), new Map(), company).system,
+      buildCellMessages(cell("Site", "google_search", 3), new Map(), company)
+        .system,
+      buildCellMessages(cell("Mail", "email", 2), new Map(), company).system,
+    ];
+    for (const system of systems) {
+      expect(system.startsWith(`${prefix}\n`)).toBe(true);
+    }
+    expect(new Set(systems.map((s) => s.slice(0, prefix.length))).size).toBe(1);
+  });
+
+  it("leaves the prompt as it was without a company", () => {
+    const { system } = buildCellMessages(cell("Score", "ai", 0));
+    expect(system.startsWith(`${CELL_PREAMBLE}\n`)).toBe(true);
+    expect(system).not.toContain("<company-context>");
+  });
+
+  it("the cached shape opens the user message with the column's instruction", () => {
+    const messages = buildCellMessages(
+      cell("Score", "ai", 0),
+      new Map(),
+      company,
+    );
+    const instruction = messages.system.slice(
+      cachedCellSystem(company).length + 1,
+    );
+    expect(messages.cachedPrompt).toBe(`${instruction}\n\n${messages.prompt}`);
+    expect(messages.cachedPrompt).not.toContain("<company-context>");
+    expect(messages.cachedPrompt).not.toContain(CELL_PREAMBLE);
+  });
+
+  it("with a cache the call sends no system and names the cache; without one, only the implicit call exists", () => {
+    const messages = buildCellMessages(
+      cell("Score", "ai", 0),
+      new Map(),
+      company,
+    );
+    const file = {
+      data: new Uint8Array([1, 2]),
+      mediaType: "application/pdf",
+      filename: "cv.pdf",
+    };
+    const { implicit, cached } = cellCalls(
+      messages,
+      [file],
+      "cachedContents/abc",
+    );
+    expect(implicit.system).toBe(messages.system);
+    expect(implicit.providerOptions).toBeUndefined();
+    expect(cached).not.toBeNull();
+    expect(cached && "system" in cached).toBe(false);
+    expect(cached?.providerOptions).toEqual({
+      google: { cachedContent: "cachedContents/abc" },
+    });
+    expect(cached?.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: messages.cachedPrompt },
+          { type: "file", ...file },
+        ],
+      },
+    ]);
+    expect(cellCalls(messages, [], null).cached).toBeNull();
+    expect(cellCalls(messages, [], undefined).cached).toBeNull();
+  });
+
+  it("falls back to the implicit call when the cached one fails, and never otherwise", async () => {
+    const messages = buildCellMessages(
+      cell("Score", "ai", 0),
+      new Map(),
+      company,
+    );
+    const sent: CellCall[] = [];
+    const answer = await withCacheFallback(
+      cellCalls(messages, [], "cachedContents/expired"),
+      async (call) => {
+        sent.push(call);
+        if (call.providerOptions) throw new Error("404 cache not found");
+        return "value";
+      },
+    );
+    expect(answer).toBe("value");
+    expect(sent.map((call) => call.system ?? "cached")).toEqual([
+      "cached",
+      messages.system,
+    ]);
+
+    const once: CellCall[] = [];
+    await withCacheFallback(
+      cellCalls(messages, [], "cachedContents/live"),
+      async (call) => {
+        once.push(call);
+        return "value";
+      },
+    );
+    expect(once).toHaveLength(1);
+    expect(once[0]?.providerOptions).toBeDefined();
+  });
+
+  it("the search extraction prompt starts with the company block too", () => {
+    const { system } = buildSearchExtractMessages(
+      cell("Site", "google_search", 0),
+      "Acme's site is acme.example.",
+      company,
+    );
+    expect(system.startsWith(`${company.text}\n\n`)).toBe(true);
   });
 });

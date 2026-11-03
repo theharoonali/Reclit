@@ -31,8 +31,7 @@ export function useSheetLabels(): {
     () => ({
       boolTrue: t("boolean.true"),
       boolFalse: t("boolean.false"),
-      jsonCapsule: (count: number) => t("capsule", { count }),
-      jsonEmpty: t("json.empty"),
+      jsonMore: (count: number) => t("json.more", { count }),
       // The four statuses the system assigns are copy; a custom stage the
       // backend reports ("analyzing") is data, shown tidied rather than
       // translated.

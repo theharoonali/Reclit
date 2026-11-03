@@ -6,7 +6,8 @@
     "items": {
       "dashboard": "Dashboard",
       "aiSpreadsheet": "AI Spreadsheet",
-      "populate": "Populate"
+      "populate": "Populate",
+      "chat": "Chat"
     }
   },
   "sidebar": {
@@ -27,6 +28,20 @@
     "settings": "Settings",
     "logout": "Log out"
   },
+  "login": {
+    "title": "Sign in",
+    "description": "Sign in to your workspace.",
+    "heading": "Welcome back",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "passwordLabel": "Password",
+    "passwordPlaceholder": "Your password",
+    "submit": "Sign in",
+    "submitting": "Signing in...",
+    "invalidCredentials": "That email or password is incorrect.",
+    "error": "Something went wrong. Please try again.",
+    "checking": "Checking your session..."
+  },
   "workspace": {
     "newWorkspace": "New workspace",
     "create": {
@@ -38,17 +53,44 @@
       "submitting": "Creating...",
       "cancel": "Cancel",
       "error": "The workspace could not be created. Try again."
+    },
+    "remove": {
+      "title": "Delete workspace",
+      "description": "\"{name}\" and its spreadsheet data will be permanently deleted. This cannot be undone.",
+      "delete": "Delete",
+      "deleting": "Deleting...",
+      "cancel": "Cancel",
+      "error": "The workspace could not be deleted. Try again.",
+      "lastWorkspace": "You can't delete your last workspace.",
+      "iconLabel": "Delete workspace {name}"
     }
   },
   "settings": {
     "title": "Settings",
-    "description": "Your profile and subscription.",
+    "description": "Your profile, company and subscription.",
     "profile": {
       "title": "Profile",
       "nameLabel": "Name",
       "emailLabel": "Email",
       "loading": "Loading profile...",
       "loadError": "The profile could not be loaded."
+    },
+    "company": {
+      "title": "Company",
+      "description": "What every AI answer in Reclit knows about who you are and why you use it.",
+      "loading": "Loading company...",
+      "loadError": "The company profile could not be loaded.",
+      "noWebsite": "No website yet. Add one and the AI reads it.",
+      "websiteLabel": "Website",
+      "websitePlaceholder": "example.com",
+      "readWebsite": "Read website",
+      "rescan": "Re-scan website",
+      "useCasesTitle": "Use cases",
+      "rulesLabel": "Company rules",
+      "rulesPlaceholder": "e.g. Write in British English. Never quote a price without the current discount.",
+      "save": "Save rules",
+      "saving": "Saving…",
+      "documentsTitle": "Documents"
     },
     "subscription": {
       "title": "Subscription",
@@ -80,22 +122,34 @@
       "description": "Create a starter dashboard from your sheet's columns, or let the API build one.",
       "create": "Create starter dashboard",
       "creating": "Creating…",
-      "error": "The dashboard could not be created."
+      "error": "The dashboard could not be created.",
+      "noValueTitle": "Nothing worth charting yet",
+      "noValueDescription": "The AI found no card that adds value for this data. Add rows or columns and try again, or start from the starter dashboard."
     },
-    "recommendations": {
+    "generation": {
       "action": "AI Recommendations",
-      "description": "Suggest charts for this sheet",
-      "busy": "Thinking…",
-      "title": "Recommended charts",
-      "subtitle": "{count, plural, one {# card} other {# cards}} computed live from your sheet. Add the ones that make sense.",
-      "empty": "No meaningful charts were found for this sheet.",
-      "add": "Add",
-      "adding": "Adding…",
-      "addAll": "Add all",
+      "description": "Let the AI build a dashboard for this sheet",
+      "busy": "Building your dashboard…",
+      "title": "Building your dashboard",
+      "steps": {
+        "run": "AI columns filled",
+        "analyze": "Sheet analyzed",
+        "propose": "Cards proposed",
+        "verify": "Cards verified",
+        "apply": "Dashboard applied"
+      },
+      "cancel": "Cancel",
+      "tryAgain": "Try again",
       "dismiss": "Dismiss",
-      "error": "Recommendations could not be loaded.",
-      "unavailable": "AI recommendations are not configured.",
-      "addError": "The card could not be added."
+      "starting": "Starting…",
+      "failed": "The dashboard could not be built: {message}",
+      "cancelled": "The generation was cancelled.",
+      "errors": {
+        "busy": "A dashboard is already being built.",
+        "unavailable": "AI is not configured on the server.",
+        "dispatch": "The AI could not be started. Try again.",
+        "error": "The dashboard could not be started."
+      }
     },
     "widget": {
       "loading": "Loading widget data",
@@ -117,7 +171,6 @@
     "gridLabel": "{name} spreadsheet",
     "cellInput": "Cell editor",
     "addColumn": "Add a column",
-    "capsule": "{count, plural, one {# key} other {# keys}}",
     "boolean": {
       "true": "True",
       "false": "False"
@@ -143,7 +196,6 @@
     "panel": {
       "addColumn": "New column",
       "editColumn": "Edit column",
-      "jsonTitle": "JSON value",
       "dateTitle": "Date value",
       "audioTitle": "Audio file",
       "fileTitle": "File",
@@ -157,15 +209,20 @@
       "node": "Node",
       "prompt": "Prompt",
       "promptPlaceholder": "What should this node do?",
+      "mailPromptPlaceholder": "Who in this row to email and what to say, e.g. \"Invite them to Friday's demo\" or \"Send the Draft column as it is\". Sends on Run.",
       "add": "Add column",
       "reorder": "Drag and drop",
       "save": "Save",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "mailTypeLocked": "Mail columns store what they sent as JSON.",
+      "emailSent": "emails sent",
+      "emailFailed": "failed"
     },
     "nodes": {
       "none": "None",
       "ai": "AI",
-      "email": "Email",
+      "email": "Mail",
+      "api": "API",
       "google_search": "Google Search"
     },
     "json": {
@@ -173,7 +230,12 @@
       "value": "Value",
       "add": "Add pair",
       "remove": "Remove pair",
-      "empty": "No key/value pairs yet."
+      "empty": "No key/value pairs yet.",
+      "more": "+{count, plural, one {# more} other {# more}}",
+      "title": "JSON value",
+      "mailTitle": "Sent emails",
+      "save": "Save",
+      "cancel": "Cancel"
     },
     "date": {
       "clear": "Clear date",
@@ -220,11 +282,26 @@
     },
     "import": {
       "label": "Import",
+      "reading": "Reading...",
       "importing": "Importing...",
       "error": "The import failed. Try again.",
-      "errorType": "Only .csv and .xlsx files can be imported.",
-      "errorEmpty": "That file has no rows.",
-      "errorTooLarge": "That file has too many rows or columns to import."
+      "errorType": "Only .csv, .xlsx and .docx files can be imported.",
+      "errorEmpty": "That file has no rows or tables.",
+      "errorTooLarge": "That file has too many rows or columns to import.",
+      "preview": {
+        "title": "Import {name}",
+        "summary": "{rows, plural, =0 {No rows} one {# row} other {# rows}} will be added below the existing rows.",
+        "summaryTables": "{rows, plural, =0 {No rows} one {# row} other {# rows}} from {tables} tables will be added below the existing rows.",
+        "columnsTitle": "Columns",
+        "fileColumn": "In the file",
+        "target": "In the sheet",
+        "existing": "Fills {name}",
+        "new": "New column · {type}",
+        "skipped": "{count, plural, one {# value doesn't} other {# values don't}} fit this column and will be left blank",
+        "sampleTitle": "First {count, plural, one {row} other {# rows}}",
+        "cancel": "Cancel",
+        "confirm": "{rows, plural, =0 {Import} one {Import # row} other {Import # rows}}"
+      }
     },
     "loading": "Loading spreadsheet...",
     "loadError": "The spreadsheet could not be loaded.",
@@ -328,9 +405,31 @@
     "description": "Upload a sheet and let the AI set it up.",
     "loading": "Loading your account...",
     "loadError": "Your account could not be loaded. Refresh the page to try again.",
+    "purpose": {
+      "title": "What will you use Reclit for?",
+      "subtitle": "Pick all that apply. The AI shapes its suggestions around them."
+    },
+    "website": {
+      "title": "Where can we learn about your company?",
+      "subtitle": "We read your website once, so every AI answer knows who you are.",
+      "label": "Company website",
+      "placeholder": "example.com"
+    },
+    "documents": {
+      "title": "Anything else the AI should know?",
+      "subtitle": "Add price lists, playbooks or policies, and the rules every answer must follow.",
+      "rulesLabel": "Company rules",
+      "rulesPlaceholder": "e.g. Write in British English. Never quote a price without the current discount."
+    },
+    "name": {
+      "title": "Name your workspace",
+      "label": "Workspace name",
+      "placeholder": "e.g. Sales pipeline"
+    },
     "upload": {
+      "title": "Add your data",
       "label": "Spreadsheet file",
-      "placeholder": "Choose a .csv or .xlsx…"
+      "placeholder": "Choose a .csv, .xlsx or .docx…"
     },
     "examples": "A finance sheet, a hiring pipeline, a customer list…",
     "orbCaption": "Reclit AI",
@@ -338,8 +437,9 @@
     "descriptionLabel": "Description",
     "describing": "Reading your sheet…",
     "purposeLabel": "We see it as",
-    "purposePlaceholder": "We see it as…",
     "next": "Next",
+    "skip": "Skip",
+    "skipping": "Skipping…",
     "back": "Back",
     "continuing": "Thinking…",
     "review": {
@@ -350,12 +450,18 @@
       "columns": "{count, plural, one {# column} other {# columns}}"
     },
     "progress": {
+      "purpose": "Use cases picked",
+      "website": "Website read",
+      "documents": "Documents and rules added",
       "upload": "File uploaded",
       "describe": "Sheet described",
       "columns": "AI columns suggested",
       "create": "Workspace created",
-      "cards": "Dashboard cards proposed",
-      "run": "AI running"
+      "run": "AI filling the first rows",
+      "analyze": "Reading your data",
+      "propose": "Proposing cards",
+      "verify": "Checking every card",
+      "apply": "Building the dashboard"
     },
     "columns": {
       "title": "AI columns",
@@ -377,88 +483,60 @@
       "addPlain": "Column",
       "remove": "Remove",
       "empty": "No columns yet.",
+      "topRowsNotice": "We will be analyzing the top {count} rows only.",
       "moreTitle": "Tell us more",
       "moreSubtitle": "The AI needs more context.",
       "morePlaceholder": "What is this sheet for?",
       "moreSubmit": "Suggest again",
       "create": "Create workspace",
+      "createAndRun": "Create workspace and run AI",
       "creating": "Creating…",
       "nameRequired": "Give the column a name.",
       "nameTaken": "This name is already used.",
       "promptRequired": "An AI column needs a prompt."
     },
-    "widgets": {
-      "title": "Dashboard cards",
-      "thinking": "Proposing cards…",
-      "name": "Title",
-      "namePlaceholder": "e.g. Revenue by region",
-      "description": "Subtitle",
-      "descriptionPlaceholder": "Optional",
-      "type": "Chart",
-      "variant": "Style",
-      "xAxis": "X axis",
-      "noAxis": "None",
-      "bucket": "Group dates by",
-      "series": "Y axis",
-      "seriesLabel": "Label",
-      "formula": "Formula",
-      "formulaInvalid": "This formula cannot be read.",
-      "addSeries": "Series",
-      "removeSeries": "Remove series",
-      "newSeries": "Series {n}",
-      "add": "Card",
-      "newCard": "New card",
-      "remove": "Remove",
-      "untitled": "Untitled card",
-      "edit": "Edit",
-      "done": "Done",
-      "empty": "No cards yet.",
-      "summary": "{cards, plural, one {# card} other {# cards}} · {columns, plural, one {# AI column} other {# AI columns}} · {rows, plural, one {# row} other {# rows}}",
-      "summaryNoRows": "{cards, plural, one {# card} other {# cards}} · {columns, plural, one {# AI column} other {# AI columns}}",
-      "run": "Run AI",
-      "running": "Starting…",
-      "types": {
-        "stat": "Stat",
-        "area": "Area",
-        "bar": "Bar",
-        "line": "Line",
-        "pie": "Pie",
-        "radar": "Radar",
-        "radial": "Radial",
-        "heatmap": "Heatmap",
-        "table": "Table"
-      },
-      "variants": {
-        "default": "Default",
-        "text": "Text",
-        "stacked": "Stacked",
-        "gradient": "Gradient",
-        "horizontal": "Horizontal",
-        "dots": "Dots",
-        "step": "Step",
-        "donut": "Donut",
-        "label": "Labelled"
-      },
-      "buckets": {
-        "none": "As is",
-        "day": "Day",
-        "week": "Week",
-        "month": "Month",
-        "quarter": "Quarter",
-        "year": "Year"
-      }
+    "finishing": {
+      "title": "Building your dashboard",
+      "subtitle": "We are filling the AI columns for the first {count} rows, then designing a dashboard that fits your data.",
+      "cancel": "Cancel",
+      "retry": "Try again",
+      "goToDashboard": "Go to dashboard"
     },
     "error": "Something went wrong. Try again.",
-    "errorType": "Only .csv and .xlsx files can be imported.",
+    "errorType": "Only .csv, .xlsx and .docx files can be imported.",
     "errorEmpty": "That file has no header row or no data.",
     "errorTooLarge": "That file has too many rows or columns.",
     "errorName": "A field is too long.",
     "errorColumnName": "A new column repeats a name from your file.",
-    "errorWidgets": "A card is invalid. Fix it and try again.",
     "errorConflict": "Onboarding was already completed.",
     "errorRun": "The AI could not be started. Try again.",
+    "errorGenerate": "The dashboard could not be built. You can try again from the dashboard.",
     "aiUnavailable": "AI is not configured on the server. Fill the fields in yourself.",
-    "aiFailed": "The AI could not answer. Try again."
+    "aiFailed": "The AI could not answer. Try again.",
+    "saving": "Saving…"
+  },
+  "chat": {
+    "title": "Chat",
+    "description": "Talk to Reclit AI about your workspace.",
+    "greeting": "Reclit for {workspace}",
+    "greetingNoWorkspace": "Reclit",
+    "placeholder": "How can I help you today?",
+    "replyPlaceholder": "Reply to Reclit AI…",
+    "disclaimer": "Reclit AI can make mistakes. Please double-check responses.",
+    "thinking": "Thinking",
+    "threadLabel": "Conversation",
+    "composerLabel": "Message",
+    "attach": "Add files",
+    "send": "Send message",
+    "model": "Choose model",
+    "fixtureReply": "Here's a quick take on that.\n\nThis chat is a UI preview — replies are placeholders until the chat API is connected. Once it is, answers will draw on your workspace's spreadsheet, dashboard and forms.",
+    "actions": {
+      "copy": "Copy",
+      "copied": "Copied",
+      "good": "Good response",
+      "bad": "Bad response",
+      "retry": "Retry"
+    }
   },
   "assistant": {
     "label": "Assistant",
@@ -512,6 +590,70 @@
       "micDenied": "Allow microphone access to speak your request.",
       "micUnsupported": "This browser cannot record audio.",
       "unknown": "Something went wrong. Try again."
+    }
+  },
+  "company": {
+    "useCases": {
+      "leadResearch": {
+        "title": "Lead research",
+        "description": "Enrich companies and leads with web research and scoring"
+      },
+      "hiring": {
+        "title": "Hiring pipeline",
+        "description": "Screen candidates, read CVs and score fit"
+      },
+      "emailOutreach": {
+        "title": "Email outreach",
+        "description": "Write and send a personal email to every row"
+      },
+      "formIntake": {
+        "title": "Form intake",
+        "description": "Collect submissions and sort each one with AI"
+      },
+      "customerInsights": {
+        "title": "Customer insights",
+        "description": "Segment customers and track them on a dashboard"
+      },
+      "other": {
+        "title": "Other",
+        "description": "Something else"
+      },
+      "otherLabel": "What else will you use it for?",
+      "otherPlaceholder": "e.g. Tracking grant applications"
+    },
+    "card": {
+      "summaryLabel": "What the AI knows about you",
+      "summaryPlaceholder": "A few sentences about what your company does.",
+      "scraping": "Reading your website…",
+      "crawling": "Reading the rest of your site…",
+      "ready": "{count, plural, =0 {Read your homepage} one {Read # page of your site} other {Read # pages of your site}}",
+      "failed": "The rest of your site could not be read. The summary comes from your homepage."
+    },
+    "documents": {
+      "dropTitle": "Drag files here, or choose them",
+      "dropHint": "PDF, PNG, JPG, WEBP, TXT, MD or CSV. Up to 15 MB each, 10 files in all.",
+      "choose": "Choose files",
+      "empty": "No documents yet.",
+      "remove": "Remove {name}",
+      "status": {
+        "uploading": "Uploading",
+        "processing": "Reading",
+        "ready": "Ready",
+        "failed": "Failed"
+      }
+    },
+    "errors": {
+      "websiteInvalid": "That is not a website address. Try something like example.com.",
+      "scrapeFailed": "Your website could not be read. Check the address, or skip this step.",
+      "aiUnavailable": "Website reading is not configured on the server. Skip this step for now.",
+      "websiteMissing": "Add a website before re-scanning.",
+      "documentType": "Only PDF, PNG, JPG, WEBP, TXT, MD and CSV files can be added.",
+      "documentTooLarge": "That file is over 15 MB.",
+      "documentLimit": "You can add up to 10 documents. Remove one to add another.",
+      "documentNotFound": "That document was already removed.",
+      "uploadFailed": "The file could not be uploaded. Try again.",
+      "validation": "A field is too long.",
+      "error": "Something went wrong. Try again."
     }
   }
 }

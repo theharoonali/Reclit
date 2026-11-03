@@ -33,13 +33,20 @@ export function OnboardingGate({
   const trpc = useTRPC();
   const router = useRouter();
   const me = useQuery(trpc.user.me.queryOptions());
-  const target = me.data ? onboardingRedirect(me.data, area) : null;
+  // No session (and not DEV=TRUE): user.me is protected, so UNAUTHORIZED
+  // means "go sign in", not "something broke".
+  const unauthorized = me.isError && me.error.data?.code === "UNAUTHORIZED";
+  const target = unauthorized
+    ? "/login"
+    : me.data
+      ? onboardingRedirect(me.data, area)
+      : null;
 
   useEffect(() => {
     if (target) router.replace(target);
   }, [router, target]);
 
-  if (me.isError) {
+  if (me.isError && !unauthorized) {
     return <ErrorState className="h-dvh" message={t("loadError")} />;
   }
   if (me.isPending || target) {

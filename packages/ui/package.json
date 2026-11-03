@@ -20,6 +20,7 @@
     "./card": "./src/components/card.tsx",
     "./chart": "./src/components/chart.tsx",
     "./checkbox": "./src/components/checkbox.tsx",
+    "./choice-card": "./src/components/choice-card.tsx",
     "./dialog": "./src/components/dialog.tsx",
     "./dropdown-menu": "./src/components/dropdown-menu.tsx",
     "./input": "./src/components/input.tsx",

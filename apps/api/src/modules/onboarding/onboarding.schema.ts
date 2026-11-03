@@ -169,6 +169,20 @@ export const onboardingFinishSchema = z.object({
   cellCount: z.number().int(),
   rowCount: z.number().int(),
   columnCount: z.number().int(),
+  /** The dashboard generation started for the sheet, or null when none could be (no AI key, dispatch failed). */
+  generationId: z.string().nullable(),
+});
+
+/* ---------------------------------------------------------- onboarding.skip */
+
+/** The upload was skipped: the workspace is created empty, named by the user. */
+export const skipOnboardingInput = z.object({ name: workspaceName });
+
+export const onboardingSkipSchema = z.object({
+  /** Now `onboardingCompleted: true`. */
+  user: userProfileSchema,
+  /** The new workspace with its empty sheet. */
+  workspace: workspaceSummarySchema,
 });
 
 export type OnboardingInput = z.infer<typeof onboardingInput>;
@@ -180,6 +194,8 @@ export type SuggestedColumn = z.infer<typeof suggestedColumnSchema>;
 export type OnboardingSuggestions = z.infer<typeof onboardingSuggestionsSchema>;
 export type FinishOnboardingInput = z.infer<typeof finishOnboardingInput>;
 export type OnboardingFinish = z.infer<typeof onboardingFinishSchema>;
+export type SkipOnboardingInput = z.infer<typeof skipOnboardingInput>;
+export type OnboardingSkip = z.infer<typeof onboardingSkipSchema>;
 
 const FALLBACK_NAME = "My workspace";
 

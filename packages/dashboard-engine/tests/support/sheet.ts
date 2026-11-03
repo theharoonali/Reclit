@@ -20,10 +20,13 @@ export const COLUMNS = [
 
 type Cells = Partial<Record<(typeof COLUMNS)[number]["name"], unknown>>;
 
-/** Builds a sparse `spreadsheet.rows`-shaped payload: a null cell is absent. */
-export function payload(rows: Cells[]): SheetPayloadLike {
+/** A payload over arbitrary columns; a null cell is absent, like the API's. */
+export function sheet(
+  columns: readonly { name: string; type: string }[],
+  rows: Record<string, unknown>[],
+): SheetPayloadLike {
   return {
-    columns: COLUMNS.map(({ name, type }) => ({ name, type })),
+    columns: columns.map(({ name, type }) => ({ name, type })),
     rows: rows.map((cells, index) => ({
       id: `row.${index}`,
       index,
@@ -33,6 +36,10 @@ export function payload(rows: Cells[]): SheetPayloadLike {
     })),
   };
 }
+
+/** Builds a sparse `spreadsheet.rows`-shaped payload over `COLUMNS`. */
+export const payload = (rows: Cells[]): SheetPayloadLike =>
+  sheet(COLUMNS, rows);
 
 /** Five rows: two regions, a blank region, a blank revenue, a blank date. */
 export const SHEET = payload([

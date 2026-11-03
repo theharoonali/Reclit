@@ -13,12 +13,15 @@ responses, and error codes live in its header. Do not duplicate them here.
 | `id` | `String` | pk, `@default(uuid())` |
 | `name` | `String` | required, 1..200 trimmed |
 | `ownerId` | `String` | fk cascade → `User`, indexed |
+| `dashboardCreatedAt` / `dashboardTitle` / `dashboardDescription` | `DateTime?` / `String?` / `String?` | the workspace's dashboard, owned by the `dashboard` feature ([dashboard.md](dashboard.md)); `dashboardCreatedAt` null = no dashboard |
 | `createdAt` | `DateTime` | `@default(now())`, indexed |
 | `updatedAt` | `DateTime` | `@updatedAt` |
 
 Indexes: `ownerId`, `createdAt` · Relations: `owner User`,
 `spreadsheets Spreadsheet[]` (cascade on workspace delete; `Spreadsheet` gained
-required `workspaceId`) · Migrations:
+required `workspaceId`), `dashboardWidgets DashboardWidget[]` and
+`aiRuns AiRun[]` (both cascade; [dashboard.md](dashboard.md),
+[run-ai.md](run-ai.md)) · Migrations:
 `apps/api/prisma/migrations/20260831000000_add_user_workspace/` — backfills a
 default user and one workspace per pre-existing sheet.
 
@@ -71,8 +74,10 @@ default user and one workspace per pre-existing sheet.
   `workspace.create`.
 - `/ai-spreadsheet` ([route doc](../routes/ai-spreadsheet.md)) — reads the
   active workspace's `spreadsheetId` via `workspace.list`.
-- `workspace.rename` / `workspace.remove` currently have no UI surface — the
-  settings workspace section was removed; the procedures and contract remain.
+- `workspace.remove` — the account menu's per-workspace delete icon
+  (`components/workspace/delete-workspace-dialog.tsx`), hidden on the last
+  workspace. `workspace.rename` currently has no UI surface — the settings
+  workspace section was removed; the procedure and contract remain.
 - The `dashboard` feature ([dashboard.md](dashboard.md)) — `byId` to check
-  the workspace and default a widget to its `spreadsheetId`; `Dashboard`
-  hangs off `Workspace` one-to-one.
+  the workspace and default a widget to its `spreadsheetId`; the dashboard
+  is stored on the `Workspace` row itself (its id is the workspace id).

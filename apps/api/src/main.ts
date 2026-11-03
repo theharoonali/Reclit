@@ -1,5 +1,7 @@
 import { createApp } from "./bootstrap";
 import { registerAssistantDispatcher } from "./jobs/assistant-dispatch";
+import { registerCompanyDispatcher } from "./jobs/company-dispatch";
+import { registerDashboardGenerationDispatcher } from "./jobs/dashboard-generation-dispatch";
 import { registerRunAiDispatcher } from "./jobs/run-ai-dispatch";
 
 const app = await createApp();
@@ -8,6 +10,8 @@ const app = await createApp();
 // `createApp` alone (tests) leaves runs pending. See src/jobs/*-dispatch.ts.
 registerRunAiDispatcher();
 registerAssistantDispatcher();
+registerDashboardGenerationDispatcher();
+registerCompanyDispatcher();
 
 // Signal-driven shutdown (SIGINT/SIGTERM) — runs provider onApplicationShutdown
 // hooks, which is how the Postgres pool gets closed. See src/db/prisma.module.ts.

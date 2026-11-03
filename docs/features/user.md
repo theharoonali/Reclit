@@ -15,20 +15,26 @@ responses, and error codes live in its header. Do not duplicate them here.
 | `email` | `String?` | valid email ≤ 320 trimmed; null = no email |
 | `imageUrl` | `String?` | http(s) URL ≤ 2048; null = no picture |
 | `onboardingCompleted` | `Boolean` | `@default(false)`; set to true only by `POST /onboarding` ([onboarding.md](onboarding.md)) |
+| `useCases` … `companyUpdatedAt` | — | the company profile's columns, owned by the `company` feature ([company.md](company.md)); `user.me` / `user.update` never read or write them |
 | `createdAt` | `DateTime` | `@default(now())` |
 | `updatedAt` | `DateTime` | `@updatedAt` |
 
-Indexes: none · Relations: `workspaces Workspace[]` (cascade on user delete) ·
+Indexes: none · Relations: `workspaces Workspace[]` (cascade on user delete),
+`companyDocuments CompanyDocument[]` (the profile's documents,
+[company.md](company.md); cascade) ·
 Migrations: `apps/api/prisma/migrations/20260831000000_add_user_workspace/`,
 `apps/api/prisma/migrations/20260831120000_add_user_email/`,
 `apps/api/prisma/migrations/20260925120000_add_user_onboarding_completed/`
-(backfills `true` for every user who already owned a workspace)
+(backfills `true` for every user who already owned a workspace),
+`apps/api/prisma/migrations/20261103180000_consolidate_tables/` (the company
+columns and the `user_company_notify` trigger, which fires only when
+`companyUpdatedAt` moves — a `user.update` stays silent)
 
 ## Files
 
 | Path | Layer | Responsibility |
 | --- | --- | --- |
-| `apps/api/prisma/schema.prisma` | model | `User` |
+| `apps/api/prisma/schema.prisma` | model | `User` (the profile columns; the company columns are [company.md](company.md)'s) |
 | `apps/api/src/modules/user/user.schema.ts` | schema | zod inputs + `UserProfile` |
 | `apps/api/src/modules/user/user.errors.ts` | errors | `UserNotFoundError` |
 | `apps/api/src/modules/user/user.service.ts` | service | `me`, `update`, `completeOnboarding`, `create` (seed-only) |

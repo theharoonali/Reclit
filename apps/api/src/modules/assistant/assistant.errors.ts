@@ -12,7 +12,7 @@ export class AssistantNotFoundError extends DomainError {
   }
 }
 
-/** The workspace already has a run that is not finished (partial unique index `AssistantRun_active_workspace_key`). */
+/** The workspace already has a run that is not finished (partial unique index `AiRun_active_assistant_key`). */
 export class AssistantBusyError extends DomainError {
   readonly kind = "conflict";
   readonly code = "ASSISTANT_BUSY";
@@ -71,28 +71,6 @@ export class AssistantTranscriptionInvalidError extends DomainError {
   constructor(reason: string) {
     super(`The recording cannot be transcribed: ${reason}`);
     this.name = "AssistantTranscriptionInvalidError";
-  }
-}
-
-/** `assistant.recommendWidgets` without a `GOOGLE_GENERATIVE_AI_API_KEY` on the api. */
-export class AssistantRecommendationsUnavailableError extends DomainError {
-  readonly kind = "unavailable";
-  readonly code = "ASSISTANT_RECOMMENDATIONS_UNAVAILABLE";
-  constructor() {
-    super(
-      "AI recommendations are not configured: GOOGLE_GENERATIVE_AI_API_KEY is not set",
-    );
-    this.name = "AssistantRecommendationsUnavailableError";
-  }
-}
-
-/** The model refused or failed the recommendation call, or answered nothing usable. */
-export class AssistantRecommendationsFailedError extends DomainError {
-  readonly kind = "upstream";
-  readonly code = "ASSISTANT_RECOMMENDATIONS_FAILED";
-  constructor(cause: string) {
-    super(`AI recommendations failed: ${cause}`);
-    this.name = "AssistantRecommendationsFailedError";
   }
 }
 

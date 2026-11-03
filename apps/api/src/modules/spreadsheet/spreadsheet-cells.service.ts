@@ -94,7 +94,7 @@ const writeCell = (
       });
 
 /** One past the highest stored row index. */
-async function nextRowIndex(id: string): Promise<number> {
+export async function nextRowIndex(id: string): Promise<number> {
   const { _max } = await prisma.row.aggregate({
     where: { spreadsheetId: id },
     _max: { index: true },

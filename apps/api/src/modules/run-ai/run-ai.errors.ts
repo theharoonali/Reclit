@@ -13,7 +13,7 @@ export class RunAiNotFoundError extends DomainError {
 
 /**
  * A selected cell already has a working run: the batch pre-check found it, or
- * the partial unique index `RunAi_active_cell_key` refused the insert.
+ * the partial unique index `AiRun_active_cell_key` refused the insert.
  */
 export class RunAiCellBusyError extends DomainError {
   readonly kind = "conflict";
