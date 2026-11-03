@@ -9,7 +9,12 @@ import {
 import { runAiService } from "../../modules/run-ai/run-ai.service";
 import { runAiBatchService } from "../../modules/run-ai/run-ai-batch.service";
 import { runAiChangesService } from "../../modules/run-ai/run-ai-changes.service";
-import { createTRPCRouter, mapDomainError, publicProcedure } from "../init";
+import {
+  createTRPCRouter,
+  mapDomainError,
+  protectedProcedure,
+  publicProcedure,
+} from "../init";
 
 // Routers validate input and delegate. All DB access lives in the services.
 // `runCells` is the one write: it records the pending runs of a selection and
@@ -17,16 +22,16 @@ import { createTRPCRouter, mapDomainError, publicProcedure } from "../init";
 // worker's, and the live stream carries them back (docs/features/run-ai.md).
 
 export const runAiRouter = createTRPCRouter({
-  byId: publicProcedure
+  byId: protectedProcedure
     .input(idInput)
     .query(({ input }) => runAiService.byId(input.id).catch(mapDomainError)),
 
-  listByBatch: publicProcedure
+  listByBatch: protectedProcedure
     .input(runAiBatchInput)
     .query(({ input }) => runAiService.listByBatch(input.batchId)),
 
   /** The sheet's working runs — non-empty means the sheet should be streaming. */
-  listActive: publicProcedure
+  listActive: protectedProcedure
     .input(runAiSheetInput)
     .query(({ input }) =>
       runAiService.listActiveBySpreadsheet(input.spreadsheetId),
@@ -38,7 +43,7 @@ export const runAiRouter = createTRPCRouter({
    * runs are returned as created, in series order; their progress arrives
    * through `onChange`.
    */
-  runCells: publicProcedure
+  runCells: protectedProcedure
     .input(runAiCellsInput)
     .mutation(({ input }) =>
       runAiBatchService.runCells(input).catch(mapDomainError),

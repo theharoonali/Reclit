@@ -1,4 +1,12 @@
-import { Body, Controller, HttpCode, Post, UploadedFile } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  HttpCode,
+  Post,
+  UploadedFile,
+  UseGuards,
+} from "@nestjs/common";
+import { AuthGuard } from "../../common/auth.guard";
 import type { MulterFile } from "../../common/multipart";
 import { requireFile, UploadFile } from "../../common/upload";
 import { onboardingInput } from "./onboarding.schema";
@@ -12,6 +20,7 @@ import { onboardingService } from "./onboarding.service";
 // `finish`) are tRPC procedures on the `onboarding` router.
 
 @Controller("onboarding")
+@UseGuards(AuthGuard)
 export class OnboardingController {
   /** POST /onboarding/describe — the file as "file"; nothing is written. */
   @Post("describe")

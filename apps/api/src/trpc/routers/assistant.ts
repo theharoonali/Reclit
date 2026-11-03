@@ -8,7 +8,7 @@ import {
 import { assistantService } from "../../modules/assistant/assistant.service";
 import { assistantChangesService } from "../../modules/assistant/assistant-changes.service";
 import { assistantControlService } from "../../modules/assistant/assistant-control.service";
-import { createTRPCRouter, mapDomainError, publicProcedure } from "../init";
+import { createTRPCRouter, mapDomainError, protectedProcedure } from "../init";
 
 // Routers validate input and delegate. All DB access lives in the services.
 // `start` records a run and hands it to the Trigger.dev worker; `cancel` and
@@ -17,31 +17,31 @@ import { createTRPCRouter, mapDomainError, publicProcedure } from "../init";
 
 export const assistantRouter = createTRPCRouter({
   /** Starts a run for the workspace's sheet; the capsule then follows `onChange`. */
-  start: publicProcedure
+  start: protectedProcedure
     .input(startAssistantInput)
     .mutation(({ input }) =>
       assistantControlService.start(input).catch(mapDomainError),
     ),
 
-  byId: publicProcedure
+  byId: protectedProcedure
     .input(idInput)
     .query(({ input }) =>
       assistantService.byId(input.id).catch(mapDomainError),
     ),
 
   /** The workspace's active run, or null — non-null means the capsule should be streaming. */
-  active: publicProcedure
+  active: protectedProcedure
     .input(workspaceIdInput)
     .query(({ input }) => assistantService.active(input.workspaceId)),
 
-  cancel: publicProcedure
+  cancel: protectedProcedure
     .input(idInput)
     .mutation(({ input }) =>
       assistantControlService.cancel(input.id).catch(mapDomainError),
     ),
 
   /** The user's answer to the pending delete confirmation. */
-  respond: publicProcedure
+  respond: protectedProcedure
     .input(respondAssistantInput)
     .mutation(({ input }) =>
       assistantControlService.respond(input).catch(mapDomainError),
@@ -54,7 +54,7 @@ export const assistantRouter = createTRPCRouter({
    * by the run's `updatedAt` (ms), which is what tRPC hands back as
    * `lastEventId` when the client reconnects.
    */
-  onChange: publicProcedure
+  onChange: protectedProcedure
     .input(assistantChangesInput)
     .subscription(async function* ({ input, signal }) {
       for await (const event of assistantChangesService.changes(

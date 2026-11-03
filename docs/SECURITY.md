@@ -5,27 +5,29 @@ Security posture of the template.
 ## Auth
 
 **Auth is a single env-backed login** ([docs/features/auth.md](features/auth.md)):
-`auth.login` checks `AUTH_EMAIL` / `AUTH_PASSWORD` and sets a stateless signed
-httpOnly cookie; `DEV=TRUE` authenticates every request with no credentials.
-`protectedProcedure` (`apps/api/src/trpc/init.ts`) guards only the `user`
-router so far — enough to force the dashboard through `/login`, because every
-page blocks on `user.me`. **Every other tRPC router and every REST route**
-(`GET /health`, `/spreadsheets/*`, `/populate/*`, `POST /files`,
-`DELETE /files`, `POST /onboarding`, `POST /assistant/transcribe`) **is still
-open.** Widening enforcement means switching routers to `protectedProcedure`
-and adding a Nest guard for the controllers.
+`auth.login` checks `AUTH_EMAIL` / `AUTH_PASSWORD` and answers a stateless
+signed token that expires after 7 days; the client sends it as
+`Authorization: Bearer <token>` (subscriptions: `connectionParams.token`), and
+the same token is also set as an httpOnly SameSite=Lax cookie. `DEV=TRUE`
+authenticates every request with no credentials — never set it in production.
+Rotating `AUTH_SECRET` (or the password) revokes every token.
 
-Two open routes deserve naming, because they are *meant* for outsiders:
+Every tRPC procedure is `protectedProcedure` except `auth.*` and the public
+form's `populate.form`, `populate.submit` and `runAi.onChange`; the Nest
+`AuthGuard` (`apps/api/src/common/auth.guard.ts`) covers `/spreadsheets/*`,
+`/onboarding/*`, `POST /assistant/transcribe` and `DELETE /files`. Still
+open: `GET /health`, `POST /files` and `/populate/*`.
+
+The open routes are open on purpose — they serve the public form:
 
 - **`POST /populate/:id`** (and `populate.submit`) is a public write API: anyone
   who knows a spreadsheet id can append rows, and each row starts the sheet's
   AI columns — which spend credits. There is **no rate limit**. The id is a
   uuid, which is the only thing standing in for a secret.
-- **`DELETE /files`** deletes an upload by its public URL. It is confined to
-  `uploads/<uuid>/<name>` in the bucket (another host, folder or `..` is
-  refused), but anyone holding such a URL — including one a cell still
-  references, and cells are readable — can delete it. The uuid in the path is
-  the only mitigation until auth exists.
+- **`POST /files`** stores any upload (≤ 15 MB) so a form visitor can attach
+  files; nothing ties an upload to a sheet, and there is no rate limit.
+- **`runAi.onChange`** streams the AI runs of any sheet whose id is known, so
+  the form can show its row's AI columns filling in.
 
 ## CORS
 

@@ -17,3 +17,13 @@ export class AuthNotConfiguredError extends DomainError {
     this.name = "AuthNotConfiguredError";
   }
 }
+
+/** A protected REST route called without a valid session token. */
+export class LoginRequiredError extends DomainError {
+  readonly kind = "unauthorized";
+  readonly code = "LOGIN_REQUIRED";
+  constructor() {
+    super("Login required");
+    this.name = "LoginRequiredError";
+  }
+}

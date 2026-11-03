@@ -1,7 +1,7 @@
 import { idInput } from "../../common/schema";
 import { externalApiCellInput } from "../../modules/external-api/external-api.schema";
 import { externalApiService } from "../../modules/external-api/external-api.service";
-import { createTRPCRouter, mapDomainError, publicProcedure } from "../init";
+import { createTRPCRouter, mapDomainError, protectedProcedure } from "../init";
 
 // Routers validate input and delegate. All DB access lives in the service.
 // Read-only: the writers are the processors that run inside the Trigger.dev
@@ -9,14 +9,14 @@ import { createTRPCRouter, mapDomainError, publicProcedure } from "../init";
 // foreign key's cascade (docs/features/external-api.md).
 
 export const externalApiRouter = createTRPCRouter({
-  byId: publicProcedure
+  byId: protectedProcedure
     .input(idInput)
     .query(({ input }) =>
       externalApiService.byId(input.id).catch(mapDomainError),
     ),
 
   /** Everything an external service has produced for one cell, newest first. */
-  listByCell: publicProcedure
+  listByCell: protectedProcedure
     .input(externalApiCellInput)
     .query(({ input }) => externalApiService.listByCell(input.cellId)),
 });

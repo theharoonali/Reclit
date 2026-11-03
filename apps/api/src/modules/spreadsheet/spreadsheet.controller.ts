@@ -9,7 +9,9 @@ import {
   Post,
   Query,
   UploadedFile,
+  UseGuards,
 } from "@nestjs/common";
+import { AuthGuard } from "../../common/auth.guard";
 import type { MulterFile } from "../../common/multipart";
 import { type Params, withParams } from "../../common/rest";
 import { requireFile, UploadFile } from "../../common/upload";
@@ -36,9 +38,11 @@ import { spreadsheetImportService } from "./spreadsheet-import.service";
 // The REST face of the spreadsheet feature — same services, same zod inputs
 // as trpc/routers/spreadsheet.ts. Path params arrive as strings and the
 // schemas coerce them; domain and Zod errors become HTTP statuses through the
-// global DomainErrorFilter (common/domain-error.filter.ts).
+// global DomainErrorFilter (common/domain-error.filter.ts). Every route needs
+// the session token (common/auth.guard.ts).
 
 @Controller("spreadsheets")
+@UseGuards(AuthGuard)
 export class SpreadsheetController {
   @Get()
   list() {

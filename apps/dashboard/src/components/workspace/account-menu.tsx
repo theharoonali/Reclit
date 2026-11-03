@@ -24,6 +24,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { clearAuthToken } from "@/lib/auth-token";
 import { useTRPC } from "@/trpc/client";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import { DeleteWorkspaceDialog } from "./delete-workspace-dialog";
@@ -55,6 +56,8 @@ export function AccountMenu({ collapsed }: { collapsed: boolean }) {
   const logout = useMutation(
     trpc.auth.logout.mutationOptions({
       onSuccess: () => {
+        // Tokens are stateless: forgetting ours is the sign-out.
+        clearAuthToken();
         // Evict only the session entry, so /login does not read a stale
         // "authenticated" and bounce back. Clearing the whole cache here
         // would make the still-mounted user.me refetch without a session

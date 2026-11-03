@@ -14,6 +14,7 @@ import { createTRPCContext } from "@trpc/tanstack-react-query";
 import { useState } from "react";
 import superjson from "superjson";
 import { API_BASE_URL } from "@/lib/api-fetch";
+import { authHeaders, getAuthToken } from "@/lib/auth-token";
 import { devLoggerLink } from "./logger-link";
 import { makeQueryClient } from "./query-client";
 
@@ -34,9 +35,19 @@ function getQueryClient() {
 
 const TRPC_URL = `${API_BASE_URL}/trpc`;
 
-/** The session cookie must cross :4000 → :4001, so every link sends credentials. */
+/**
+ * Every link sends the session token as a bearer header (any origin), and
+ * credentials too, so the cookie still works where the browser sends it
+ * (local dev, :4000 → :4001).
+ */
 const fetchWithCredentials = (url: RequestInfo | URL, options?: RequestInit) =>
   fetch(url, { ...options, credentials: "include" });
+
+/** A subscription's token rides `connectionParams`: EventSource sends no headers. */
+const subscriptionParams = () => {
+  const token = getAuthToken();
+  return token ? { token } : null;
+};
 
 export function TRPCReactProvider(
   props: Readonly<{
@@ -52,12 +63,13 @@ export function TRPCReactProvider(
         // Queries and mutations batch over one streamed request; a
         // subscription is a long-lived SSE connection (the browser's own
         // EventSource), which tRPC reconnects with the last event id.
-        // Every link carries the session cookie (docs/features/auth.md).
+        // Every link carries the session token (docs/features/auth.md).
         splitLink({
           condition: (op) => op.type === "subscription",
           true: httpSubscriptionLink({
             url: TRPC_URL,
             transformer: superjson,
+            connectionParams: subscriptionParams,
             eventSourceOptions: { withCredentials: true },
           }),
           false: splitLink({
@@ -68,11 +80,13 @@ export function TRPCReactProvider(
             true: httpBatchLink({
               url: TRPC_URL,
               transformer: superjson,
+              headers: authHeaders,
               fetch: fetchWithCredentials,
             }),
             false: httpBatchStreamLink({
               url: TRPC_URL,
               transformer: superjson,
+              headers: authHeaders,
               fetch: fetchWithCredentials,
             }),
           }),
