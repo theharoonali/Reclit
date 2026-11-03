@@ -17,6 +17,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { FormField } from "@/components/common/form-field";
 import { LoadingState } from "@/components/common/loading-state";
 import { APP_NAME } from "@/config/nav";
+import { setAuthToken } from "@/lib/auth-token";
 import { useTRPC } from "@/trpc/client";
 
 /**
@@ -43,9 +44,11 @@ export function LoginForm() {
 
   const login = useMutation(
     trpc.auth.login.mutationOptions({
-      onSuccess: async () => {
-        // The gate's user.me (and everything else) must refetch with the new
-        // session cookie before the dashboard mounts.
+      onSuccess: async ({ token }) => {
+        // Kept first: every link reads it on its next request. The gate's
+        // user.me (and everything else) must refetch with it before the
+        // dashboard mounts.
+        setAuthToken(token);
         await queryClient.invalidateQueries();
         router.replace("/");
       },

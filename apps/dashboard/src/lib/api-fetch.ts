@@ -1,8 +1,10 @@
 /**
  * Calls to the API's REST surface. Multipart deliberately does not go over the
  * tRPC link (see `docs/features/file.md`), so the file endpoints are reached
- * with plain `fetch`.
+ * with plain `fetch`, carrying the same bearer token as the tRPC links.
  */
+
+import { authHeaders } from "./auth-token";
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:4001";
@@ -53,6 +55,7 @@ export async function postFile<T>(
   for (const [name, value] of Object.entries(fields)) form.append(name, value);
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
+    headers: authHeaders(),
     body: form,
   });
   return parseResponse<T>(res);
@@ -66,7 +69,7 @@ export async function sendJson<T>(
 ): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
   return parseResponse<T>(res);

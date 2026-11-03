@@ -3,16 +3,16 @@ import type { CreateExpressContextOptions } from "@trpc/server/adapters/express"
 import superjson from "superjson";
 import type { DomainErrorKind } from "../common/errors";
 import { DomainError } from "../common/errors";
-import { authService } from "../modules/auth/auth.service";
+import { requestToken, SESSION_COOKIE } from "../modules/auth/auth.request";
+import { authService, SESSION_TTL_MS } from "../modules/auth/auth.service";
 
 // This file (and everything under src/trpc/) must stay free of @nestjs/*
 // imports — the dashboard transpiles this import graph via @reclit/api.
 
-export const SESSION_COOKIE = "reclit_session";
-const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export { SESSION_COOKIE };
 
 export type TRPCContext = {
-  /** True in dev mode (DEV=TRUE) or when the request carried a valid session cookie. */
+  /** True in dev mode (DEV=TRUE) or when the request carried a valid session token. */
   authenticated: boolean;
   devMode: boolean;
   /** Absent on the direct test caller, which has no HTTP response to write to. */
@@ -20,24 +20,13 @@ export type TRPCContext = {
   clearSessionCookie?: () => void;
 };
 
-/** Reads one cookie out of a raw `Cookie` header (no cookie-parser dep). */
-function readCookie(
-  header: string | undefined,
-  name: string,
-): string | undefined {
-  if (!header) return undefined;
-  for (const part of header.split(";")) {
-    const [key, ...rest] = part.trim().split("=");
-    if (key === name) return decodeURIComponent(rest.join("="));
-  }
-  return undefined;
-}
-
 export const createTRPCContext = (
   opts?: CreateExpressContextOptions,
 ): TRPCContext => {
   const devMode = authService.devMode();
-  const token = readCookie(opts?.req.headers.cookie, SESSION_COOKIE);
+  const token = opts
+    ? requestToken(opts.req.headers, opts.info?.connectionParams?.token)
+    : undefined;
   return {
     authenticated: devMode || authService.verify(token),
     devMode,
@@ -47,7 +36,7 @@ export const createTRPCContext = (
             httpOnly: true,
             sameSite: "lax",
             path: "/",
-            maxAge: SESSION_MAX_AGE_MS,
+            maxAge: SESSION_TTL_MS,
             secure: process.env.NODE_ENV === "production",
           })
       : undefined,

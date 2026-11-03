@@ -1,4 +1,11 @@
-import { Controller, HttpCode, Post, UploadedFile } from "@nestjs/common";
+import {
+  Controller,
+  HttpCode,
+  Post,
+  UploadedFile,
+  UseGuards,
+} from "@nestjs/common";
+import { AuthGuard } from "../../common/auth.guard";
 import type { MulterFile } from "../../common/multipart";
 import { requireFile, UploadFile } from "../../common/upload";
 import { assistantTranscribeService } from "./assistant-transcribe.service";
@@ -9,6 +16,7 @@ import { assistantTranscribeService } from "./assistant-transcribe.service";
 // does not ride the tRPC link. The runs themselves are tRPC (`assistant.*`).
 
 @Controller("assistant")
+@UseGuards(AuthGuard)
 export class AssistantController {
   /** 200, not 201: nothing is created — the text is handed back for review. */
   @Post("transcribe")

@@ -7,7 +7,7 @@ import {
 import { dashboardGenerationService } from "../../modules/dashboard-generation/dashboard-generation.service";
 import { dashboardGenerationChangesService } from "../../modules/dashboard-generation/dashboard-generation-changes.service";
 import { dashboardGenerationControlService } from "../../modules/dashboard-generation/dashboard-generation-control.service";
-import { createTRPCRouter, mapDomainError, publicProcedure } from "../init";
+import { createTRPCRouter, mapDomainError, protectedProcedure } from "../init";
 
 // Routers validate input and delegate. All DB access lives in the services.
 // `start` records a generation and hands it to the Trigger.dev worker;
@@ -16,29 +16,29 @@ import { createTRPCRouter, mapDomainError, publicProcedure } from "../init";
 
 export const dashboardGenerationRouter = createTRPCRouter({
   /** Starts a generation for the workspace's sheet; the page then follows `onChange`. */
-  start: publicProcedure
+  start: protectedProcedure
     .input(startGenerationInput)
     .mutation(({ input }) =>
       dashboardGenerationControlService.start(input).catch(mapDomainError),
     ),
 
-  byId: publicProcedure
+  byId: protectedProcedure
     .input(idInput)
     .query(({ input }) =>
       dashboardGenerationService.byId(input.id).catch(mapDomainError),
     ),
 
   /** The workspace's active generation, or null — non-null means the page should be streaming. */
-  active: publicProcedure
+  active: protectedProcedure
     .input(workspaceIdInput)
     .query(({ input }) => dashboardGenerationService.active(input.workspaceId)),
 
   /** The workspace's newest generation, finished or not — what a reload shows. */
-  latest: publicProcedure
+  latest: protectedProcedure
     .input(workspaceIdInput)
     .query(({ input }) => dashboardGenerationService.latest(input.workspaceId)),
 
-  cancel: publicProcedure
+  cancel: protectedProcedure
     .input(idInput)
     .mutation(({ input }) =>
       dashboardGenerationControlService.cancel(input.id).catch(mapDomainError),
@@ -50,7 +50,7 @@ export const dashboardGenerationRouter = createTRPCRouter({
    * change leaves nothing active, when `closed` is the last event. Each event
    * is `tracked` by the row's `updatedAt` (ms).
    */
-  onChange: publicProcedure
+  onChange: protectedProcedure
     .input(generationChangesInput)
     .subscription(async function* ({ input, signal }) {
       for await (const event of dashboardGenerationChangesService.changes(

@@ -1,8 +1,9 @@
 import { z } from "zod";
 
 // Single env-backed dummy user (docs/features/auth.md). No table: the
-// credentials live in AUTH_EMAIL / AUTH_PASSWORD and the session is a signed
-// httpOnly cookie. DEV=TRUE authenticates every request with no credentials.
+// credentials live in AUTH_EMAIL / AUTH_PASSWORD and the session is a signed,
+// expiring token — sent back as a bearer token, and also set as an httpOnly
+// cookie. DEV=TRUE authenticates every request with no credentials.
 
 const email = z.string().trim().email().max(320);
 const password = z.string().min(1, "Password is required").max(200);

@@ -1,7 +1,8 @@
 # `auth`
 
 **Purpose:** env-backed login for the one dummy user — no table, no signup; a
-stateless signed cookie is the session, and `DEV=TRUE` bypasses it entirely.
+stateless signed, expiring token is the session (sent as a bearer token, and
+also set as a cookie), and `DEV=TRUE` bypasses it entirely.
 
 **Contract:** `apps/api/src/__tests__/auth.api.test.ts` — payloads,
 responses, error codes and every client-visible behaviour live in its header.
@@ -18,10 +19,13 @@ account table replaces this feature when signup arrives.
 | Path | Layer | Responsibility |
 | --- | --- | --- |
 | `apps/api/src/modules/auth/auth.schema.ts` | schema | `loginInput`, `Session` |
-| `apps/api/src/modules/auth/auth.errors.ts` | errors | `INVALID_CREDENTIALS` (401), `AUTH_NOT_CONFIGURED` (503) |
-| `apps/api/src/modules/auth/auth.service.ts` | service | env credential check (constant-time), HMAC session token, `devMode()` |
-| `apps/api/src/trpc/routers/auth.ts` | router | `session` / `login` / `logout`; writes the cookie through the context |
-| `apps/api/src/trpc/init.ts` | context | parses the `reclit_session` cookie into `ctx.authenticated`; `protectedProcedure`; cookie setters |
+| `apps/api/src/modules/auth/auth.errors.ts` | errors | `INVALID_CREDENTIALS` (401), `AUTH_NOT_CONFIGURED` (503), `LOGIN_REQUIRED` (401, REST) |
+| `apps/api/src/modules/auth/auth.service.ts` | service | env credential check (constant-time), issues / verifies the expiring token, `devMode()`, `SESSION_TTL_MS` |
+| `apps/api/src/modules/auth/auth.request.ts` | helper | `requestToken(headers, connectionParamsToken)` — bearer header, then subscription param, then cookie; shared by tRPC and REST |
+| `apps/api/src/trpc/routers/auth.ts` | router | `session` / `login` (answers the token, sets the cookie) / `logout` |
+| `apps/api/src/trpc/init.ts` | context | `ctx.authenticated` from `requestToken`; `protectedProcedure`; cookie setters |
+| `apps/api/src/common/auth.guard.ts` | REST guard | `AuthGuard` — the same check for Nest controllers |
+| `apps/dashboard/src/lib/auth-token.ts` | client | the token in localStorage; `authHeaders()` for every call |
 
 ## Procedures
 
@@ -29,30 +33,42 @@ account table replaces this feature when signup arrives.
 | --- | --- | --- | --- |
 | `auth.session` | query | — (reads ctx) | — |
 | `auth.login` | mutation | `AuthService.login` | BAD_REQUEST, UNAUTHORIZED, SERVICE_UNAVAILABLE |
-| `auth.logout` | mutation | — (clears cookie) | — |
+| `auth.logout` | mutation | — (clears cookie; the client forgets its token) | — |
 
 ## Behaviour
 
-- The session token is `HMAC-SHA256("reclit-session-v1", secret)` where the
-  secret is `AUTH_SECRET`, defaulting to the credential pair. It is stateless:
-  changing the env vars invalidates every session, and there is nothing to
-  revoke per-user because there is one user.
+- The token is `v1.<expiresAtMs>.<hmac>`: HMAC-SHA256 over `v1.<expiresAtMs>`
+  with `AUTH_SECRET`, defaulting to the credential pair, valid 7 days
+  (`SESSION_TTL_MS`). The expiry is signed, so it cannot be pushed out; each
+  login issues a new token. It is stateless: changing `AUTH_SECRET` or the
+  password revokes every token at once, and there is nothing to revoke
+  per-user because there is one user.
+- A request's token comes from, in order: `Authorization: Bearer <token>`,
+  a subscription's `connectionParams.token` (a browser EventSource cannot
+  send headers), then the `reclit_session` cookie. The bearer header is what
+  lets a dashboard on another site (a `*.vercel.app` preview) call the API —
+  the SameSite=Lax cookie only travels same-site.
 - `createTRPCContext` computes `authenticated` once per request:
-  `DEV=TRUE` (case-insensitive) or a cookie that verifies. The test caller
+  `DEV=TRUE` (case-insensitive) or a token that verifies. The test caller
   constructs the context directly (`{ authenticated: true, devMode: false }`
   in `__tests__/support/trpc.ts`), so contract tests need no env staging.
-- `protectedProcedure` guards only the `user` router so far. Every `(app)` and
-  `(onboarding)` page blocks on `user.me` through the dashboard's gate, which
-  is what forces login for the whole UI; the other routers and all REST routes
-  are still public — see [docs/SECURITY.md](../SECURITY.md).
-- CORS now sends `credentials: true` (`bootstrap.ts`), and the dashboard's
-  tRPC links send `credentials: "include"` / `withCredentials` — the cookie
-  must cross :4000 → :4001.
+- Every router uses `protectedProcedure` except `auth.*` and the public
+  form's `populate.form`, `populate.submit` and `runAi.onChange`. REST:
+  `AuthGuard` covers `/spreadsheets/*`, `/onboarding/*`,
+  `POST /assistant/transcribe` and `DELETE /files`; `POST /files` (public form
+  attachments) and `/populate/*` stay public.
+- The dashboard keeps the token in localStorage (`lib/auth-token.ts`): the
+  login form stores it, the account menu's logout clears it, and the tRPC
+  links (`headers`, subscription `connectionParams`) and `lib/api-fetch.ts`
+  send it. The links still send `credentials: "include"` so the cookie keeps
+  working where the browser sends it (local dev, :4000 → :4001).
 
 ## Reusable pieces
 
-- `protectedProcedure` (`src/trpc/init.ts`) — use it for any procedure that
-  should require a session.
+- `protectedProcedure` (`src/trpc/init.ts`) — the default for any new
+  procedure; `publicProcedure` only for what an anonymous visitor needs.
+- `AuthGuard` (`src/common/auth.guard.ts`) — `@UseGuards(AuthGuard)` on any
+  REST controller or route that needs a session.
 - The `unauthorized` DomainError kind maps to tRPC `UNAUTHORIZED` / HTTP 401
   for any future auth error.
 

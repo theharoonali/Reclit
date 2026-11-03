@@ -3,10 +3,22 @@ import { AuthNotConfiguredError, InvalidCredentialsError } from "./auth.errors";
 
 // Framework-free (docs/rules/BACKEND.md hard rule 1). No table backs auth:
 // the one dummy user's credentials are the AUTH_EMAIL / AUTH_PASSWORD env
-// vars and a session is a stateless HMAC token in an httpOnly cookie —
-// `user.me` keeps resolving the seeded database user after login.
+// vars and a session is a stateless signed token — `user.me` keeps resolving
+// the seeded database user after login.
+//
+// A token is `v1.<expiresAtMs>.<hmac>`: the HMAC (AUTH_SECRET, else the
+// credential pair) covers the version and the expiry, so it cannot be
+// extended or forged, and changing the secret or the password revokes every
+// token at once. The client sends it as `Authorization: Bearer <token>` (or
+// `connectionParams.token` on a subscription); the same value also rides the
+// httpOnly cookie for same-site callers.
 
-const SESSION_PAYLOAD = "reclit-session-v1";
+const TOKEN_VERSION = "v1";
+
+/** How long a session token (and its cookie) stays valid. */
+export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export type IssuedSession = { token: string; expiresAt: Date };
 
 /** Constant-time string compare (length leaks, contents do not). */
 const safeEqual = (a: string, b: string): boolean => {
@@ -36,20 +48,34 @@ export class AuthService {
     return this.devMode() ? "dev" : null;
   }
 
-  private token(): string | null {
-    const secret = this.secret();
-    if (!secret) return null;
-    return createHmac("sha256", secret).update(SESSION_PAYLOAD).digest("hex");
+  private sign(secret: string, body: string): string {
+    return createHmac("sha256", secret).update(body).digest("hex");
   }
 
-  /** Checks the posted credentials and returns the session cookie value. */
-  async login(email: string, password: string): Promise<string> {
+  /** A new token valid for `SESSION_TTL_MS` from `now`; null without a secret. */
+  private issue(now: number): IssuedSession | null {
+    const secret = this.secret();
+    if (!secret) return null;
+    const expiresAt = now + SESSION_TTL_MS;
+    const body = `${TOKEN_VERSION}.${expiresAt}`;
+    return {
+      token: `${body}.${this.sign(secret, body)}`,
+      expiresAt: new Date(expiresAt),
+    };
+  }
+
+  /** Checks the posted credentials and returns a fresh session token. */
+  async login(
+    email: string,
+    password: string,
+    now = Date.now(),
+  ): Promise<IssuedSession> {
     const credentials = this.credentials();
-    const token = this.token();
-    if (!credentials || !token) {
+    const session = this.issue(now);
+    if (!credentials || !session) {
       // In dev mode a login succeeds even without configured credentials —
       // the session is redundant there, but the screen should not dead-end.
-      if (this.devMode() && token) return token;
+      if (this.devMode() && session) return session;
       throw new AuthNotConfiguredError();
     }
     if (
@@ -58,14 +84,24 @@ export class AuthService {
     ) {
       throw new InvalidCredentialsError();
     }
-    return token;
+    return session;
   }
 
-  /** True when the cookie value is the current signed session token. */
-  verify(token: string | undefined): boolean {
+  /** True when `token` was signed with the current secret and has not expired. */
+  verify(token: string | undefined, now = Date.now()): boolean {
     if (!token) return false;
-    const expected = this.token();
-    return expected !== null && safeEqual(token, expected);
+    const secret = this.secret();
+    if (!secret) return false;
+    const [version, expiresAt, signature, ...extra] = token.split(".");
+    if (version !== TOKEN_VERSION || !expiresAt || !signature || extra.length) {
+      return false;
+    }
+    const expires = Number(expiresAt);
+    if (!Number.isSafeInteger(expires) || expires <= now) return false;
+    return safeEqual(
+      signature,
+      this.sign(secret, `${TOKEN_VERSION}.${expiresAt}`),
+    );
   }
 }
 

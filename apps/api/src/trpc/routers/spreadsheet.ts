@@ -18,44 +18,44 @@ import {
 import { spreadsheetService } from "../../modules/spreadsheet/spreadsheet.service";
 import { spreadsheetCellsService } from "../../modules/spreadsheet/spreadsheet-cells.service";
 import { spreadsheetColumnsService } from "../../modules/spreadsheet/spreadsheet-columns.service";
-import { createTRPCRouter, mapDomainError, publicProcedure } from "../init";
+import { createTRPCRouter, mapDomainError, protectedProcedure } from "../init";
 
 // Routers validate input and delegate. All DB access lives in the services.
 // Nothing here may import @nestjs/* (AGENTS.md invariant 2). The REST twin of
 // this surface is modules/spreadsheet/spreadsheet.controller.ts.
 
 export const spreadsheetRouter = createTRPCRouter({
-  list: publicProcedure.query(() => spreadsheetService.list()),
+  list: protectedProcedure.query(() => spreadsheetService.list()),
 
-  byId: publicProcedure
+  byId: protectedProcedure
     .input(idInput)
     .query(({ input }) =>
       spreadsheetService.byId(input.id).catch(mapDomainError),
     ),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(createSpreadsheetInput)
     .mutation(({ input }) =>
       spreadsheetService.create(input).catch(mapDomainError),
     ),
 
-  remove: publicProcedure
+  remove: protectedProcedure
     .input(idInput)
     .mutation(({ input }) =>
       spreadsheetService.remove(input.id).catch(mapDomainError),
     ),
 
-  rows: publicProcedure
+  rows: protectedProcedure
     .input(sheetRowsInput)
     .query(({ input }) => spreadsheetService.rows(input).catch(mapDomainError)),
 
-  row: publicProcedure
+  row: protectedProcedure
     .input(rowRefInput)
     .query(({ input }) =>
       spreadsheetService.row(input.id, input.rowIndex).catch(mapDomainError),
     ),
 
-  column: publicProcedure
+  column: protectedProcedure
     .input(columnRefInput)
     .query(({ input }) =>
       spreadsheetService
@@ -63,7 +63,7 @@ export const spreadsheetRouter = createTRPCRouter({
         .catch(mapDomainError),
     ),
 
-  cell: publicProcedure
+  cell: protectedProcedure
     .input(cellRefInput)
     .query(({ input }) =>
       spreadsheetService
@@ -71,37 +71,37 @@ export const spreadsheetRouter = createTRPCRouter({
         .catch(mapDomainError),
     ),
 
-  setCell: publicProcedure
+  setCell: protectedProcedure
     .input(setCellInput)
     .mutation(({ input }) =>
       spreadsheetCellsService.setCell(input).catch(mapDomainError),
     ),
 
-  updateCells: publicProcedure
+  updateCells: protectedProcedure
     .input(updateCellsInput)
     .mutation(({ input }) =>
       spreadsheetCellsService.updateCells(input).catch(mapDomainError),
     ),
 
-  updateRow: publicProcedure
+  updateRow: protectedProcedure
     .input(updateRowInput)
     .mutation(({ input }) =>
       spreadsheetCellsService.updateRow(input).catch(mapDomainError),
     ),
 
-  createRow: publicProcedure
+  createRow: protectedProcedure
     .input(createRowInput)
     .mutation(({ input }) =>
       spreadsheetCellsService.createRow(input).catch(mapDomainError),
     ),
 
-  appendRow: publicProcedure
+  appendRow: protectedProcedure
     .input(appendRowInput)
     .mutation(({ input }) =>
       spreadsheetCellsService.appendRow(input).catch(mapDomainError),
     ),
 
-  removeRow: publicProcedure
+  removeRow: protectedProcedure
     .input(rowRefInput)
     .mutation(({ input }) =>
       spreadsheetCellsService
@@ -109,31 +109,31 @@ export const spreadsheetRouter = createTRPCRouter({
         .catch(mapDomainError),
     ),
 
-  removeRows: publicProcedure
+  removeRows: protectedProcedure
     .input(removeRowsInput)
     .mutation(({ input }) =>
       spreadsheetCellsService.removeRows(input).catch(mapDomainError),
     ),
 
-  createColumn: publicProcedure
+  createColumn: protectedProcedure
     .input(createColumnInput)
     .mutation(({ input }) =>
       spreadsheetColumnsService.createColumn(input).catch(mapDomainError),
     ),
 
-  updateColumn: publicProcedure
+  updateColumn: protectedProcedure
     .input(updateColumnInput)
     .mutation(({ input }) =>
       spreadsheetColumnsService.updateColumn(input).catch(mapDomainError),
     ),
 
-  reorderColumn: publicProcedure
+  reorderColumn: protectedProcedure
     .input(reorderColumnInput)
     .mutation(({ input }) =>
       spreadsheetColumnsService.reorderColumn(input).catch(mapDomainError),
     ),
 
-  removeColumn: publicProcedure
+  removeColumn: protectedProcedure
     .input(columnRefInput)
     .mutation(({ input }) =>
       spreadsheetColumnsService
