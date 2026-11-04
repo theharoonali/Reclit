@@ -24,7 +24,7 @@ export const AI_KEY_ENV = [
 ] as const;
 
 /** The model every call uses unless `AI_MODEL` (or a caller) names another. */
-const PROVIDER_DEFAULT_MODEL = "gemini-2.5-flash";
+const PROVIDER_DEFAULT_MODEL = "gemini-3.8-flash";
 
 /** The API key, or undefined when none is set. */
 export function aiApiKey(): string | undefined {
