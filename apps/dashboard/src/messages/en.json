@@ -432,7 +432,6 @@
       "placeholder": "Choose a .csv, .xlsx or .docx…"
     },
     "examples": "A finance sheet, a hiring pipeline, a customer list…",
-    "orbCaption": "Reclit AI",
     "nameLabel": "Workspace name",
     "descriptionLabel": "Description",
     "describing": "Reading your sheet…",

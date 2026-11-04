@@ -26,7 +26,6 @@ export function OnboardingAiPanel({
   items,
   errorMessage,
 }: OnboardingAiPanelProps) {
-  const t = useTranslations("onboarding");
   const tProgress = useTranslations("onboarding.progress");
   return (
     <div className="flex h-full flex-col items-center justify-center gap-8">
@@ -37,9 +36,7 @@ export function OnboardingAiPanel({
         )}
         state={isWorking ? "running" : "idle"}
       />
-      {isHero ? (
-        <p className="text-caption text-muted-foreground">{t("orbCaption")}</p>
-      ) : (
+      {!isHero && (
         <StepList
           className="animate-slide-up motion-reduce:animate-none"
           items={items.map((item) => ({
