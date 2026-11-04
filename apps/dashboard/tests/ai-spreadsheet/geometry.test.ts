@@ -29,17 +29,17 @@ const atColumn = (col: number, offset: number, scrollX = 0) =>
 const MID_Y = HEADER_HEIGHT / 2;
 
 describe("hitTestHeader", () => {
-  test("finds the grip at a column's left edge", () => {
-    const hit = hitTestHeader(atColumn(1, 6), MID_Y, viewport());
+  test("finds the grip at a column's right edge", () => {
+    const hit = hitTestHeader(atColumn(1, COL_WIDTH - 12), MID_Y, viewport());
     expect(hit).toEqual({ kind: "header-grip", col: 1 });
   });
 
-  test("finds the delete affordance at a column's right edge", () => {
-    const hit = hitTestHeader(atColumn(1, COL_WIDTH - 16), MID_Y, viewport());
-    expect(hit).toEqual({ kind: "header-delete", col: 1 });
+  test("the left edge is plain header, not a grip", () => {
+    const hit = hitTestHeader(atColumn(1, 6), MID_Y, viewport());
+    expect(hit).toEqual({ kind: "header", col: 1 });
   });
 
-  test("falls through to the header between the two", () => {
+  test("falls through to the header away from the grip", () => {
     const hit = hitTestHeader(atColumn(1, COL_WIDTH / 2), MID_Y, viewport());
     expect(hit).toEqual({ kind: "header", col: 1 });
   });
@@ -48,12 +48,12 @@ describe("hitTestHeader", () => {
   // staying parked at a fixed spot on the canvas.
   test("the grip tracks the horizontal scroll", () => {
     const scrolled = viewport(COL_WIDTH);
-    expect(hitTestHeader(atColumn(1, 6, COL_WIDTH), MID_Y, scrolled)).toEqual({
-      kind: "header-grip",
-      col: 1,
-    });
-    // Where the grip used to be is now the middle of column 0.
-    expect(hitTestHeader(atColumn(1, 6), MID_Y, scrolled)).toEqual({
+    const grip = COL_WIDTH - 12;
+    expect(
+      hitTestHeader(atColumn(1, grip, COL_WIDTH), MID_Y, scrolled),
+    ).toEqual({ kind: "header-grip", col: 1 });
+    // Where column 1's grip was on screen is now column 2's.
+    expect(hitTestHeader(atColumn(1, grip), MID_Y, scrolled)).toEqual({
       kind: "header-grip",
       col: 2,
     });
@@ -66,9 +66,8 @@ describe("hitTestHeader", () => {
 });
 
 describe("isHeaderColumnHit", () => {
-  test("covers all three column kinds and nothing else", () => {
+  test("covers both column kinds and nothing else", () => {
     expect(isHeaderColumnHit({ kind: "header", col: 0 })).toBe(true);
-    expect(isHeaderColumnHit({ kind: "header-delete", col: 0 })).toBe(true);
     expect(isHeaderColumnHit({ kind: "header-grip", col: 0 })).toBe(true);
     expect(isHeaderColumnHit({ kind: "plus" })).toBe(false);
     expect(isHeaderColumnHit({ kind: "cell", row: 0, col: 0 })).toBe(false);

@@ -1,6 +1,10 @@
 "use client";
 
-import { Delete02Icon, FileExportIcon } from "@hugeicons/core-free-icons";
+import {
+  Delete02Icon,
+  FileExportIcon,
+  PencilEdit02Icon,
+} from "@hugeicons/core-free-icons";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAssistantPageAction } from "@/components/assistant/use-page-action";
@@ -150,11 +154,18 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   // same rectangle change — the signals come out of the canvas wiring.
   const refreshRunnableRef = useRef<() => void>(() => {});
   const refreshRowsRef = useRef<() => void>(() => {});
+  const refreshColumnRef = useRef<() => void>(() => {});
   const refreshRunnable = useCallback(() => refreshRunnableRef.current(), []);
   const refreshSelection = useCallback(() => {
     refreshRunnableRef.current();
     refreshRowsRef.current();
+    refreshColumnRef.current();
   }, []);
+
+  // The column a header click selected, mirrored into state because the
+  // toolbar's Delete column is DOM. Only set while the editor's rectangle is
+  // still that column (column-selection.ts).
+  const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null);
 
   const canvas = useSheetCanvas({
     modelRef,
@@ -175,7 +186,6 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     onOpenAudio: openAudio,
     onOpenFile: openFile,
     onOpenColumn: openColumn,
-    onRemoveColumn: columnRemove.removeColumn,
     onReorderColumn: columnReorder.reorderColumn,
     onBeforeColumnChange: onBeforeDelete,
     dragChipRef,
@@ -184,6 +194,12 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
   });
   requestPaintRef.current = canvas.requestPaint;
   cancelEditRef.current = canvas.editor.cancel;
+  refreshColumnRef.current = () => {
+    const col = canvas.selectedColumn();
+    setSelectedColumnId(
+      col === null ? null : (modelRef.current.columns[col]?.id ?? null),
+    );
+  };
 
   // After the canvas: a row selection is the editor's rectangle spanning every
   // column, so the hook reads the editor rather than the other way round.
@@ -367,7 +383,8 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
     if ("columnId" in target && target.columnId === columnId) closePanel();
     const remaining = modelRef.current.columns;
     const active = canvas.editor.editorRef.current.active;
-    if (remaining.length > 0 && active) {
+    if (remaining.length === 0) canvas.editor.clearSelection();
+    else if (active) {
       canvas.editor.selectCell(
         active.row,
         Math.min(active.col, remaining.length - 1),
@@ -466,7 +483,9 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
         variant="outline"
       />
 
-      {cellsSelected && (
+      {/* A selected column offers Delete column instead: two bins side by
+          side would read as the same action. */}
+      {cellsSelected && selectedColumnId === null && (
         <AiSpreadsheetHeaderAction
           icon={Delete02Icon}
           iconOnly
@@ -476,8 +495,29 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
         />
       )}
 
+      {selectedColumnId !== null && (
+        <AiSpreadsheetHeaderAction
+          icon={PencilEdit02Icon}
+          iconOnly
+          label={t("column.edit")}
+          onClick={() => openColumn(selectedColumnId)}
+          variant="outline"
+        />
+      )}
+
+      {selectedColumnId !== null && (
+        <AiSpreadsheetHeaderAction
+          icon={Delete02Icon}
+          label={t("column.delete")}
+          onClick={() => columnRemove.removeColumn(selectedColumnId)}
+          variant="destructive"
+        />
+      )}
+
       <AiSpreadsheetSelectionBar
-        count={selection.count}
+        // A one-column sheet's column is also every row; the column's own
+        // Delete is the one meant.
+        count={selectedColumnId === null ? selection.count : 0}
         labels={{
           selected: t("selection.selected", { count: selection.count }),
           delete: t("selection.delete"),
@@ -495,6 +535,7 @@ export function AiSpreadsheetGrid({ payload }: AiSpreadsheetGridProps) {
         gripAnchor={canvas.gripAnchor}
         gripLabel={t("column.reorder")}
         onAddColumn={() => openColumn()}
+        onDoubleClick={canvas.handleHeaderDoubleClick}
         onPointerCancel={canvas.handleHeaderPointerCancel}
         onPointerDown={canvas.handleHeaderPointerDown}
         onPointerLeave={canvas.handleHeaderPointerLeave}

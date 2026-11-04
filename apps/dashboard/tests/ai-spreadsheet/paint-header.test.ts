@@ -65,6 +65,7 @@ function paint(
     hover?: SheetHit;
     columns?: SheetColumn[];
     draggingCol?: number | null;
+    selectedCol?: number | null;
   } = {},
 ) {
   const { ctx, calls } = createRecordingContext();
@@ -78,6 +79,7 @@ function paint(
     fonts: FONTS,
     hover: options.hover ?? { kind: "empty" },
     draggingCol: options.draggingCol ?? null,
+    selectedCol: options.selectedCol ?? null,
     selectAll: "none",
     stripWidth: 800,
   });
@@ -155,11 +157,17 @@ describe("paintHeader grip", () => {
   test("paints six dots on the hovered column only", () => {
     const dots = gripDots(paint({ hover: { kind: "header", col: 1 } }));
     expect(dots).toHaveLength(6);
-    // All of them inside column 1.
+    // All of them in the right half of column 1, where the type label was.
     for (const dot of dots) {
-      expect(dot.args[0]).toBeGreaterThanOrEqual(COL_WIDTH);
+      expect(dot.args[0]).toBeGreaterThanOrEqual(1.5 * COL_WIDTH);
       expect(dot.args[0]).toBeLessThan(2 * COL_WIDTH);
     }
+  });
+
+  test("replaces the type label while hovered", () => {
+    const hovered = paint({ hover: { kind: "header", col: 1 } });
+    expect(hovered.some((call) => call.op === "fillText:Number")).toBe(false);
+    expect(paint().some((call) => call.op === "fillText:Number")).toBe(true);
   });
 
   test("stays lit while the pointer is on the grip itself", () => {
@@ -178,13 +186,59 @@ describe("paintHeader grip", () => {
 });
 
 describe("paintHeader names", () => {
-  // The grip's lane is reserved on every column, hovered or not, so revealing
-  // it must not shove the name sideways.
+  // The grip takes the type label's place on the right, so revealing it must
+  // not shove the name sideways.
   test("paints the name at the same x hovered and not", () => {
     const nameOf = (calls: DrawCall[]) =>
       calls.find((call) => call.op === "fillText:Name");
     expect(nameOf(paint({ hover: { kind: "header", col: 0 } }))?.args[0]).toBe(
       nameOf(paint())?.args[0],
     );
+  });
+});
+
+/** Full-height washes in the accent: the AI tint, the selection, the hover. */
+const washes = (calls: DrawCall[], col: number) =>
+  calls.filter(
+    (call) =>
+      call.op === "fillRect" &&
+      call.args[0] === col * COL_WIDTH &&
+      call.args[2] === COL_WIDTH &&
+      call.args[3] === HEADER_HEIGHT &&
+      call.style !== "header",
+  );
+
+describe("paintHeader AI columns", () => {
+  const AI: SheetColumn[] = [
+    { id: "col.0", name: "Summary", type: "string", node: "ai", prompt: "x" },
+    ...COLUMNS.slice(1),
+  ];
+
+  test("washes an AI column's header and leaves the others plain", () => {
+    const calls = paint({ columns: AI });
+    expect(washes(calls, 0)).toHaveLength(1);
+    expect(washes(calls, 1)).toHaveLength(0);
+  });
+
+  test("paints no AI icon: the name starts where a plain column's does", () => {
+    const x = (calls: DrawCall[], name: string) =>
+      calls.find((call) => call.op === `fillText:${name}`)?.args[0];
+    expect(x(paint({ columns: AI }), "Summary")).toBe(x(paint(), "Name"));
+  });
+});
+
+describe("paintHeader selection", () => {
+  test("washes and underlines the selected column", () => {
+    const calls = paint({ selectedCol: 1 });
+    expect(washes(calls, 1)).toHaveLength(1);
+    const underline = calls.filter(
+      (call) =>
+        call.op === "fillRect" &&
+        call.style === "ring" &&
+        call.args[0] === COL_WIDTH &&
+        call.args[3] === 2,
+    );
+    expect(underline).toHaveLength(1);
+    expect(washes(calls, 0)).toHaveLength(0);
   });
 });

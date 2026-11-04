@@ -211,6 +211,8 @@
       "promptPlaceholder": "What should this node do?",
       "mailPromptPlaceholder": "Who in this row to email and what to say, e.g. \"Invite them to Friday's demo\" or \"Send the Draft column as it is\". Sends on Run.",
       "add": "Add column",
+      "edit": "Edit column",
+      "delete": "Delete column",
       "reorder": "Drag and drop",
       "save": "Save",
       "cancel": "Cancel",

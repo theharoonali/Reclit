@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useCanvasSurface } from "@/hooks/use-canvas-surface";
 import { dropTarget, previewOrder } from "@/lib/ai-spreadsheet/column-order";
 import {
+  type ColumnMark,
+  selectedColumnIndex,
+} from "@/lib/ai-spreadsheet/column-selection";
+import {
   CELL_PAD_X,
   clamp,
   GUTTER_WIDTH,
@@ -72,7 +76,6 @@ export type SheetCanvasArgs = {
   onOpenAudio: (row: number, columnId: string) => void;
   onOpenFile: (row: number, columnId: string) => void;
   onOpenColumn: (columnId?: string) => void;
-  onRemoveColumn: (columnId: string) => void;
   /** A dropped header grip: the moved column and its new display position. */
   onReorderColumn: (columnId: string, newSortOrder: number) => void;
   /** Runs when a drag or a delete starts: cancel the edit, drop pending writes. */
@@ -98,12 +101,15 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   const { runListening, onRunEnded, onRunsChange, onSelectionChange } = args;
   const { onOpenJson, onOpenDate, onOpenAudio, onOpenFile, onOpenColumn } =
     args;
-  const { onRemoveColumn, onReorderColumn, onSelectionPresence } = args;
+  const { onReorderColumn, onSelectionPresence } = args;
   const { onBeforeColumnChange, dragChipRef, dragChipLabelRef } = args;
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const spacerRef = useRef<HTMLDivElement | null>(null);
   const hoverRef = useRef<SheetHit>({ kind: "empty" });
+  // Which column a header click selected; it only counts while the editor's
+  // rectangle still matches it (column-selection.ts).
+  const columnMarkRef = useRef<ColumnMark | null>(null);
   // A ref, never state: a drag repaints on every pointer move, and a
   // re-render would remount the canvas and blank it.
   const dragRef = useRef<ColumnDragState | null>(null);
@@ -430,6 +436,14 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
         fonts: fontsRef.current,
         hover: hoverRef.current,
         draggingCol,
+        selectedCol:
+          draggingCol === null
+            ? selectedColumnIndex(
+                editorRef.current,
+                model,
+                columnMarkRef.current,
+              )
+            : null,
         selectAll: selectAllState(
           editorRef.current,
           model,
@@ -483,13 +497,13 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     ctxRef: bodyCtxRef,
     fontsRef,
     hoverRef,
+    columnMarkRef,
     editor,
     drag: columnDrag,
     onGripHover: setGripCol,
     getCell,
     requestPaint,
     onOpenColumn,
-    onRemoveColumn,
     onToggleAudio: audio.toggle,
     rangeDrag,
   });
@@ -497,6 +511,13 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
   // Canvas space, for the tooltip's anchor. Read from the viewport ref at
   // render time: the hover that set `gripCol` was resolved against this same
   // scroll position, and any change to it arrives as another pointer move.
+  /** The column a header click selected, while the selection still is it. */
+  const selectedColumn = useCallback((): number | null => {
+    const model = modelRef.current;
+    if (!model) return null;
+    return selectedColumnIndex(editorRef.current, model, columnMarkRef.current);
+  }, [editorRef, modelRef]);
+
   const gripAnchor =
     gripCol === null
       ? null
@@ -519,6 +540,7 @@ export function useSheetCanvas(args: SheetCanvasArgs) {
     requestPaint,
     invalidateLayout,
     resetHover,
+    selectedColumn,
     gripAnchor,
     ...pointer,
   };

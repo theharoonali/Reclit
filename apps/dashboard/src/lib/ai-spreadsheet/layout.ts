@@ -26,10 +26,8 @@ export const CAPSULE_DOT = 6;
 export const CAPSULE_GLYPH = 8;
 /** Between either mark and the label that follows it. */
 export const CAPSULE_DOT_GAP = 6;
-/** The drag handle at the left edge of a column header. */
+/** The drag handle at the right edge of a hovered column header. */
 export const HEADER_GRIP_WIDTH = 8;
-/** Between the grip and whatever the column paints next. */
-export const HEADER_GRIP_GAP = 4;
 
 // A JSON (or Mail) cell paints one table-like row per entry: key | value.
 /** The key column's share of the text width, clamped to MIN..MAX below. */
@@ -443,11 +441,8 @@ export function buildLayout(inputs: LayoutInputs): SheetLayout {
       MAX_COL_WIDTH,
       Math.max(
         MIN_COL_WIDTH,
-        measureWidth(ctx, column.name) +
-          CELL_PAD_X * 2 +
-          HEADER_GRIP_WIDTH +
-          HEADER_GRIP_GAP +
-          60, // the type label / delete affordance share the right edge
+        // The type label (or, hovered, the drag grip) takes the right edge.
+        measureWidth(ctx, column.name) + CELL_PAD_X * 2 + 60,
       ),
     ),
   );

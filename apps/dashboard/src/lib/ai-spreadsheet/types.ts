@@ -183,9 +183,7 @@ export type SheetHit =
   | { kind: "cell"; row: number; col: number }
   | { kind: "gutter"; row: number }
   | { kind: "header"; col: number }
-  /** The delete affordance at the right edge of a hovered column header. */
-  | { kind: "header-delete"; col: number }
-  /** The drag handle at the left edge of a column header. */
+  /** The drag handle at the right edge of a hovered column header. */
   | { kind: "header-grip"; col: number }
   | { kind: "plus" }
   | { kind: "empty" };
