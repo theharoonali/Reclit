@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { aptGet, ffmpeg } from "@trigger.dev/build/extensions/core";
 import { prismaExtension } from "@trigger.dev/build/extensions/prisma";
@@ -20,6 +21,15 @@ const devPython = resolve(
     : ".venv/bin/python",
 );
 
+// Passed as `requirements`, not `requirementsFile`: with a file in a
+// subdirectory the extension (4.5.x) COPYs it to the image root but points pip
+// at the original path, so the deploy build fails with "Could not open
+// requirements file". The list form writes requirements.txt in place instead.
+const pythonRequirements = readFileSync("./python/requirements.txt", "utf-8")
+  .split("\n")
+  .map((line) => line.trim())
+  .filter((line) => line !== "" && !line.startsWith("#"));
+
 export default defineConfig({
   project: "proj_rjcebnrktkgcqviaukov",
   runtime: "bun",
@@ -30,7 +40,7 @@ export default defineConfig({
       prismaExtension({ mode: "modern" }),
       pythonExtension({
         scripts: ["./python/**/*.py"],
-        requirementsFile: "./python/requirements.txt",
+        requirements: pythonRequirements,
         devPythonBinaryPath: devPython,
       }),
       ffmpeg(),
