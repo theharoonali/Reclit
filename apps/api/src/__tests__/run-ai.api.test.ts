@@ -94,7 +94,7 @@
  *   for each runnable column in sort order it first *prepares* every cell of
  *   that column — `result.input` is built from the database at that moment, so
  *   `input.row.cells` (every column of the sheet in display order, blank
- *   cells `value: null`, audio/file/url cells as their URL — the transcript
+ *   cells `value: null`, audio/file/url cells as their URL — the markdown
  *   is not stored on the run's input) already holds the answers of the
  *   earlier columns, and from a row's second runnable column on
  *   `input.previous` is the row's previous column with the value it
@@ -104,7 +104,7 @@
  *   row's media, asks the model with the column prompt as the instruction, the
  *   previous output as the primary input and the row as context, and
  *   `complete`s with
- *   `result: { input, output, model, usage, attachments, transcripts, crawls }`
+ *   `result: { input, output, model, usage, attachments, conversions, crawls }`
  *   (`searches` on a `google_search` run) — `output` typed like the column
  *   (string, number, boolean, ISO date string, JSON object, email, URL) —
  *   or `fail`s with `result: { input, error }`. A failed cell stops its row:
@@ -112,30 +112,36 @@
  *   `result.error: { name: "RunAiSeriesStopped", message }` without running;
  *   other rows are unaffected. `markRunning` never revives a finished run
  *   (`RUN_AI_FINISHED`, conflict).
- * - **The row's media reaches the model three ways, and none can fail a
- *   run.** `file` cells holding an http(s) URL are fetched (≤ 15 MB, 30 s
- *   each) and attached to the model call as files; `audio` cells are
- *   *transcribed* instead — ElevenLabs Speech-to-Text — and the transcript is
- *   what the prompt carries; `url` cells are *crawled* — Firecrawl, up to 25
- *   pages, depth 2, the whole domain with its subdomains — and the pages
- *   follow the row in the prompt (60,000 characters per url cell, 8,000 per
- *   page, the rest counted as omitted). A transcript or a crawl is stored in
- *   `ExternalApi` under the source cell's own id and its URL, so the
- *   recording or the site is paid for once no matter how many AI columns the
- *   row runs through, and clearing the cell drops it; a crawl is also reused
- *   from any other cell that already holds the same URL (contract:
- *   external-api.api.test.ts). Each crawl runs in its own `crawl-website`
- *   Trigger.dev run — one at a time, the Firecrawl free plan's limit — which
- *   `run-ai-cell` waits for. Any path failing is a note in the prompt line
- *   ("could not be fetched" / "could not be transcribed" / "could not be
- *   crawled"), never a failed run. The completed run records all three
- *   without the content: `result.attachments` is
- *   `{ columnId, filename, mediaType, bytes }` per fetched file and
- *   `{ columnId, url, error }` per failure; `result.transcripts` is
- *   `{ columnId, source, characters, reused }` per transcript (`reused`: a
- *   stored one answered it) and `{ columnId, url, error }` per failure;
- *   `result.crawls` is `{ columnId, source, pages, characters, reused }` per
- *   crawled site and `{ columnId, url, error }` per failure.
+ * - **The row's media reaches the model as text, and none of it can fail a
+ *   run.** `file` and `audio` cells holding an http(s) URL, and `url` cells
+ *   holding a YouTube link, are *converted to markdown* by Microsoft's
+ *   markitdown (PDF, Word, PowerPoint, Excel, images, audio, HTML,
+ *   CSV/JSON/XML, ZIP, EPUB, …; files ≤ 25 MB) and the markdown follows the
+ *   row in the prompt (60,000 characters per cell, the rest counted as
+ *   omitted); other `url` cells are *crawled* — Firecrawl, up to 25 pages,
+ *   depth 2, the whole domain with its subdomains — and the pages follow the
+ *   row (60,000 characters per url cell, 8,000 per page). Both are stored in
+ *   `ExternalApi` under the source cell's own id and its URL, so a file or
+ *   a site is processed once no matter how many AI columns, or how many
+ *   runs, the row goes through; both are reused from any other cell that
+ *   already holds the same URL; clearing the cell drops them, and writing a
+ *   new value drops every result made from the old one (contract:
+ *   external-api.api.test.ts). The store is read first; whatever is missing
+ *   is produced by child Trigger.dev runs — `convert-to-markdown` (Python)
+ *   and `crawl-website` (one at a time, the Firecrawl free plan's limit) —
+ *   that `run-ai-cell` waits for as ONE batch. Only two kinds of file still
+ *   travel as bytes (≤ 15 MB, 30 s each): an image, whose markdown is only
+ *   its metadata, and a file whose conversion failed (never a YouTube page).
+ *   Any path failing is a note in the prompt line ("could not be read" /
+ *   "could not be fetched" / "could not be crawled"), never a failed run.
+ *   The completed run records all three without the content:
+ *   `result.attachments` is `{ columnId, filename, mediaType, bytes }` per
+ *   attached file and `{ columnId, url, error }` per failure;
+ *   `result.conversions` is `{ columnId, source, characters, truncated,
+ *   reused }` per converted file (`reused`: a stored one answered it) and
+ *   `{ columnId, url, error }` per failure; `result.crawls` is
+ *   `{ columnId, source, pages, characters, reused }` per crawled site and
+ *   `{ columnId, url, error }` per failure.
  * - A `google_search` column is runnable exactly like an `ai` column: a node
  *   and a prompt. `prepare` gives it the same input — the whole row in
  *   `input.row.cells`, plus `previous` — and the prompt is the instruction
@@ -254,7 +260,35 @@ import {
   resolveCrawlRecord,
   summariseCrawls,
 } from "../ai/cell-crawls";
-import { type CellCall, cellCalls, withCacheFallback } from "../ai/cell-output";
+import type {
+  MarkdownKey,
+  MarkdownResolver,
+  MarkdownStore,
+} from "../ai/cell-markdown";
+import {
+  collectConversions,
+  converterArgs,
+  formatMarkdown,
+  isConvertibleCell,
+  isYoutubeUrl,
+  MARKITDOWN_SCRIPT,
+  MAX_CONVERT_BYTES,
+  MAX_MARKDOWN_PROMPT_CHARS,
+  parseConverterOutput,
+  resolveMarkdownRecord,
+  summariseConversions,
+  UnconvertibleSourceError,
+} from "../ai/cell-markdown";
+import {
+  type CellCall,
+  cellCalls,
+  cellsToAttach,
+  notesOf,
+  resolveRowSources,
+  type SourceRequest,
+  type SourceResolver,
+  withCacheFallback,
+} from "../ai/cell-output";
 import type { CellSourceNote } from "../ai/cell-prompt";
 import {
   buildCellMessages,
@@ -266,12 +300,6 @@ import {
   SEARCH_RULES,
   TYPE_RULES,
 } from "../ai/cell-prompt";
-import type { TranscriptStore } from "../ai/cell-transcripts";
-import {
-  collectTranscripts,
-  isTranscribableCell,
-  summariseTranscripts,
-} from "../ai/cell-transcripts";
 import { compileCompanyContext } from "../ai/company-prompt";
 import { type TranscribeFetch, transcribeAudio } from "../ai/elevenlabs";
 import { generateEmailCellValue } from "../ai/email-output";
@@ -1392,7 +1420,7 @@ describe("run-ai-cell task prompt (pure)", () => {
     ]);
   });
 
-  it("names an attached file, carries a transcript, or says which step failed", () => {
+  it("names an attached file, points at converted markdown, or says which step failed", () => {
     const voice = input.row.cells[4];
     if (!voice) throw new Error("fixture");
     expect(
@@ -1400,10 +1428,24 @@ describe("run-ai-cell task prompt (pure)", () => {
     ).toBe('Voice (audio): attached file "ada.mp3"');
     expect(
       formatCellLine(voice, {
-        kind: "transcribed",
-        text: "Hello, this is Ada.",
+        kind: "converted",
+        filename: "ada.mp3",
+        content: "### Audio Transcript:\nHello, this is Ada.",
+        attached: false,
       }),
-    ).toBe("Voice (audio): transcript of the audio: Hello, this is Ada.");
+    ).toBe(
+      'Voice (audio): file "ada.mp3" (read as markdown, its content is below)',
+    );
+    expect(
+      formatCellLine(voice, {
+        kind: "converted",
+        filename: "ada.mp3",
+        content: "x",
+        attached: true,
+      }),
+    ).toBe(
+      'Voice (audio): file "ada.mp3" (read as markdown, its content is below; the file is also attached)',
+    );
     expect(
       formatCellLine(voice, {
         kind: "failed",
@@ -1416,11 +1458,11 @@ describe("run-ai-cell task prompt (pure)", () => {
     expect(
       formatCellLine(voice, {
         kind: "failed",
-        step: "transcribe",
-        error: "HTTP 401",
+        step: "convert",
+        error: "no text could be extracted from the file",
       }),
     ).toBe(
-      "Voice (audio): https://files.test/ada.mp3 (could not be transcribed: HTTP 401)",
+      "Voice (audio): https://files.test/ada.mp3 (could not be read: no text could be extracted from the file)",
     );
     // A crawled website keeps its URL on the line; the pages follow the row.
     const site: RunAiInputCell = {
@@ -1493,7 +1535,7 @@ describe("run-ai-cell task prompt (pure)", () => {
     expect(without.prompt).not.toContain("Output of the previous step");
   });
 
-  it("attaches file cells that hold an http(s) URL; audio is transcribed and url crawled instead", () => {
+  it("file cells that hold an http(s) URL are attachable; audio is never attached up front and url is crawled", () => {
     const cell = (type: RunAiInput["target"]["type"], value: unknown) =>
       ({ id: "col.9", index: 9, name: "X", type, value }) as RunAiInputCell;
     expect(isAttachableCell(cell("file", "http://a.test/x.pdf"))).toBe(true);
@@ -1507,18 +1549,9 @@ describe("run-ai-cell task prompt (pure)", () => {
       false,
     );
     expect(isAttachableCell(cell("file", "ftp://a.test/x.pdf"))).toBe(false);
-    // Audio goes down the transcription path, never the attachment one.
+    // Audio goes down the conversion path, never the up-front attachment one.
     expect(isAttachableCell(cell("audio", "https://a.test/x.mp3"))).toBe(false);
-    expect(isTranscribableCell(cell("audio", "https://a.test/x.mp3"))).toBe(
-      true,
-    );
-    expect(isTranscribableCell(cell("file", "https://a.test/x.mp3"))).toBe(
-      false,
-    );
-    expect(isTranscribableCell(cell("audio", "ftp://a.test/x.mp3"))).toBe(
-      false,
-    );
-    expect(isTranscribableCell(cell("audio", null))).toBe(false);
+    expect(isConvertibleCell(cell("audio", "https://a.test/x.mp3"))).toBe(true);
   });
 
   it("names the file after the URL's last segment and picks a media type", () => {
@@ -1666,211 +1699,617 @@ describe("run-ai-cell task prompt (pure)", () => {
   });
 });
 
-describe("run-ai-cell task transcripts (pure)", () => {
+describe("run-ai-cell task conversions (pure)", () => {
   const address = { sheetId: "sheet-1", row: 4, col: 2 };
 
-  const audioCell = (index: number, value: string | null): RunAiInputCell => ({
-    id: `col.${index}`,
-    index,
-    name: "Voice",
-    type: "audio",
-    value,
+  const sourceCell = (
+    index: number,
+    value: string | null,
+    type: RunAiInputCell["type"] = "file",
+  ): RunAiInputCell => ({ id: `col.${index}`, index, name: "CV", type, value });
+
+  const serving =
+    (mediaType: string, bytes = [1, 2, 3], length?: number): FetchLike =>
+    async () => ({
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name: string) =>
+          name === "content-type"
+            ? mediaType
+            : name === "content-length" && length !== undefined
+              ? String(length)
+              : null,
+      },
+      arrayBuffer: async () => new Uint8Array(bytes).buffer as ArrayBuffer,
+    });
+  const pdf = serving("application/pdf");
+  const png = serving("image/png");
+
+  const markdownOutput = (overrides: Record<string, unknown> = {}) => ({
+    kind: EXTERNAL_API_KINDS.documentMarkdown,
+    provider: "markitdown",
+    version: "0.1.9",
+    source: "file",
+    markdown: "# CV\nAda",
+    title: null,
+    filename: "cv.pdf",
+    mediaType: "application/pdf",
+    bytes: 3,
+    characters: 8,
+    convertedAt: "2026-11-04T00:00:00.000Z",
+    ...overrides,
   });
 
-  const mp3: FetchLike = async () => ({
-    ok: true,
-    status: 200,
-    headers: {
-      get: (name: string) => (name === "content-type" ? "audio/mpeg" : null),
-    },
-    arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer as ArrayBuffer,
+  const recordOf = (
+    cellId: string,
+    input: string,
+    output: unknown,
+  ): ExternalApi => ({
+    id: `${cellId}|${input}`,
+    cellId,
+    input,
+    output: output as ExternalApi["output"],
+    createdAt: new Date(),
+    updatedAt: new Date(),
   });
 
-  /** A store that records what it was asked, and answers from a seeded map. */
+  /** The store's whole surface over a Map keyed "<cellId>|<input>"; records what was saved. */
   function fakeStore(seed: Record<string, unknown> = {}) {
     const rows = new Map(Object.entries(seed));
-    const keys: string[] = [];
-    const store: TranscriptStore = {
+    const saved: string[] = [];
+    const split = (id: string) => id.split("|") as [string, string];
+    const store: MarkdownStore = {
+      async find({ cellId, input }) {
+        const output = rows.get(`${cellId}|${input}`);
+        return output ? recordOf(cellId, input, output) : null;
+      },
+      async findByInput(input) {
+        for (const [id, output] of rows) {
+          const [cellId, source] = split(id);
+          if (source === input) return recordOf(cellId, source, output);
+        }
+        return null;
+      },
+      async save({ cellId, input, output }) {
+        rows.set(`${cellId}|${input}`, output);
+        saved.push(`${cellId}|${input}`);
+        return recordOf(cellId, input, output);
+      },
       async resolve(key, produce, accept = () => true) {
         const id = `${key.cellId}|${key.input}`;
-        keys.push(id);
-        const record = (output: unknown): ExternalApi => ({
-          id,
-          cellId: key.cellId,
-          input: key.input,
-          output: output as ExternalApi["output"],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
         const cached = rows.get(id);
         if (cached && accept(cached as ExternalApi["output"])) {
-          return { record: record(cached), reused: true };
+          return {
+            record: recordOf(key.cellId, key.input, cached),
+            reused: true,
+          };
         }
         const produced = await produce();
         rows.set(id, produced);
-        return { record: record(produced), reused: false };
+        saved.push(id);
+        return {
+          record: recordOf(key.cellId, key.input, produced),
+          reused: false,
+        };
       },
     };
-    return { store, keys, rows };
+    return { store, rows, saved };
   }
 
-  const transcription = (text: string) => ({
-    text,
-    languageCode: "en",
-    model: "scribe_v1",
-    provider: "elevenlabs",
+  const converted = (markdown: string, title: string | null = null) => ({
+    markdown,
+    title,
+    version: "0.1.9",
   });
 
-  it("keys a transcript by the audio cell's own scoped id and its URL", async () => {
-    const { store, keys } = fakeStore();
-    const { texts, failures } = await collectTranscripts(
-      address,
-      [audioCell(7, "https://files.test/ada.mp3")],
+  it("converts file and audio cells, and url cells only when they are YouTube videos", () => {
+    expect(isConvertibleCell(sourceCell(1, "https://f.test/cv.pdf"))).toBe(
+      true,
+    );
+    expect(
+      isConvertibleCell(sourceCell(1, "https://f.test/a.mp3", "audio")),
+    ).toBe(true);
+    expect(
+      isConvertibleCell(
+        sourceCell(1, "https://www.youtube.com/watch?v=abc", "url"),
+      ),
+    ).toBe(true);
+    expect(
+      isConvertibleCell(sourceCell(1, "https://youtu.be/abc", "url")),
+    ).toBe(true);
+    expect(isConvertibleCell(sourceCell(1, "https://ada.test", "url"))).toBe(
+      false,
+    );
+    expect(isConvertibleCell(sourceCell(1, "ftp://f.test/cv.pdf"))).toBe(false);
+    expect(isConvertibleCell(sourceCell(1, null))).toBe(false);
+    expect(
+      isConvertibleCell(sourceCell(1, "https://f.test/cv.pdf", "string")),
+    ).toBe(false);
+    // A YouTube link is converted, never crawled.
+    expect(
+      isCrawlableCell(sourceCell(1, "https://m.youtube.com/watch?v=a", "url")),
+    ).toBe(false);
+    expect(isYoutubeUrl("https://music.youtube.com/watch?v=a")).toBe(true);
+    expect(isYoutubeUrl("https://notyoutube.com/watch?v=a")).toBe(false);
+    expect(isYoutubeUrl("not a url")).toBe(false);
+  });
+
+  it("fetches the file to a temp path, converts it, and stores it under the source cell", async () => {
+    const { store, rows } = fakeStore();
+    let seen: { path: string; filename: string; bytes: number[] } | null = null;
+    const { record, reused } = await resolveMarkdownRecord(
+      { cellId: "sheet-1.cell.4.7", url: "https://files.test/up/cv.pdf" },
       {
         store,
-        fetchImpl: mp3,
-        transcribe: async () => transcription("Hello, this is Ada."),
+        fetchImpl: pdf,
+        now: () => new Date("2026-11-04T00:00:00.000Z"),
+        convert: async (input) => {
+          if ("url" in input) throw new Error("expected a file");
+          seen = {
+            path: input.path,
+            filename: input.filename,
+            bytes: [...(await Bun.file(input.path).bytes())],
+          };
+          return converted("# CV\nAda");
+        },
       },
     );
-    // The AI cell runs at sheet-1 row 4 col 2; the audio lives in col 7 of the
-    // same row, and that is the cell the stored result belongs to.
-    expect(keys).toEqual(["sheet-1.cell.4.7|https://files.test/ada.mp3"]);
-    expect(failures).toEqual([]);
-    expect(texts).toEqual([
-      {
-        columnId: "col.7",
-        source: "https://files.test/ada.mp3",
-        text: "Hello, this is Ada.",
-        reused: false,
-      },
+    expect(reused).toBe(false);
+    expect(seen).not.toBeNull();
+    const asked = seen as unknown as {
+      path: string;
+      filename: string;
+      bytes: number[];
+    };
+    expect(asked.filename).toBe("cv.pdf");
+    expect(asked.path.endsWith("source.pdf")).toBe(true);
+    expect(asked.bytes).toEqual([1, 2, 3]);
+    // The temp copy is gone once the conversion is done.
+    expect(await Bun.file(asked.path).exists()).toBe(false);
+    expect(record.output).toEqual(markdownOutput());
+    expect([...rows.keys()]).toEqual([
+      "sheet-1.cell.4.7|https://files.test/up/cv.pdf",
     ]);
   });
 
-  it("reuses a stored transcript instead of calling the API again", async () => {
-    const stored = {
-      kind: EXTERNAL_API_KINDS.audioTranscription,
-      provider: "elevenlabs",
-      model: "scribe_v1",
-      text: "Stored transcript.",
-      languageCode: "en",
-      filename: "ada.mp3",
-      mediaType: "audio/mpeg",
-      bytes: 3,
-    };
+  it("reuses a stored conversion instead of converting again", async () => {
     const { store } = fakeStore({
-      "sheet-1.cell.4.7|https://files.test/ada.mp3": stored,
+      "sheet-1.cell.4.7|https://files.test/cv.pdf": markdownOutput(),
     });
     let calls = 0;
-    const { texts } = await collectTranscripts(
-      address,
-      [audioCell(7, "https://files.test/ada.mp3")],
+    const { reused } = await resolveMarkdownRecord(
+      { cellId: "sheet-1.cell.4.7", url: "https://files.test/cv.pdf" },
       {
         store,
-        fetchImpl: mp3,
-        transcribe: async () => {
+        fetchImpl: pdf,
+        convert: async () => {
           calls += 1;
-          return transcription("fresh");
+          return converted("fresh");
         },
       },
     );
+    expect(reused).toBe(true);
     expect(calls).toBe(0);
-    expect(texts[0]).toMatchObject({
-      text: "Stored transcript.",
-      reused: true,
-    });
   });
 
-  it("records a failure instead of throwing when the file or the API fails", async () => {
-    const gone: FetchLike = async () => ({
-      ok: false,
-      status: 404,
-      headers: { get: () => null },
-      arrayBuffer: async () => new ArrayBuffer(0),
+  it("re-converts a stored record of another kind (an old transcript) and replaces it", async () => {
+    const { store, rows } = fakeStore({
+      "sheet-1.cell.4.7|https://files.test/a.mp3": {
+        kind: EXTERNAL_API_KINDS.audioTranscription,
+        text: "old",
+      },
     });
-    const notFetched = await collectTranscripts(
-      address,
-      [audioCell(7, "https://files.test/ada.mp3")],
+    const { reused } = await resolveMarkdownRecord(
+      { cellId: "sheet-1.cell.4.7", url: "https://files.test/a.mp3" },
       {
-        store: fakeStore().store,
-        fetchImpl: gone,
-        transcribe: async () => transcription("x"),
+        store,
+        fetchImpl: serving("audio/mpeg"),
+        convert: async () => converted("### Audio Transcript:\nHello"),
       },
     );
-    expect(notFetched.texts).toEqual([]);
-    expect(notFetched.failures).toEqual([
-      {
-        columnId: "col.7",
-        url: "https://files.test/ada.mp3",
-        error: "HTTP 404",
-      },
-    ]);
+    expect(reused).toBe(false);
+    expect(rows.get("sheet-1.cell.4.7|https://files.test/a.mp3")).toMatchObject(
+      { kind: "document-markdown", mediaType: "audio/mpeg" },
+    );
+  });
 
-    const notTranscribed = await collectTranscripts(
-      address,
-      [audioCell(7, "https://files.test/ada.mp3")],
+  it("hands markitdown a YouTube URL itself, without fetching it", async () => {
+    let fetched = false;
+    let asked: unknown = null;
+    const { record } = await resolveMarkdownRecord(
+      { cellId: "sheet-1.cell.4.3", url: "https://youtu.be/abc" },
       {
         store: fakeStore().store,
-        fetchImpl: mp3,
-        transcribe: async () => {
-          throw new Error("ElevenLabs speech-to-text failed: HTTP 401");
+        fetchImpl: async () => {
+          fetched = true;
+          throw new Error("no fetch");
+        },
+        convert: async (input) => {
+          asked = input;
+          return converted("# Talk\n### Transcript\nHi", "Talk");
         },
       },
     );
-    expect(notTranscribed.failures[0]?.error).toBe(
-      "ElevenLabs speech-to-text failed: HTTP 401",
-    );
+    expect(fetched).toBe(false);
+    expect(asked).toEqual({ url: "https://youtu.be/abc" });
+    expect(record.output).toMatchObject({
+      source: "youtube",
+      filename: "Talk",
+      bytes: null,
+      title: "Talk",
+    });
   });
 
-  it("ignores every cell that is not an audio cell holding an http(s) URL", async () => {
-    const { store, keys } = fakeStore();
-    const { texts, failures } = await collectTranscripts(
+  it("fails without retry value on an empty document or an oversized file; an image may be empty", async () => {
+    const empty = await expectError(
+      resolveMarkdownRecord(
+        { cellId: "sheet-1.cell.4.7", url: "https://files.test/scan.pdf" },
+        {
+          store: fakeStore().store,
+          fetchImpl: pdf,
+          convert: async () => converted("  \n"),
+        },
+      ),
+      UnconvertibleSourceError,
+    );
+    expect(empty.message).toBe("no text could be extracted from the file");
+
+    const huge = await expectError(
+      resolveMarkdownRecord(
+        { cellId: "sheet-1.cell.4.7", url: "https://files.test/big.pdf" },
+        {
+          store: fakeStore().store,
+          fetchImpl: serving("application/pdf", [1], MAX_CONVERT_BYTES + 1),
+          convert: async () => converted("x"),
+        },
+      ),
+      UnconvertibleSourceError,
+    );
+    expect(huge.message).toBe(`larger than ${MAX_CONVERT_BYTES} bytes`);
+
+    // A dead link may come back: a plain error, so the task retries it.
+    const gone = await expectError(
+      resolveMarkdownRecord(
+        { cellId: "sheet-1.cell.4.7", url: "https://files.test/gone.pdf" },
+        {
+          store: fakeStore().store,
+          fetchImpl: async () => ({
+            ok: false,
+            status: 404,
+            headers: { get: () => null },
+            arrayBuffer: async () => new ArrayBuffer(0),
+          }),
+          convert: async () => converted("x"),
+        },
+      ),
+      Error,
+    );
+    expect(gone).not.toBeInstanceOf(UnconvertibleSourceError);
+    expect(gone.message).toBe("HTTP 404");
+
+    // An image is attached anyway, so its (metadata-only) markdown may be empty.
+    const { record } = await resolveMarkdownRecord(
+      { cellId: "sheet-1.cell.4.7", url: "https://files.test/photo.png" },
+      {
+        store: fakeStore().store,
+        fetchImpl: png,
+        convert: async () => converted(""),
+      },
+    );
+    expect(record.output).toMatchObject({
+      markdown: "",
+      mediaType: "image/png",
+    });
+  });
+
+  it("builds the script's arguments and reads its one JSON line", () => {
+    expect(
+      converterArgs({ path: "/tmp/x/source.pdf", filename: "cv.pdf" }),
+    ).toEqual(["--path", "/tmp/x/source.pdf", "--name", "cv.pdf"]);
+    expect(converterArgs({ url: "https://youtu.be/a" })).toEqual([
+      "--url",
+      "https://youtu.be/a",
+    ]);
+    expect(
+      parseConverterOutput(
+        'warning: something\n{"markdown": "# A", "title": " T ", "version": "0.1.9"}\n',
+      ),
+    ).toEqual({ markdown: "# A", title: "T", version: "0.1.9" });
+    expect(
+      parseConverterOutput('{"markdown": "", "title": null, "version": 1}'),
+    ).toEqual({ markdown: "", title: null, version: "unknown" });
+    expect(() => parseConverterOutput("Traceback ...")).toThrow(
+      "markitdown printed no result",
+    );
+    expect(() => parseConverterOutput('{"title": "x"}')).toThrow(
+      "markitdown's result has no markdown",
+    );
+    expect(MARKITDOWN_SCRIPT).toBe("./python/markitdown_convert.py");
+  });
+
+  it("reads the store first: only misses reach the resolver, another cell's result is copied", async () => {
+    const { store, saved } = fakeStore({
+      "sheet-1.cell.4.1|https://files.test/own.pdf": markdownOutput(),
+      "sheet-9.cell.0.5|https://files.test/shared.pdf": markdownOutput({
+        markdown: "# Shared",
+        characters: 8,
+      }),
+    });
+    const asked: MarkdownKey[] = [];
+    const resolve: MarkdownResolver = async (keys) => {
+      asked.push(...keys);
+      return keys.map((key) => ({
+        record: recordOf(
+          key.cellId,
+          key.url,
+          markdownOutput({ markdown: "# Fresh", characters: 7 }),
+        ),
+        reused: false,
+      }));
+    };
+    const { documents, failures } = await collectConversions(
       address,
       [
+        sourceCell(1, "https://files.test/own.pdf"),
+        sourceCell(2, "https://files.test/shared.pdf"),
+        sourceCell(3, "https://files.test/new.pdf"),
         { id: "col.0", index: 0, name: "Name", type: "string", value: "Ada" },
-        {
-          id: "col.1",
-          index: 1,
-          name: "CV",
-          type: "file",
-          value: "https://files.test/cv.pdf",
-        },
-        audioCell(7, null),
       ],
-      { store, fetchImpl: mp3, transcribe: async () => transcription("x") },
+      resolve,
+      store,
     );
-    expect(keys).toEqual([]);
-    expect(texts).toEqual([]);
+    expect(asked).toEqual([
+      { cellId: "sheet-1.cell.4.3", url: "https://files.test/new.pdf" },
+    ]);
+    // The shared result is copied under this row's cell, so its cascade owns a row.
+    expect(saved).toEqual(["sheet-1.cell.4.2|https://files.test/shared.pdf"]);
     expect(failures).toEqual([]);
+    expect(
+      documents.map(({ columnId, content, reused }) => ({
+        columnId,
+        content,
+        reused,
+      })),
+    ).toEqual([
+      { columnId: "col.1", content: "# CV\nAda", reused: true },
+      { columnId: "col.2", content: "# Shared", reused: true },
+      { columnId: "col.3", content: "# Fresh", reused: false },
+    ]);
   });
 
-  it("summarises without the transcript text", () => {
+  it("turns a resolver that fails, or answers short, into per-cell failures", async () => {
+    const cells = [
+      sourceCell(1, "https://files.test/a.pdf"),
+      sourceCell(2, "https://files.test/b.pdf"),
+    ];
+    const dead = await collectConversions(
+      address,
+      cells,
+      async () => {
+        throw new Error("batch refused");
+      },
+      fakeStore().store,
+    );
+    expect(dead.failures).toEqual([
+      {
+        columnId: "col.1",
+        url: "https://files.test/a.pdf",
+        error: "batch refused",
+      },
+      {
+        columnId: "col.2",
+        url: "https://files.test/b.pdf",
+        error: "batch refused",
+      },
+    ]);
+    const short = await collectConversions(
+      address,
+      cells,
+      async () => [{ error: "markitdown failed" }],
+      fakeStore().store,
+    );
+    expect(short.failures.map((failure) => failure.error)).toEqual([
+      "markitdown failed",
+      "the conversion resolver returned no result for this cell",
+    ]);
+  });
+
+  it("caps the prompt's markdown and summarises without it", () => {
+    const long = "a".repeat(MAX_MARKDOWN_PROMPT_CHARS + 5);
+    const { content, truncated } = formatMarkdown(long);
+    expect(truncated).toBe(true);
+    expect(content).toBe(
+      `${"a".repeat(MAX_MARKDOWN_PROMPT_CHARS)}\n[… 5 more characters omitted]`,
+    );
+    expect(formatMarkdown("short")).toEqual({
+      content: "short",
+      truncated: false,
+    });
     expect(
-      summariseTranscripts({
-        texts: [
+      summariseConversions({
+        documents: [
           {
-            columnId: "col.7",
-            source: "https://files.test/ada.mp3",
-            text: "Hello, this is Ada.",
+            columnId: "col.1",
+            source: "https://files.test/cv.pdf",
+            filename: "cv.pdf",
+            mediaType: "application/pdf",
+            characters: 8,
+            content: "# CV\nAda",
+            truncated: false,
             reused: true,
           },
         ],
         failures: [
           {
-            columnId: "col.8",
-            url: "https://files.test/x.mp3",
+            columnId: "col.2",
+            url: "https://files.test/x.pdf",
             error: "HTTP 404",
           },
         ],
       }),
     ).toEqual([
       {
-        columnId: "col.7",
-        source: "https://files.test/ada.mp3",
-        characters: 19,
+        columnId: "col.1",
+        source: "https://files.test/cv.pdf",
+        characters: 8,
+        truncated: false,
         reused: true,
       },
-      { columnId: "col.8", url: "https://files.test/x.mp3", error: "HTTP 404" },
+      { columnId: "col.2", url: "https://files.test/x.pdf", error: "HTTP 404" },
     ]);
+  });
+
+  it("resolves a row's crawls and conversions in ONE resolver call, and none when the store has everything", async () => {
+    const cells = [
+      sourceCell(1, "https://files.test/cv.pdf"),
+      sourceCell(2, "https://ada.test", "url"),
+      sourceCell(3, "https://youtu.be/abc", "url"),
+    ];
+    const requests: SourceRequest[] = [];
+    const sources: SourceResolver = async (request) => {
+      requests.push(request);
+      return {
+        crawls: request.crawls.map(() => ({ error: "Firecrawl down" })),
+        conversions: request.conversions.map((key) => ({
+          record: recordOf(key.cellId, key.url, markdownOutput()),
+          reused: false,
+        })),
+      };
+    };
+    const { crawls, conversions } = await resolveRowSources(address, cells, {
+      sources,
+      store: fakeStore().store,
+    });
+    expect(requests).toEqual([
+      {
+        crawls: [{ cellId: "sheet-1.cell.4.2", url: "https://ada.test" }],
+        conversions: [
+          { cellId: "sheet-1.cell.4.1", url: "https://files.test/cv.pdf" },
+          { cellId: "sheet-1.cell.4.3", url: "https://youtu.be/abc" },
+        ],
+      },
+    ]);
+    expect(crawls.failures).toEqual([
+      { columnId: "col.2", url: "https://ada.test", error: "Firecrawl down" },
+    ]);
+    expect(conversions.documents.map((doc) => doc.columnId)).toEqual([
+      "col.1",
+      "col.3",
+    ]);
+
+    const cached = fakeStore({
+      "sheet-1.cell.4.1|https://files.test/cv.pdf": markdownOutput(),
+    });
+    let called = false;
+    const none = await resolveRowSources(
+      address,
+      [cells[0] as RunAiInputCell],
+      {
+        sources: async () => {
+          called = true;
+          return { crawls: [], conversions: [] };
+        },
+        store: cached.store,
+      },
+    );
+    expect(called).toBe(false);
+    expect(none.conversions.documents[0]?.reused).toBe(true);
+  });
+
+  it("attaches images and failed files (never a YouTube page), and notes each source once", async () => {
+    const cells = [
+      sourceCell(1, "https://files.test/cv.pdf"),
+      sourceCell(2, "https://files.test/photo.png"),
+      sourceCell(3, "https://files.test/scan.pdf"),
+      sourceCell(4, "https://youtu.be/abc", "url"),
+      sourceCell(5, "https://files.test/blank.png"),
+    ];
+    const doc = (
+      columnId: string,
+      filename: string,
+      mediaType: string,
+      content: string,
+    ) => ({
+      columnId,
+      source: `https://files.test/${filename}`,
+      filename,
+      mediaType,
+      characters: content.length,
+      content,
+      truncated: false,
+      reused: false,
+    });
+    const conversions = {
+      documents: [
+        doc("col.1", "cv.pdf", "application/pdf", "# CV"),
+        doc("col.2", "photo.png", "image/png", "ImageSize: 10x10"),
+        doc("col.5", "blank.png", "image/png", ""),
+      ],
+      failures: [
+        {
+          columnId: "col.3",
+          url: "https://files.test/scan.pdf",
+          error: "no text",
+        },
+        {
+          columnId: "col.4",
+          url: "https://youtu.be/abc",
+          error: "no transcript",
+        },
+      ],
+    };
+    expect(cellsToAttach(cells, conversions).map((cell) => cell.id)).toEqual([
+      "col.2",
+      "col.3",
+      "col.5",
+    ]);
+    const attachments = {
+      files: [
+        {
+          columnId: "col.2",
+          filename: "photo.png",
+          mediaType: "image/png",
+          data: new Uint8Array(1),
+        },
+        {
+          columnId: "col.5",
+          filename: "blank.png",
+          mediaType: "image/png",
+          data: new Uint8Array(1),
+        },
+      ],
+      failures: [
+        {
+          columnId: "col.3",
+          url: "https://files.test/scan.pdf",
+          error: "HTTP 500",
+        },
+      ],
+    };
+    const notes = notesOf(attachments, conversions, {
+      sites: [],
+      failures: [],
+    });
+    expect(Object.fromEntries(notes)).toEqual({
+      "col.1": {
+        kind: "converted",
+        filename: "cv.pdf",
+        content: "# CV",
+        attached: false,
+      },
+      "col.2": {
+        kind: "converted",
+        filename: "photo.png",
+        content: "ImageSize: 10x10",
+        attached: true,
+      },
+      // The conversion failed and so did the fallback fetch.
+      "col.3": { kind: "failed", step: "convert", error: "no text" },
+      "col.4": { kind: "failed", step: "convert", error: "no transcript" },
+      // Nothing to read: the picture is the content.
+      "col.5": { kind: "attached", filename: "blank.png" },
+    });
   });
 });
 
@@ -2699,6 +3138,53 @@ describe("run-ai-cell task crawls (pure)", () => {
       prompt.indexOf("Website (url)"),
     );
     expect(prompt.indexOf("Content of the website")).toBeLessThan(
+      prompt.indexOf('Fill the column "Summary".'),
+    );
+  });
+
+  it("puts a converted file's markdown in a block after the row", () => {
+    const cells: RunAiInputCell[] = [
+      { id: "col.0", index: 0, name: "Name", type: "string", value: "Ada" },
+      {
+        id: "col.1",
+        index: 1,
+        name: "CV",
+        type: "file",
+        value: "https://files.test/cv.pdf",
+      },
+    ];
+    const input: RunAiInput = {
+      prompt: "Summarise the CV.",
+      target: {
+        id: "col.2",
+        index: 2,
+        name: "Summary",
+        type: "string",
+        node: "ai",
+      },
+      row: { id: "row.0", index: 0, cells },
+    };
+    const notes = new Map<string, CellSourceNote>([
+      [
+        "col.1",
+        {
+          kind: "converted",
+          filename: "cv.pdf",
+          content: "# Ada\nEngineer.",
+          attached: false,
+        },
+      ],
+    ]);
+    const { system, prompt } = buildCellMessages(input, notes);
+    expect(system).toContain("including the content of their files");
+    expect(system).not.toContain("attached files");
+    expect(prompt).toContain(
+      'CV (file): file "cv.pdf" (read as markdown, its content is below)',
+    );
+    expect(prompt).toContain(
+      'Content of the file "cv.pdf" in column "CV", as markdown:\n# Ada\nEngineer.',
+    );
+    expect(prompt.indexOf("Content of the file")).toBeLessThan(
       prompt.indexOf('Fill the column "Summary".'),
     );
   });

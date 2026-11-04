@@ -43,7 +43,7 @@ const sumUsage = (a: CellUsage, b: CellUsage): CellUsage => ({
 /**
  * One Google Search cell, end to end. Returns the same `CellGeneration` shape
  * as `generateCellValue` — plus what it searched — so `run-ai-cell` only has
- * to pick a function. `attachments` and `transcripts` are always empty: the
+ * to pick a function. `attachments` and `conversions` are always empty: the
  * row's file cells reach the model as text lines, nothing is fetched. Both
  * calls start with the company block; neither uses an explicit cache — the
  * grounded call has a tool, which the model refuses next to a cache, and the
@@ -85,7 +85,7 @@ export async function generateSearchCellValue(
     model: typed.model,
     usage: sumUsage(cellUsage(grounded.usage), typed.usage),
     attachments: [],
-    transcripts: [],
+    conversions: [],
     crawls: [],
     searches,
   };

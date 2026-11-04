@@ -15,7 +15,8 @@
       "!**/.turbo",
       "!**/.next",
       "!**/generated",
-      "!**/.trigger"
+      "!**/.trigger",
+      "!**/.venv"
     ]
   },
   "css": {

@@ -122,7 +122,7 @@ export async function generateEmailCellValue(
     model: result.response.modelId,
     usage: cellUsage(result.usage),
     attachments: [],
-    transcripts: [],
+    conversions: [],
     crawls: [],
     emails,
   };

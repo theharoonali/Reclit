@@ -83,31 +83,33 @@ export function cellOutputSchema(
 }
 
 /**
- * How a URL cell reached the model, keyed by column id: as an attached file
- * (named so the line can point at it), as a transcript (an audio cell —
- * cell-transcripts.ts), as a crawled website whose pages follow the row
- * (a url cell — cell-crawls.ts), or not at all, with the step that failed
- * and why.
+ * How a URL cell reached the model, keyed by column id: as markdown whose
+ * content follows the row (a file, audio or YouTube cell — cell-markdown.ts;
+ * `attached` when the file travels too, as an image does), as an attached
+ * file (named so the line can point at it — a file whose conversion failed),
+ * as a crawled website whose pages follow the row (a url cell —
+ * cell-crawls.ts), or not at all, with the step that failed and why.
  */
 export type CellSourceNote =
+  | { kind: "converted"; filename: string; content: string; attached: boolean }
   | { kind: "attached"; filename: string }
-  | { kind: "transcribed"; text: string }
   | { kind: "crawled"; pages: number; content: string }
-  | { kind: "failed"; step: "fetch" | "transcribe" | "crawl"; error: string };
+  | { kind: "failed"; step: CellSourceStep; error: string };
+export type CellSourceStep = "fetch" | "convert" | "crawl";
 export type CellSourceNotes = ReadonlyMap<string, CellSourceNote>;
 
 /** The reason half of a failed line: which step could not be done, and why. */
-const FAILED_STEPS: Record<"fetch" | "transcribe" | "crawl", string> = {
+const FAILED_STEPS: Record<CellSourceStep, string> = {
   fetch: "could not be fetched",
-  transcribe: "could not be transcribed",
+  convert: "could not be read",
   crawl: "could not be crawled",
 };
 
 /**
  * One cell as a prompt line: `Name (type): value`; blanks say so, JSON is
- * stringified, a cell whose file travels alongside names the file, an audio
- * cell carries its transcript instead of its URL, and a crawled website
- * keeps its URL and points at the content block below the row.
+ * stringified, a cell whose file travels alongside names the file, and a
+ * converted file or a crawled website points at its content block below the
+ * row.
  */
 export function formatCellLine(
   cell: RunAiInputCell,
@@ -116,8 +118,8 @@ export function formatCellLine(
   const value =
     note?.kind === "attached"
       ? `attached file "${note.filename}"`
-      : note?.kind === "transcribed"
-        ? `transcript of the audio: ${note.text}`
+      : note?.kind === "converted"
+        ? `file "${note.filename}" (read as markdown, its content is below${note.attached ? "; the file is also attached" : ""})`
         : note?.kind === "crawled"
           ? `${String(cell.value)} (website crawled: ${note.pages} pages, its content is below)`
           : note?.kind === "failed"
@@ -131,16 +133,23 @@ export function formatCellLine(
 }
 
 /**
- * The crawled websites as blocks after the row, one per url cell in row
- * order — the row line only points at them, so a long site does not push the
- * rest of the row out of sight.
+ * The converted files and crawled websites as blocks after the row, one per
+ * cell in row order — the row line only points at them, so a long document
+ * does not push the rest of the row out of sight.
  */
-function crawledContentBlocks(
+function sourceContentBlocks(
   cells: RunAiInputCell[],
   notes: CellSourceNotes,
 ): string[] {
   return cells.flatMap((cell) => {
     const note = notes.get(cell.id);
+    if (note?.kind === "converted") {
+      return [
+        `Content of the file "${note.filename}" in column "${cell.name}", as markdown:`,
+        note.content,
+        "",
+      ];
+    }
     return note?.kind === "crawled"
       ? [
           `Content of the website in column "${cell.name}" (${String(cell.value)}), ${note.pages} pages:`,
@@ -184,10 +193,11 @@ export type CellMessages = {
  * The instruction (`system`) and the context (`prompt`). The column's prompt
  * *is* the instruction; the row goes in as one line per column in the
  * sheet's sort order, then the target is named so the model knows which
- * cell it is filling. File cells are attached as files (cell-attachments.ts)
- * and their lines say so; audio cells arrive as the transcript of their
- * recording (cell-transcripts.ts); url cells arrive as the crawled pages of
- * their website, in blocks after the row (cell-crawls.ts). From the second
+ * cell it is filling. File, audio and YouTube cells arrive as their markdown
+ * (cell-markdown.ts) and url cells as the crawled pages of their website
+ * (cell-crawls.ts), both in blocks after the row; images, and files that
+ * could not be converted, are attached as files (cell-attachments.ts) and
+ * their lines say so. From the second
  * AI column of a row on, the previous step's output is named as the primary
  * input. A `google_search` target gets `SEARCH_RULES` on top; everything
  * else is the same, so both nodes read the row the same way. The company
@@ -200,10 +210,15 @@ export function buildCellMessages(
   company: CompanyContext | null = null,
 ): CellMessages {
   const { prompt, target, row, previous } = input;
-  const attached = [...notes.values()].some((n) => n.kind === "attached");
-  const crawled = [...notes.values()].some((n) => n.kind === "crawled");
+  const all = [...notes.values()];
+  const attached = all.some(
+    (n) => n.kind === "attached" || (n.kind === "converted" && n.attached),
+  );
+  const converted = all.some((n) => n.kind === "converted");
+  const crawled = all.some((n) => n.kind === "crawled");
   const context = [
     "Use the other cells of the row as context",
+    ...(converted ? [", including the content of their files"] : []),
     ...(attached ? [", including the attached files"] : []),
     ...(crawled ? [", including the crawled website content"] : []),
     ".",
@@ -236,7 +251,7 @@ export function buildCellMessages(
     `Row ${row.index + 1}:`,
     ...lines,
     "",
-    ...crawledContentBlocks(row.cells, notes),
+    ...sourceContentBlocks(row.cells, notes),
     ...(previous
       ? ["Output of the previous step:", formatCellLine(previous), ""]
       : []),

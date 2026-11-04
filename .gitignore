@@ -64,3 +64,6 @@ logs
 *.sw?
 
 ignore/
+# python (apps/api markitdown venv)
+.venv/
+__pycache__/

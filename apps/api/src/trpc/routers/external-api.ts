@@ -5,7 +5,7 @@ import { createTRPCRouter, mapDomainError, protectedProcedure } from "../init";
 
 // Routers validate input and delegate. All DB access lives in the service.
 // Read-only: the writers are the processors that run inside the Trigger.dev
-// worker (`src/ai/cell-transcripts.ts` today), and deletion is the `cellId`
+// worker (`src/ai/cell-markdown.ts`, `src/ai/cell-crawls.ts`), and deletion is the `cellId`
 // foreign key's cascade (docs/features/external-api.md).
 
 export const externalApiRouter = createTRPCRouter({

@@ -1,3 +1,4 @@
+import type { Prisma } from "../../../generated/prisma/client";
 import { isUniqueViolation } from "../../common/prisma-errors";
 import { prisma, toJsonInput } from "../../db/prisma";
 import {
@@ -77,21 +78,37 @@ const upsertRow = (id: string, rowIndex: number) =>
     update: {},
   });
 
-/** Writes or clears one cell — `null` deletes the record. */
+/**
+ * Writes or clears one cell — `null` deletes the record, and the cascade
+ * takes its `ExternalApi` results with it. A new value also drops every
+ * result produced from a source the cell no longer holds (a replaced file's
+ * markdown, a changed URL's crawl): those rows are keyed by the value
+ * (`input`), so one that differs describes content that is gone
+ * (docs/features/external-api.md). Statements for one transaction.
+ */
 const writeCell = (
   id: string,
   rowIndex: number,
   { columnIndex, value }: CellWrite,
-) =>
-  value === null
-    ? prisma.cell.deleteMany({
-        where: { id: cellId(id, rowIndex, columnIndex) },
-      })
-    : prisma.cell.upsert({
-        where: { id: cellId(id, rowIndex, columnIndex) },
-        create: cellData(id, rowIndex, columnIndex, value),
-        update: { value: toJsonInput(value) },
-      });
+): Prisma.PrismaPromise<unknown>[] => {
+  const target = cellId(id, rowIndex, columnIndex);
+  if (value === null) {
+    return [prisma.cell.deleteMany({ where: { id: target } })];
+  }
+  return [
+    prisma.externalApi.deleteMany({
+      where:
+        typeof value === "string"
+          ? { cellId: target, input: { not: value } }
+          : { cellId: target },
+    }),
+    prisma.cell.upsert({
+      where: { id: target },
+      create: cellData(id, rowIndex, columnIndex, value),
+      update: { value: toJsonInput(value) },
+    }),
+  ];
+};
 
 /** One past the highest stored row index. */
 export async function nextRowIndex(id: string): Promise<number> {
@@ -116,8 +133,9 @@ export class SpreadsheetCellsService {
     const column = await spreadsheetService.columnOrThrow(id, columnIndex);
     assertValueFits(value, column.type);
     const write = writeCell(id, rowIndex, { columnIndex, value });
-    if (value === null) await write;
-    else await prisma.$transaction([upsertRow(id, rowIndex), write]);
+    await prisma.$transaction(
+      value === null ? write : [upsertRow(id, rowIndex), ...write],
+    );
     return toSheetCell(rowIndex, columnIndex, value);
   }
 
@@ -132,7 +150,7 @@ export class SpreadsheetCellsService {
     await this.assertWritable(id, cells);
     await prisma.$transaction([
       upsertRow(id, rowIndex),
-      ...cells.map((cell) => writeCell(id, rowIndex, cell)),
+      ...cells.flatMap((cell) => writeCell(id, rowIndex, cell)),
     ]);
     return spreadsheetService.row(id, rowIndex);
   }
@@ -158,7 +176,7 @@ export class SpreadsheetCellsService {
       ...(writes.some((write) => write.value !== null)
         ? [upsertRow(id, rowIndex)]
         : []),
-      ...writes.map((write) => writeCell(id, rowIndex, write)),
+      ...writes.flatMap((write) => writeCell(id, rowIndex, write)),
     ]);
     const CHUNK = 500;
     for (let start = 0; start < statements.length; start += CHUNK) {

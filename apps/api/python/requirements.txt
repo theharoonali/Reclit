@@ -1,0 +1,5 @@
+# The markitdown conversion behind the `convert-to-markdown` Trigger.dev task
+# (src/trigger/convert-to-markdown.ts). Installed into the deploy image by
+# `pythonExtension` (trigger.config.ts); in dev, into apps/api/.venv:
+#   python -m venv .venv && .venv/Scripts/python -m pip install -r python/requirements.txt
+markitdown[all]==0.1.9
