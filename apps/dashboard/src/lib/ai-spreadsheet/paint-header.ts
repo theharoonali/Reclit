@@ -1,14 +1,10 @@
 import {
   CELL_PAD_X,
   GUTTER_WIDTH,
-  HEADER_DELETE_HIT_PAD,
-  HEADER_GRIP_GAP,
   HEADER_GRIP_WIDTH,
   HEADER_HEIGHT,
   headerCheckboxRect,
-  headerDeleteRect,
   headerGripRect,
-  inflateRect,
   isHeaderColumnHit,
   plusButtonRect,
   visibleCols,
@@ -31,7 +27,8 @@ import type {
 
 /**
  * The node's icon (`NODE_ICONS`) painted left of a column's name, stroked in
- * the name's colour. Decorative and not hit-tested.
+ * the name's colour. Decorative and not hit-tested. Accented nodes (AI) paint
+ * no icon: their whole header is washed in the accent instead.
  */
 const GLYPH_SIZE = 14;
 const GLYPH_GAP = 4;
@@ -120,6 +117,12 @@ export type HeaderPaintArgs = {
    * the pointer, so showing its name in two places at once would be a lie.
    */
   draggingCol: number | null;
+  /**
+   * The column a header click selected (`column-selection.ts`), in `columns`
+   * order; null when the selection is anything else. It paints a stronger
+   * wash than hover, so the column reads as picked while the pointer is away.
+   */
+  selectedCol: number | null;
   /** Select-all state: none, some stored rows selected, or all of them. */
   selectAll: CheckboxPaintState;
   /**
@@ -138,7 +141,7 @@ export type HeaderPaintArgs = {
  */
 export function paintHeader(args: HeaderPaintArgs) {
   const { ctx, dpr, viewport, columns, palette, labels, fonts, hover } = args;
-  const { draggingCol } = args;
+  const { draggingCol, selectedCol } = args;
   const { width, scrollX } = viewport;
   const strip = Math.max(width, args.stripWidth);
   const lineW = 1 / dpr;
@@ -175,35 +178,30 @@ export function paintHeader(args: HeaderPaintArgs) {
       col++;
       continue;
     }
-    if (hovered) {
+    const accented =
+      column.node !== null && NODE_ICON_ACCENT[column.node] === true;
+    // AI columns wear a light accent wash in place of an icon; selection and
+    // hover layer on top of it, so both still read on an AI column.
+    if (accented) {
+      ctx.fillStyle = withAlpha(palette.ring, 0.12);
+      ctx.fillRect(x, 0, width, HEADER_HEIGHT);
+    }
+    if (selectedCol === col) {
+      ctx.fillStyle = withAlpha(palette.ring, 0.18);
+      ctx.fillRect(x, 0, width, HEADER_HEIGHT);
+      ctx.fillStyle = palette.ring;
+      ctx.fillRect(x, HEADER_HEIGHT - 2, width, 2);
+    } else if (hovered) {
       ctx.fillStyle = withAlpha(palette.ring, 0.08);
       ctx.fillRect(x, 0, width, HEADER_HEIGHT);
     }
-    // The grip's lane is reserved on every column but only inked on the one
-    // under the pointer, so revealing it does not shove the name sideways.
-    if (hovered) paintGrip(ctx, layout, col, palette);
 
-    // The right edge holds the type name — swapped for the delete affordance
-    // while the column is hovered; the column name gets what is left.
+    // The right edge holds the type name — swapped for the drag grip while
+    // the column is hovered; the column name gets what is left.
     let rightWidth: number;
     if (hovered) {
-      const box = headerDeleteRect(layout, col);
-      if (hover.kind === "header-delete") {
-        const zone = inflateRect(box, HEADER_DELETE_HIT_PAD);
-        ctx.fillStyle = withAlpha(palette.invalid, 0.12);
-        ctx.fillRect(zone.x, zone.y, zone.w, zone.h);
-      }
-      ctx.strokeStyle = palette.invalid;
-      ctx.lineWidth = Math.max(1, Math.round(1.5 * dpr)) / dpr;
-      const cx = box.x + box.w / 2;
-      const cy = box.y + box.h / 2;
-      ctx.beginPath();
-      ctx.moveTo(cx - 4, cy - 4);
-      ctx.lineTo(cx + 4, cy + 4);
-      ctx.moveTo(cx + 4, cy - 4);
-      ctx.lineTo(cx - 4, cy + 4);
-      ctx.stroke();
-      rightWidth = box.w;
+      paintGrip(ctx, layout, col, palette);
+      rightWidth = HEADER_GRIP_WIDTH;
     } else {
       ctx.font = fonts.type;
       const typeName = labels.typeNames[column.type];
@@ -216,19 +214,14 @@ export function paintHeader(args: HeaderPaintArgs) {
     ctx.font = fonts.header;
     ctx.fillStyle = palette.headerText;
     ctx.textAlign = "left";
-    // Everything after the grip starts here, and `room` subtracts the same
-    // inset. Reserve it in one and not the other and names run under the type
-    // label; reserve it only while hovered and they jitter as the grip fades in.
-    const leftInset = CELL_PAD_X + HEADER_GRIP_WIDTH + HEADER_GRIP_GAP;
+    const leftInset = CELL_PAD_X;
     const glyph =
-      column.node === null ? undefined : nodeGlyphPaths(column.node);
+      column.node === null || accented
+        ? undefined
+        : nodeGlyphPaths(column.node);
     let glyphSpace = 0;
-    if (glyph !== undefined && column.node !== null) {
-      // Accented nodes (the AI mark) stroke in the primary orange.
-      const glyphColor = NODE_ICON_ACCENT[column.node]
-        ? palette.ring
-        : palette.headerText;
-      paintGlyph(ctx, glyph, x + leftInset, glyphColor);
+    if (glyph !== undefined) {
+      paintGlyph(ctx, glyph, x + leftInset, palette.headerText);
       glyphSpace = GLYPH_SIZE + GLYPH_GAP;
     }
     const room = width - leftInset - CELL_PAD_X * 2 - rightWidth - glyphSpace;

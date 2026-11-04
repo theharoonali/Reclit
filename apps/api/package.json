@@ -29,6 +29,7 @@
     "@prisma/client": "^7.9.1",
     "@reclit/dashboard-engine": "workspace:*",
     "@supabase/supabase-js": "^2.112.4",
+    "@trigger.dev/python": "4.5.15",
     "@trigger.dev/sdk": "4.5.15",
     "@trpc/server": "^11.16.0",
     "ai": "^7.0.89",

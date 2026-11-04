@@ -32,7 +32,6 @@ export {
   CAPSULE_PAD_X,
   CELL_PAD_X,
   COL_WIDTH,
-  HEADER_GRIP_GAP,
   HEADER_GRIP_WIDTH,
   JSON_KEY_GAP,
   JSON_KEY_MAX,
@@ -57,14 +56,8 @@ export const CHECKBOX_SIZE = 14;
 export const CHECKBOX_INNER_INSET = 4;
 /** The "+ column" affordance, parked after the last column in the header. */
 export const PLUS_COLUMN_WIDTH = 44;
-/** The delete affordance at the right edge of a hovered column header. */
-export const HEADER_DELETE_SIZE = 14;
-/** Extra slack around the delete glyph so it is comfortably clickable. */
-export const HEADER_DELETE_HIT_PAD = 3;
 export const HEADER_GRIP_HEIGHT = 12;
-/** Its inset from the column's left edge — snugger than `CELL_PAD_X`. */
-export const HEADER_GRIP_PAD_X = 4;
-/** Extra slack around the grip, like the delete glyph's. */
+/** Extra slack around the grip so it is comfortably grabbable. */
 export const HEADER_GRIP_HIT_PAD = 4;
 export const OVERSCAN = 2;
 /**
@@ -190,17 +183,12 @@ export const cellRect = (
   h: rowHeight(layout, row),
 });
 
-/** Content-space rect of a column header's delete affordance. */
-export const headerDeleteRect = (layout: SheetLayout, col: number): Rect => ({
-  x: colLeft(layout, col + 1) - CELL_PAD_X - HEADER_DELETE_SIZE,
-  y: (HEADER_HEIGHT - HEADER_DELETE_SIZE) / 2,
-  w: HEADER_DELETE_SIZE,
-  h: HEADER_DELETE_SIZE,
-});
-
-/** Content-space rect of a column header's drag handle. */
+/**
+ * Content-space rect of a column header's drag handle: at the right edge,
+ * where the type label sits until the column is hovered.
+ */
 export const headerGripRect = (layout: SheetLayout, col: number): Rect => ({
-  x: colLeft(layout, col) + HEADER_GRIP_PAD_X,
+  x: colLeft(layout, col + 1) - CELL_PAD_X - HEADER_GRIP_WIDTH,
   y: (HEADER_HEIGHT - HEADER_GRIP_HEIGHT) / 2,
   w: HEADER_GRIP_WIDTH,
   h: HEADER_GRIP_HEIGHT,
@@ -245,19 +233,14 @@ export const containsPoint = (rect: Rect, x: number, y: number) =>
   x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
 
 /**
- * True for every header hit that names a column. The three kinds are distinct
+ * True for every header hit that names a column. The two kinds are distinct
  * so that crossing between them repaints, but the painter's hover wash and the
  * pointer handler's "same hit?" check both want them treated alike.
  */
 export const isHeaderColumnHit = (
   hit: SheetHit,
-): hit is Extract<
-  SheetHit,
-  { kind: "header" | "header-delete" | "header-grip" }
-> =>
-  hit.kind === "header" ||
-  hit.kind === "header-delete" ||
-  hit.kind === "header-grip";
+): hit is Extract<SheetHit, { kind: "header" | "header-grip" }> =>
+  hit.kind === "header" || hit.kind === "header-grip";
 
 /**
  * Maps a pointer position on the *body* canvas to a cell. `x` and `y` are CSS
@@ -283,18 +266,11 @@ export function hitTestHeader(
   const contentX = x - GUTTER_WIDTH + viewport.scrollX;
   const col = colAt(viewport.layout, contentX);
   if (col >= 0 && col < viewport.columnCount) {
-    // Left edge, then right edge, then the rest — the two zones are disjoint,
-    // so this reads in x order rather than expressing a precedence.
     const grip = inflateRect(
       headerGripRect(viewport.layout, col),
       HEADER_GRIP_HIT_PAD,
     );
     if (containsPoint(grip, contentX, y)) return { kind: "header-grip", col };
-    const zone = inflateRect(
-      headerDeleteRect(viewport.layout, col),
-      HEADER_DELETE_HIT_PAD,
-    );
-    if (containsPoint(zone, contentX, y)) return { kind: "header-delete", col };
     return { kind: "header", col };
   }
   if (containsPoint(plusButtonRect(viewport.layout), contentX, 0)) {

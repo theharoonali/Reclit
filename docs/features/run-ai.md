@@ -26,7 +26,7 @@ types. The columns a cell run uses:
 | `spreadsheetId` | `String?` | required for `CELL`; the sheet half of `cellId`, derived by the service on create; **not** a fk; indexed with `kind`, `updatedAt` |
 | `batchId` | `String?` | required for `CELL`; every run one Run click created (`batch-<uuid>`); indexed |
 | `status` | `String` | uppercase word; `PENDING \| RUNNING \| COMPLETED \| FAILED` or a custom working stage; default `PENDING`; the two last are terminal |
-| `result` | `Json?` | null until the cell is prepared, then `input` (with `previous` from a row's second AI column on), `output`, `model`, `usage`, `attachments`, `transcripts`, `crawls`, `searches` (`google_search` only), `error: { name, message }` — see the contract |
+| `result` | `Json?` | null until the cell is prepared, then `input` (with `previous` from a row's second AI column on), `output`, `model`, `usage`, `attachments`, `conversions`, `crawls`, `searches` (`google_search` only), `error: { name, message }` — see the contract |
 | `createdAt` | `DateTime` | `@default(now())`, indexed |
 | `updatedAt` | `DateTime` | `@updatedAt`; its ms value is the SSE event id |
 
@@ -73,20 +73,21 @@ Background jobs (outside the tRPC graph — [ARCHITECTURE.md](../../ARCHITECTURE
 | --- | --- |
 | `apps/api/trigger.config.ts` | Trigger.dev project config (`runtime: "bun"`, `dirs: ["./src/trigger"]`, `prismaExtension({ mode: "modern" })`) |
 | `apps/api/src/trigger/run-ai-batch.ts` | task `run-ai-batch` (`RunAiBatchJob`) — the skeleton of a Run click: per wave, `failPending` the cells of stopped rows → `prepare` the rest → `run-ai-cell` as `batchTriggerAndWait` (one cell: `triggerAndWait`) → a non-`completed` outcome stops the row; no retries; `onFailure` → `failPending` of every run. Before each wave it asks `ensureCompanyCache` for the sheet owner's company ([company.md](company.md)) and passes the name as `cacheName` in every cell payload |
-| `apps/api/src/trigger/run-ai-cell.ts` | task `run-ai-cell` (`{ runId, input, cacheName? }`): `markRunning` → the company context (`companyContextService.forSpreadsheet`, null on any error) → `generateCellValue` (given the run's parsed cell address and a crawl resolver that `batchTriggerAndWait`s `crawl-website` for the row's url cells) or `generateSearchCellValue` or `generateEmailCellValue` (`input.target.node` decides) → `complete` / `fail` (a failed `complete` keeps the generator's extras, e.g. `result.emails`), returns `{ runId, status }`; no retries, `maxDuration` 300 s of CPU time (a transcription may precede the model call; the wait for crawls is free); `onFailure` fails the run |
+| `apps/api/src/trigger/run-ai-cell.ts` | task `run-ai-cell` (`{ runId, input, cacheName? }`): `markRunning` → the company context (`companyContextService.forSpreadsheet`, null on any error) → `generateCellValue` (given the run's parsed cell address and a source resolver that runs ONE `batch.triggerByTaskAndWait` over `crawl-website` for the row's url cells and `convert-to-markdown` for its uncached file, audio and YouTube cells) or `generateSearchCellValue` or `generateEmailCellValue` (`input.target.node` decides) → `complete` / `fail` (a failed `complete` keeps the generator's extras, e.g. `result.emails`), returns `{ runId, status }`; no retries, `maxDuration` 300 s of CPU time (the wait for conversions and crawls is free); `onFailure` fails the run |
+| `apps/api/src/trigger/convert-to-markdown.ts` | task `convert-to-markdown` (`{ cellId, url }` → `{ recordId, reused, characters }`): the general markitdown conversion into `ExternalApi` (Python, `python/markitdown_convert.py`), 5 at a time on the `markitdown` queue, `small-2x`, retried with backoff, aborted at once on a file with no text or over 25 MB ([external-api.md](external-api.md)) |
 | `apps/api/src/trigger/crawl-website.ts` | task `crawl-website` (`{ cellId, url }` → `{ recordId, reused, pages, characters }`): the general Firecrawl crawl into `ExternalApi`, one at a time on the shared `firecrawl` queue (`firecrawl-queue.ts`, also `crawl-company`), retried with backoff ([external-api.md](external-api.md)) |
 | `apps/api/src/jobs/run-ai-dispatch.ts` | the API-side client: `registerRunAiDispatcher()` → `tasks.trigger("run-ai-batch", …, { idempotencyKey: batchId })`, the only `@trigger.dev/sdk` import on the API side; called from `src/main.ts` |
 | `apps/api/src/ai/model.ts` | the one AI provider for the Vercel AI SDK and the only file that names the vendor: `aiModel(modelId?)`, `defaultModelId()` (`AI_MODEL`, else the provider default), `isAiConfigured()`, `AI_KEY_ENV`, `webSearchTools()` / `webSearchQueries()` (the search node), `cachedContentOptions()` / `promptCacheApi` (the explicit prompt cache) |
 | `apps/api/src/ai/search-prompt.ts` | pure: `buildSearchExtractMessages` (the grounded text → the typed value), `searchRecordOf` (the grounded call's queries and pages, or `null` when it did not search), `MAX_SEARCH_SOURCES` |
 | `apps/api/src/ai/search-output.ts` | `generateSearchCellValue` — the `google_search` node: a grounded model call with the provider's web-search tool (`webSearchTools()`), the did-it-search check, then the typed extraction call |
-| `apps/api/src/ai/cell-prompt.ts` | pure: `buildCellMessages(input, notes, company?)` → `{ system, prompt, cachedPrompt }` (the company block, `CELL_PREAMBLE`, then the instruction + row as context + the previous step's output as the primary input; plus `SEARCH_RULES` for a `google_search` target; `cachedPrompt` is the instruction + row for a call on an explicit cache), `cachedCellSystem` (what that cache holds), `cellOutputSchema` (answer shape per column type), `TYPE_RULES`, `formatCellLine`, `CellSourceNote` (attached / transcribed / failed) |
-| `apps/api/src/ai/cell-attachments.ts` | fetches the row's file cells into file parts (`collectAttachments`; ≤ 15 MB, 30 s each); a failure is recorded, never thrown. `isUrlCell`, `fetchFile` / `fetchAttachment`, `filenameOf` and `mediaTypeFor` are shared (`fetchFile` and `mediaTypeFor` also with the company documents) with the transcript and crawl paths |
-| `apps/api/src/ai/cell-transcripts.ts` | resolves the row's audio cells to text through `ExternalApi` + ElevenLabs ([external-api.md](external-api.md)); a failure is recorded, never thrown |
+| `apps/api/src/ai/cell-prompt.ts` | pure: `buildCellMessages(input, notes, company?)` → `{ system, prompt, cachedPrompt }` (the company block, `CELL_PREAMBLE`, then the instruction + row as context + the previous step's output as the primary input; plus `SEARCH_RULES` for a `google_search` target; `cachedPrompt` is the instruction + row for a call on an explicit cache), `cachedCellSystem` (what that cache holds), `cellOutputSchema` (answer shape per column type), `TYPE_RULES`, `formatCellLine`, `CellSourceNote` (converted / attached / crawled / failed) |
+| `apps/api/src/ai/cell-attachments.ts` | fetches URL cells into file parts (`fetchAttachments` — what `cellsToAttach` picks; `collectAttachments` for a row's file cells; ≤ 15 MB, 30 s each); a failure is recorded, never thrown. `isUrlCell`, `fetchFile` (with a size cap) / `fetchAttachment`, `filenameOf` and `mediaTypeFor` are shared (`fetchFile` and `mediaTypeFor` also with the company documents) with the conversion and crawl paths |
+| `apps/api/src/ai/cell-markdown.ts` | resolves the row's file, audio and YouTube cells to markdown through `ExternalApi` + markitdown (the `convert-to-markdown` task — [external-api.md](external-api.md)): `planConversions` reads the store first, `conversionsFrom` joins the resolver's answers, `formatMarkdown` budgets what the prompt gets; a failure is recorded, never thrown |
 | `apps/api/src/ai/cell-crawls.ts` | resolves the row's url cells to crawled pages through `ExternalApi` + Firecrawl (`firecrawl.ts`, the `crawl-website` task — [external-api.md](external-api.md)); `formatCrawledPages` budgets what the prompt gets; a failure is recorded, never thrown |
 | `apps/api/src/ai/resend.ts` | `sendEmail` — the Resend send-email call (raw `fetch`, key read per call, `RESEND_FROM` defaulting to `Reclit <hello@reclit.com>`, `Idempotency-Key`) |
 | `apps/api/src/ai/email-prompt.ts` | pure: `findEmailAddresses` + `emailRecipients` (addresses from the prompt and any cell, target cell excluded, capped at `MAX_EMAIL_RECIPIENTS`), `emailDraftSchema` (a draft list), `resolveRecipient`, `emailCellValue` (`{address: "Subject: …" \| "FAILED"}`) |
 | `apps/api/src/ai/email-output.ts` | `generateEmailCellValue` — the `email` node: recipients → one draft-list call → per-draft checks → sequential sends with per-address idempotency, failures recorded as FAILED, run still completed |
-| `apps/api/src/ai/cell-output.ts` | `generateCellValue(input, address, deps, { company, cacheName })` — attachments, transcripts and crawls in parallel, then `cellCalls` (the implicit call, and the cached one when there is a cache) through `withCacheFallback` into `generateTypedCellValue`; `cellUsage` (adds `cachedInputTokens`); the one typed-output call both generators end on (`Output.object`, or `Output.json` for `json` columns, then `coerceCellValue` / `cellValueMatchesType`) |
+| `apps/api/src/ai/cell-output.ts` | `generateCellValue(input, address, deps, { company, cacheName })` — `resolveRowSources` (store first, then one `SourceResolver` call for the crawls and the missing conversions), then `fetchAttachments(cellsToAttach(...))` (images and failed conversions), then `cellCalls` (the implicit call, and the cached one when there is a cache) through `withCacheFallback` into `generateTypedCellValue`; `cellUsage` (adds `cachedInputTokens`); the one typed-output call both generators end on (`Output.object`, or `Output.json` for `json` columns, then `coerceCellValue` / `cellValueMatchesType`) |
 
 ## Procedures
 
@@ -191,23 +192,25 @@ There is no REST face.
   spreadsheet's own rules apply and a refused write leaves the run untouched
   — so the `completed` event always describes a persisted cell and a partial
   failure is retry-safe. `fail` never touches the cell.
-- **The row's media takes three paths, and none can fail a run.** `file`
-  cells are fetched and attached to the model call as files
-  (`collectAttachments`). `audio` cells are transcribed instead
-  (`collectTranscripts`), and `url` cells are crawled (`collectCrawls`):
-  each one is resolved through `externalApiService.resolve` under **its
-  own** cell id — same sheet, same row, its column, which is why the task
-  parses the run's `cellId` — and its URL, so a stored transcript or crawl
-  is reused and the recording or the site is paid for once no matter how many
-  AI columns the row runs through; a crawl is also reused from any other cell
-  holding the same URL (`anyCell`). The crawl itself is a `crawl-website`
-  child run per url cell (`batchTriggerAndWait`, one crawl at a time on the
-  Firecrawl free plan) that the cell task waits for, free of `maxDuration`.
-  The prompt line then carries the transcript rather than the URL, or points
-  at the crawled pages that follow the row (60,000 characters per url cell,
-  8,000 per page, the rest counted as omitted). Any path failing becomes a
-  note in that line, and the completed run records all three without their
-  content (`result.attachments`, `result.transcripts`, `result.crawls`).
+- **The row's media reaches the model as text, and none of it can fail a
+  run.** `file` and `audio` cells, and `url` cells holding a YouTube link,
+  are converted to markdown by markitdown (`cell-markdown.ts`); other `url`
+  cells are crawled (`cell-crawls.ts`). Each is stored in `ExternalApi`
+  under **its own** cell id — same sheet, same row, its column, which is why
+  the task parses the run's `cellId` — and its URL, so a file or a site is
+  processed once no matter how many AI columns or runs the row goes
+  through, and is also reused from any other cell holding the same URL
+  (`anyCell`). The store is read first (`planConversions`); whatever is
+  missing is one child run each — `convert-to-markdown` and `crawl-website`
+  — started as ONE `batch.triggerByTaskAndWait` (Trigger.dev refuses two
+  waits at once) that the cell task waits for, free of `maxDuration`. The
+  prompt line points at the markdown or the crawled pages that follow the
+  row (60,000 characters per cell; 8,000 per crawled page). Only an image
+  (its markdown is just metadata) and a file whose conversion failed are
+  fetched and attached as files (`cellsToAttach`, ≤ 15 MB). Any path
+  failing becomes a note in that line, and the completed run records all
+  three without their content (`result.attachments`, `result.conversions`,
+  `result.crawls`).
 - **Company context and caching.** Every cell's system instruction starts
   with the sheet owner's `<company-context>` block and `CELL_PREAMBLE`, the
   same bytes for every cell of a profile version, so the provider's implicit
@@ -256,7 +259,7 @@ There is no REST face.
   fans out with `batchTriggerAndWait`, and reads per-run outcomes.
 - `aiModel()` (`src/ai/model.ts`) for any service or task that needs a
   language model — never import the vendor SDK elsewhere; `isAiConfigured()`
-  for a 503 guard; `transcribeAudio` (`src/ai/elevenlabs.ts`) for speech-to-text,
+  for a 503 guard; `transcribeAudio` (`src/ai/elevenlabs.ts`) for speech-to-text (the assistant's mic),
   `crawlWebsite` (`src/ai/firecrawl.ts`) for a site's pages, `sendEmail`
   (`src/ai/resend.ts`) to send an email; add other
   providers beside them in `src/ai/`. `generateTypedCellValue` /
@@ -267,6 +270,9 @@ There is no REST face.
 - The `crawl-website` task — trigger it with `{ cellId, url }` from any task
   that needs a website's content, then read the record by id; the store, not
   the task, is where the pages live.
+- The `convert-to-markdown` task — the same for a file or a YouTube video:
+  `{ cellId, url }` in, the record id out, the markdown in the store (the
+  per-file summary will start from it).
 - `searchRecordOf` (`src/ai/search-prompt.ts`) — the shape for reading a
   provider-executed tool's metadata: pure, structural over `result.sources`,
   and answering "did it happen" so the caller can refuse an answer that

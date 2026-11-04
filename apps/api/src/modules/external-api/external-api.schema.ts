@@ -5,15 +5,20 @@ import { z } from "zod";
 // this cell" — so the only structure this file imposes is `output.kind`, the
 // discriminator that tells a reader of a cell's records what produced each one.
 // Known kinds and their output shapes are declared here; the next processor
-// (PDF → text, website → markdown) adds a constant and a schema beside them and
-// needs nothing else.
+// adds a constant and a schema beside them and needs nothing else.
 
 /** What produced a record. One per processing kind; free to grow. */
 export const EXTERNAL_API_KINDS = {
-  /** ElevenLabs Speech-to-Text over an audio cell's file (`src/ai/cell-transcripts.ts`). */
+  /**
+   * ElevenLabs Speech-to-Text over an audio cell's file. No longer written —
+   * audio is converted by markitdown (`documentMarkdown`) — and kept so old
+   * rows still parse; a run re-produces and replaces them.
+   */
   audioTranscription: "audio-transcription",
   /** A Firecrawl crawl of a url cell's website (`src/ai/cell-crawls.ts`). */
   websiteCrawl: "website-crawl",
+  /** markitdown over a file, audio or YouTube cell (`src/ai/cell-markdown.ts`). */
+  documentMarkdown: "document-markdown",
 } as const;
 
 /**
@@ -81,6 +86,32 @@ export const websiteCrawlOutputSchema = z.object({
 });
 export type WebsiteCrawlOutput = z.infer<typeof websiteCrawlOutputSchema>;
 
+/**
+ * What `src/ai/cell-markdown.ts` stores for a file, audio or YouTube cell:
+ * the whole document as markdown — the prompt takes a capped slice, a later
+ * summary reads all of it — and what it was made from, so a reader can tell
+ * whether the record still matches the cell. `source` says whether the
+ * bytes were fetched (`file`) or markitdown read a YouTube page (`youtube`,
+ * no `bytes`).
+ */
+export const documentMarkdownOutputSchema = z.object({
+  kind: z.literal(EXTERNAL_API_KINDS.documentMarkdown),
+  provider: z.literal("markitdown"),
+  version: z.string(),
+  source: z.enum(["file", "youtube"]),
+  markdown: z.string(),
+  title: z.string().nullable(),
+  filename: z.string(),
+  mediaType: z.string(),
+  bytes: z.number().int().nullable(),
+  characters: z.number().int(),
+  /** ISO 8601. */
+  convertedAt: z.string(),
+});
+export type DocumentMarkdownOutput = z.infer<
+  typeof documentMarkdownOutputSchema
+>;
+
 /* ---------------------------------------------------------------- outputs */
 
 export const externalApiSchema = z.object({
@@ -123,7 +154,15 @@ export const saveExternalApiInput = z.object({
  */
 export const crawlWebsiteJobSchema = z.object({ cellId, url: input });
 
+/**
+ * The `convert-to-markdown` Trigger.dev task's payload
+ * (`src/trigger/convert-to-markdown.ts`): the cell whose file it is — the
+ * store key — and the file's (or YouTube video's) URL.
+ */
+export const convertToMarkdownJobSchema = z.object({ cellId, url: input });
+
 export type ExternalApiCellInput = z.infer<typeof externalApiCellInput>;
 export type FindExternalApiInput = z.infer<typeof findExternalApiInput>;
 export type SaveExternalApiInput = z.infer<typeof saveExternalApiInput>;
 export type CrawlWebsiteJob = z.infer<typeof crawlWebsiteJobSchema>;
+export type ConvertToMarkdownJob = z.infer<typeof convertToMarkdownJobSchema>;

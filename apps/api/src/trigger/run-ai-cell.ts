@@ -1,10 +1,11 @@
-import { logger, schemaTask } from "@trigger.dev/sdk";
-import type { CrawlResolver } from "../ai/cell-crawls";
+import { batch, logger, schemaTask } from "@trigger.dev/sdk";
+import type { SourceResolver } from "../ai/cell-output";
 import { generateCellValue } from "../ai/cell-output";
 import { generateEmailCellValue } from "../ai/email-output";
 import { generateSearchCellValue } from "../ai/search-output";
 import { describeError } from "../common/errors";
 import { companyContextService } from "../modules/company/company-context.service";
+import type { ExternalApi } from "../modules/external-api/external-api.schema";
 import { externalApiService } from "../modules/external-api/external-api.service";
 import { RunAiInvalidCellIdError } from "../modules/run-ai/run-ai.errors";
 import {
@@ -13,6 +14,8 @@ import {
 } from "../modules/run-ai/run-ai.schema";
 import { runAiService } from "../modules/run-ai/run-ai.service";
 import { parseCellId } from "../modules/spreadsheet/spreadsheet.ids";
+import type { ConvertToMarkdownOutcome } from "./convert-to-markdown";
+import { convertToMarkdownTask } from "./convert-to-markdown";
 import type { CrawlWebsiteOutcome } from "./crawl-website";
 import { crawlWebsiteTask } from "./crawl-website";
 
@@ -30,50 +33,71 @@ import { crawlWebsiteTask } from "./crawl-website";
 // is left alone, and `onFailure` covers the crash paths the catch cannot
 // reach — a maxDuration kill would otherwise leave the cell busy for good.
 //
-// The run's own `cellId` is parsed here because the row's audio and url
-// cells are transcribed and crawled under their *own* cell ids: same sheet,
-// same row, their column (`src/ai/cell-transcripts.ts`, `cell-crawls.ts`).
-// The budget covers a transcription plus a model call, so it is the config's
-// 300 s rather than the model call's own; the crawls run in `crawl-website`
-// child tasks and the wait for them is not CPU time.
+// The run's own `cellId` is parsed here because the row's file, audio and
+// url cells are converted and crawled under their *own* cell ids: same
+// sheet, same row, their column (`src/ai/cell-markdown.ts`, `cell-crawls.ts`).
+// Conversions and crawls run in `convert-to-markdown` and `crawl-website`
+// child tasks, and the wait for them is not CPU time.
 
 export type RunAiCellOutcome = { runId: string; status: string };
 
-/** The child task returns `{ recordId, reused, … }`; anything else is a failed crawl. */
-const isCrawlOutcome = (output: unknown): output is CrawlWebsiteOutcome =>
+/** Both child tasks return `{ recordId, reused, … }`; anything else is a failed source. */
+const isRecordOutcome = (
+  output: unknown,
+): output is CrawlWebsiteOutcome | ConvertToMarkdownOutcome =>
   typeof output === "object" &&
   output !== null &&
   typeof (output as { recordId?: unknown }).recordId === "string";
 
+type ChildRun = { ok: true; output: unknown } | { ok: false; error: unknown };
+
+/** One finished child run as the record it stored, read back from the store. */
+async function recordOf(
+  run: ChildRun,
+): Promise<{ record: ExternalApi; reused: boolean } | { error: string }> {
+  if (!run.ok) return { error: describeError(run.error).message };
+  if (!isRecordOutcome(run.output)) {
+    return { error: "the task returned no record" };
+  }
+  return {
+    record: await externalApiService.byId(run.output.recordId),
+    reused: run.output.reused,
+  };
+}
+
 /**
- * The row's url cells, crawled by one `crawl-website` run each — a batch,
- * never `Promise.all` over `triggerAndWait` — then read back from the store.
- * Keyed on the run so a re-triggered batch does not crawl twice; the store
- * is what makes the second row with the same site free.
+ * The row's url cells crawled by `crawl-website` and its uncached file,
+ * audio and YouTube cells converted by `convert-to-markdown` — ONE batch,
+ * since Trigger.dev refuses two waits at once — then read back from the
+ * store. Keyed on the run so a re-triggered batch does not redo them; the
+ * store is what makes the second row with the same source free.
  */
-const crawlViaTask =
-  (runId: string): CrawlResolver =>
-  async (keys) => {
-    if (keys.length === 0) return [];
-    const { runs } = await crawlWebsiteTask.batchTriggerAndWait(
-      keys.map((key) => ({
+const sourcesViaTask =
+  (runId: string): SourceResolver =>
+  async ({ crawls, conversions }) => {
+    const options = (cellId: string) => ({
+      idempotencyKey: `${runId}:${cellId}`,
+    });
+    const { runs } = await batch.triggerByTaskAndWait([
+      ...crawls.map((key) => ({
+        task: crawlWebsiteTask,
         payload: key,
-        options: { idempotencyKey: `${runId}:${key.cellId}` },
+        options: options(key.cellId),
       })),
-    );
+      ...conversions.map((key) => ({
+        task: convertToMarkdownTask,
+        payload: key,
+        options: options(key.cellId),
+      })),
+    ]);
     // Only store reads are awaited together here; the waiting happened above.
-    return Promise.all(
-      runs.map(async (run) => {
-        if (!run.ok) return { error: describeError(run.error).message };
-        if (!isCrawlOutcome(run.output)) {
-          return { error: "the crawl task returned no record" };
-        }
-        return {
-          record: await externalApiService.byId(run.output.recordId),
-          reused: run.output.reused,
-        };
-      }),
+    const records = await Promise.all(
+      (runs as ChildRun[]).map((run) => recordOf(run)),
     );
+    return {
+      crawls: records.slice(0, crawls.length),
+      conversions: records.slice(crawls.length),
+    };
   };
 
 export const runAiCellTask = schemaTask({
@@ -118,7 +142,7 @@ export const runAiCellTask = schemaTask({
             : await generateCellValue(
                 input,
                 address,
-                { crawls: crawlViaTask(runId) },
+                { sources: sourcesViaTask(runId) },
                 { company, cacheName },
               );
       generated = { model, usage, attachments, ...extra };

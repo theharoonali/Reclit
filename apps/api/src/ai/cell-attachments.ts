@@ -7,10 +7,12 @@ import type { RunAiInputCell } from "../modules/run-ai/run-ai.schema";
 // are ours, and a link that cannot be fetched degrades to a note in the
 // prompt instead of failing the run.
 //
-// Audio and url cells are NOT here: audio is transcribed first and reaches
-// the model as text (cell-transcripts.ts), a website is crawled and reaches
-// it as its pages (cell-crawls.ts). `fetchAttachment`, `isUrlCell`,
-// `filenameOf` and `mediaTypeFor` are shared with those paths.
+// Most files do not travel as bytes any more: a file, audio or YouTube cell
+// is converted to markdown first (cell-markdown.ts) and a website is crawled
+// (cell-crawls.ts). What is still attached is decided there — an image (the
+// model reads the picture; its markdown is only metadata) and any file whose
+// conversion failed. `fetchFile`, `isUrlCell`, `filenameOf` and
+// `mediaTypeFor` are shared with those paths.
 
 /** The provider's inline-data ceiling is 20 MB per request; keep one file under it. */
 export const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
@@ -121,13 +123,16 @@ export type FetchLike = (
 }>;
 
 /**
- * One URL's bytes under the attachment cap and timeout, or why not. Never
- * throws. Shared by the cell attachments below and the company documents
+ * One URL's bytes under `maxBytes` (the attachment cap unless a caller that
+ * never sends the bytes to the model says otherwise) and the timeout, or why
+ * not. Never throws. Shared by the cell attachments below, the markdown
+ * conversion (cell-markdown.ts) and the company documents
  * (trigger/process-company-document.ts).
  */
 export async function fetchFile(
   url: string,
   fetchImpl: FetchLike = fetch,
+  maxBytes: number = MAX_ATTACHMENT_BYTES,
 ): Promise<
   { filename: string; mediaType: string; data: Uint8Array } | { error: string }
 > {
@@ -137,12 +142,10 @@ export async function fetchFile(
     });
     if (!response.ok) return { error: `HTTP ${response.status}` };
     const length = Number(response.headers.get("content-length") ?? 0);
-    if (length > MAX_ATTACHMENT_BYTES) {
-      return { error: `larger than ${MAX_ATTACHMENT_BYTES} bytes` };
-    }
+    if (length > maxBytes) return { error: `larger than ${maxBytes} bytes` };
     const data = new Uint8Array(await response.arrayBuffer());
-    if (data.byteLength > MAX_ATTACHMENT_BYTES) {
-      return { error: `larger than ${MAX_ATTACHMENT_BYTES} bytes` };
+    if (data.byteLength > maxBytes) {
+      return { error: `larger than ${maxBytes} bytes` };
     }
     return {
       filename: filenameOf(url),
@@ -166,14 +169,24 @@ export async function fetchAttachment(
 }
 
 /** Every attachable cell of the row, fetched in parallel, in row order. */
-export async function collectAttachments(
+export function collectAttachments(
   cells: RunAiInputCell[],
   fetchImpl: FetchLike = fetch,
 ): Promise<Attachments> {
+  return fetchAttachments(cells.filter(isAttachableCell), fetchImpl);
+}
+
+/**
+ * These URL cells' files, whatever their column type, fetched in parallel,
+ * in order — what the cell attaches after conversion picked them
+ * (cell-output.ts: images, and files whose conversion failed).
+ */
+export async function fetchAttachments(
+  cells: (RunAiInputCell & { value: string })[],
+  fetchImpl: FetchLike = fetch,
+): Promise<Attachments> {
   const results = await Promise.all(
-    cells
-      .filter(isAttachableCell)
-      .map((cell) => fetchAttachment(cell, fetchImpl)),
+    cells.map((cell) => fetchAttachment(cell, fetchImpl)),
   );
   const files: Attachment[] = [];
   const failures: AttachmentFailure[] = [];

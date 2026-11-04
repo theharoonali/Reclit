@@ -36,11 +36,13 @@ apps/api (NestJS on Bun, port 4001)
   Trigger.dev worker (src/trigger/, bundled by the Trigger CLI)
         ├── run-ai-batch: per runnable column (a wave) ensures the owner's explicit prompt cache,
         │                prepares the inputs, then batchTriggerAndWait →
-        ├── run-ai-cell: calls the same services → the row's audio through ElevenLabs,
-        │                its url cells through crawl-website (both cached in ExternalApi)
+        ├── run-ai-cell: calls the same services → the row's files, audio and YouTube links
+        │                through convert-to-markdown, its url cells through crawl-website
+        │                (one batch; both cached in ExternalApi)
         │                → the model via src/ai/ (grounded with the google_search tool for a
         │                google_search column; drafting an email for an email column,
         │                then sending it through Resend) → writes the run + cell
+        ├── convert-to-markdown: one file or YouTube video through markitdown (Python) → ExternalApi
         ├── crawl-website: one site through Firecrawl → ExternalApi, reused from any cell
         ├── crawl-company: the company website through Firecrawl → page count → refined summary
         │                  (both crawls share the one-at-a-time `firecrawl` queue)
@@ -91,17 +93,20 @@ packages/dashboard-engine → the dashboard's formula + query engine (pure TS): 
 - `src/ai/` holds the model providers (`model.ts` for the Vercel AI SDK:
   `aiModel()`, `defaultModelId()`, `isAiConfigured()`, the web-search and
   prompt-cache hooks, and the **only** file that may name the AI vendor;
-  `elevenlabs.ts` for Speech-to-Text, `firecrawl.ts` for crawling, `resend.ts`
+  `elevenlabs.ts` for the assistant's Speech-to-Text, `firecrawl.ts` for crawling, `resend.ts`
   for sending a mail cell's email) and the
   helpers a task composes: the prompt (`cell-prompt.ts`), the row's
-  attachments (`cell-attachments.ts`), its audio transcripts
-  (`cell-transcripts.ts`) and its crawled websites (`cell-crawls.ts`), the
-  last two cached in `ExternalApi` —
+  files as markdown (`cell-markdown.ts`, markitdown in Python), its
+  crawled websites (`cell-crawls.ts`) — both cached in `ExternalApi` — and
+  the files still attached as bytes (`cell-attachments.ts`) —
   [docs/features/external-api.md](docs/features/external-api.md).
 - The jobs today are `run-ai-batch` (the orchestrator of one Run click: one
   wave per AI column, prepared then fanned out), `run-ai-cell` (one cell),
   `crawl-website` (one site through Firecrawl into the store — general, one
-  at a time, triggered by `run-ai-cell` for every url cell of a row) — their
+  at a time, triggered by `run-ai-cell` for every url cell of a row),
+  `convert-to-markdown` (one file or YouTube video through markitdown into
+  the store — general, triggered by `run-ai-cell` for every file, audio or
+  YouTube cell whose markdown is not stored yet) — their
   lifecycle, table and stream are
   [docs/features/run-ai.md](docs/features/run-ai.md) — and `assistant-run`
   (one prompt from the header capsule: a step-by-step `generateText` loop
@@ -214,7 +219,7 @@ no Prisma code; `bunx turbo build` is the check.
 | `SUPABASE_URL`, `SUPABASE_KEY` | api | Supabase Storage for `POST /files`; unset → 503 on upload |
 | `TRIGGER_SECRET_KEY` | api | Trigger.dev environment key the api enqueues with (`src/jobs/run-ai-dispatch.ts`); the Trigger CLI reads it too |
 | `AI_API_KEY` | api, worker | the AI provider's key for the Vercel AI SDK (`src/ai/model.ts`; the provider SDK's own variable is still read as a fallback, `AI_KEY_ENV`), including the `google_search` node's grounding and the explicit prompt cache (`src/ai/prompt-cache.ts`); the local worker reads `apps/api/.env`, a deployed one its Trigger environment; the api checks it before starting a dashboard generation (`dashboardGeneration.start` is SERVICE_UNAVAILABLE without it) and uses it for the onboarding's describe / suggest calls and `company.setWebsite`'s summary (`COMPANY_AI_UNAVAILABLE` without it) |
-| `ELEVENLABS_API_KEY` | api, worker | ElevenLabs Speech-to-Text (`src/ai/elevenlabs.ts`): the worker transcribes audio cells (without it the prompt says the audio could not be transcribed); the api transcribes the header capsule's mic recording through `POST /assistant/transcribe` (without it the route answers 503) |
+| `ELEVENLABS_API_KEY` | api, worker | ElevenLabs Speech-to-Text (`src/ai/elevenlabs.ts`): the api transcribes the header capsule's mic recording through `POST /assistant/transcribe` (without it the route answers 503) |
 | `AI_MODEL` | api, worker | optional; the model every AI call uses (`defaultModelId()`, `src/ai/model.ts`), default the provider's default model there |
 | `ASSISTANT_MODEL` | api, worker | optional; the model the assistant's tool loop and the dashboard generation's three calls (worker) use (`src/ai/assistant-step.ts`), default `AI_MODEL` |
 | `FIRECRAWL_API_KEY` | api, worker | Firecrawl (`src/ai/firecrawl.ts`): the worker crawls url cells (`crawl-website`; without it the prompt says the site could not be crawled) and the company website (`crawl-company`); the api scrapes the company homepage in `company.setWebsite` (`COMPANY_AI_UNAVAILABLE` without it); same two places |

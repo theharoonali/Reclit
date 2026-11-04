@@ -26,6 +26,9 @@ const SPEED = 1.82 * 0.8;
 /** The 28px icon the cube was tuned for. Larger canvases scale that frame. */
 const ICON_PX = 28;
 
+/** One gray per face, axis then side. Every sticker on that face shares it. */
+const FACE_SHADE = [0.2, 0.84, 0.36, 0.9, 0.5, 0.66] as const;
+
 const CELLS = 3;
 const CUBE = 0.72;
 const CELL = (2 * CUBE) / CELLS;
@@ -245,11 +248,10 @@ function rubik(size: number, time: number): Sticker[] {
             (turned[2] - mid[2]) * toward[2];
           if (facing <= 0) continue;
           const p = cam(mid[0], mid[1], mid[2]);
-          const bit = axis * 18 + face * 9 + i * 3 + j;
           stickers.push({
             corners,
             z: p[2],
-            white: 0.16 + (((bit * 19) % 54) / 53) * 0.7,
+            white: FACE_SHADE[axis * 2 + face] ?? 0.5,
           });
         }
       }
@@ -261,7 +263,7 @@ function rubik(size: number, time: number): Sticker[] {
 
 /**
  * The solving cube: grayscale stickers on a transparent ground, one shade
- * per square, layers twisting. Coordinates are CSS pixels. The component
+ * per face, layers twisting. Coordinates are CSS pixels. The component
  * around it handles sizing, timing and pausing. Ink is the canvas's own
  * grayscale, not a theme token.
  */
@@ -297,10 +299,12 @@ function paint(
 
 /**
  * The island's animated mark: a `size-orb` canvas driven by
- * `requestAnimationFrame`. `state` only changes the tempo. The loop stops
- * while the tab is hidden or the user prefers reduced motion, leaving one
- * still frame, and resumes when either changes back. Decorative — the
- * capsule's text carries the meaning. Onboarding uses the same mark, larger.
+ * `requestAnimationFrame`. `state` only changes the tempo. One frame is
+ * queued at a time and the clock is read, not added to, so a second
+ * callback cannot speed the cube up. The loop stops while the tab is hidden
+ * or the user prefers reduced motion, leaving one still frame, and resumes
+ * when either changes back. Decorative — the capsule's text carries the
+ * meaning. Onboarding uses the same mark, larger.
  */
 export function AssistantOrb({
   state,
@@ -324,22 +328,39 @@ export function AssistantOrb({
   useEffect(() => {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     let frame: number | null = null;
-    let last = 0;
-    const shouldAnimate = () => !document.hidden && !reduced.matches;
+    let origin = 0;
+    let carried = timeRef.current;
+    let tempo = TEMPO[stateRef.current];
+    let alive = true;
+    const shouldAnimate = () => alive && !document.hidden && !reduced.matches;
 
     const tick = (now: number) => {
-      frame = null;
-      const dt = last ? (now - last) / 1000 : 0;
-      last = now;
-      timeRef.current += TEMPO[stateRef.current] * dt;
+      if (!alive) return;
+      const nextTempo = TEMPO[stateRef.current];
+      if (origin === 0 || nextTempo !== tempo) {
+        carried = timeRef.current;
+        origin = now;
+        tempo = nextTempo;
+      }
+      timeRef.current = carried + ((now - origin) / 1000) * tempo;
       drawFrame();
-      if (shouldAnimate()) frame = requestAnimationFrame(tick);
+      frame = null;
+      if (shouldAnimate()) schedule();
+    };
+    const schedule = () => {
+      if (!shouldAnimate() || frame !== null) return;
+      frame = requestAnimationFrame(tick);
     };
     const sync = () => {
+      if (!alive) return;
       if (shouldAnimate()) {
-        last = 0;
-        if (frame === null) frame = requestAnimationFrame(tick);
+        origin = 0;
+        carried = timeRef.current;
+        tempo = TEMPO[stateRef.current];
+        schedule();
       } else {
+        if (frame !== null) cancelAnimationFrame(frame);
+        frame = null;
         if (reduced.matches) timeRef.current = STILL_TIME;
         drawFrame();
       }
@@ -349,6 +370,7 @@ export function AssistantOrb({
     document.addEventListener("visibilitychange", sync);
     reduced.addEventListener("change", sync);
     return () => {
+      alive = false;
       if (frame !== null) cancelAnimationFrame(frame);
       document.removeEventListener("visibilitychange", sync);
       reduced.removeEventListener("change", sync);

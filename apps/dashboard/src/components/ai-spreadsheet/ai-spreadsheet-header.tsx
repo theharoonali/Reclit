@@ -8,7 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@reclit/ui/tooltip";
-import type { PointerEvent, RefObject } from "react";
+import type { MouseEvent, PointerEvent, RefObject } from "react";
 import {
   HEADER_GRIP_HEIGHT,
   HEADER_GRIP_WIDTH,
@@ -18,6 +18,7 @@ type AiSpreadsheetHeaderProps = {
   className?: string;
   canvasRef: RefObject<HTMLCanvasElement | null>;
   onPointerDown: (event: PointerEvent<HTMLDivElement>) => void;
+  onDoubleClick: (event: MouseEvent<HTMLDivElement>) => void;
   onPointerMove: (event: PointerEvent<HTMLDivElement>) => void;
   onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
   onPointerCancel: () => void;
@@ -62,6 +63,7 @@ export function AiSpreadsheetHeader(props: AiSpreadsheetHeaderProps) {
         "relative h-sheet-header w-full shrink-0 touch-none overflow-hidden",
         props.className,
       )}
+      onDoubleClick={props.onDoubleClick}
       onPointerCancel={props.onPointerCancel}
       onPointerDown={props.onPointerDown}
       onPointerLeave={props.onPointerLeave}

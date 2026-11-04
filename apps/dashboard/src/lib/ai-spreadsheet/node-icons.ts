@@ -15,9 +15,9 @@ export const NODE_ICONS: Partial<Record<NodeType, IconSvgElement>> = {
 };
 
 /**
- * Nodes drawn in the primary accent rather than the neutral header text —
- * the AI mark reads as a brand accent in both renderers (`text-primary` in
- * the DOM, `palette.ring` on canvas).
+ * Nodes shown in the primary accent — the AI mark reads as a brand accent:
+ * `text-primary` in the DOM, and on the canvas a light `palette.ring` wash
+ * over the whole column header in place of the icon.
  */
 export const NODE_ICON_ACCENT: Partial<Record<NodeType, true>> = {
   ai: true,

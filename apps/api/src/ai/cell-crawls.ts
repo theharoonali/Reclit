@@ -11,6 +11,7 @@ import type { RunAiInputCell } from "../modules/run-ai/run-ai.schema";
 import type { CellAddress } from "../modules/spreadsheet/spreadsheet.ids";
 import { cellId } from "../modules/spreadsheet/spreadsheet.ids";
 import { isUrlCell } from "./cell-attachments";
+import { isYoutubeUrl } from "./cell-markdown";
 import { crawlWebsite } from "./firecrawl";
 
 // A url cell reaches the model as the site's content, not as one fetched
@@ -32,10 +33,22 @@ import { crawlWebsite } from "./firecrawl";
 /** Column types whose value is a website to crawl rather than a file to attach. */
 const CRAWLABLE_TYPES = new Set(["url"]);
 
+/** A url cell holding a website — a YouTube video is converted instead (cell-markdown.ts). */
 export function isCrawlableCell(
   cell: RunAiInputCell,
 ): cell is RunAiInputCell & { value: string } {
-  return isUrlCell(cell, CRAWLABLE_TYPES);
+  return isUrlCell(cell, CRAWLABLE_TYPES) && !isYoutubeUrl(cell.value);
+}
+
+/** The row's crawl keys, in row order — what a resolver is asked for. */
+export function crawlKeys(
+  address: CellAddress,
+  cells: RunAiInputCell[],
+): CrawlKey[] {
+  return cells.filter(isCrawlableCell).map((cell) => ({
+    cellId: cellId(address.sheetId, address.row, cell.index),
+    url: cell.value,
+  }));
 }
 
 /** The prompt's budget for one url cell's content, and for one page of it. */
@@ -205,10 +218,7 @@ export async function collectCrawls(
   resolve: CrawlResolver = resolveCrawlsInProcess,
 ): Promise<Crawls> {
   const targets = cells.filter(isCrawlableCell);
-  const keys = targets.map((cell) => ({
-    cellId: cellId(address.sheetId, address.row, cell.index),
-    url: cell.value,
-  }));
+  const keys = crawlKeys(address, cells);
   let resolutions: CrawlResolution[];
   try {
     resolutions = keys.length === 0 ? [] : await resolve(keys);

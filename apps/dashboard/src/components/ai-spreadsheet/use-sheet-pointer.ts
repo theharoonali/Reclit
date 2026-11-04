@@ -3,6 +3,10 @@
 import type { MouseEvent, PointerEvent } from "react";
 import { fileLabel, isResourceUrl } from "@/lib/ai-spreadsheet/cell-format";
 import {
+  type ColumnMark,
+  columnSelection,
+} from "@/lib/ai-spreadsheet/column-selection";
+import {
   cellRect,
   containsPoint,
   GUTTER_WIDTH,
@@ -36,6 +40,8 @@ export type SheetPointerArgs = {
   fontsRef: React.RefObject<SheetFonts>;
   /** Which column (if any) the pointer is over, for the header highlight. */
   hoverRef: React.RefObject<SheetHit>;
+  /** Written by a header click: the column it selected. See column-selection.ts. */
+  columnMarkRef: React.RefObject<ColumnMark | null>;
   editor: CellEditorApi;
   /** The column-reorder drag; it gets first refusal on every header pointer event. */
   drag: ColumnDragApi;
@@ -46,7 +52,6 @@ export type SheetPointerArgs = {
   getCell: (row: number, columnId: string) => CellValue;
   requestPaint: () => void;
   onOpenColumn: (columnId?: string) => void;
-  onRemoveColumn: (columnId: string) => void;
   onToggleAudio: (row: number, columnId: string, url: string) => void;
 };
 
@@ -62,9 +67,10 @@ const CHECKBOX_HIT_PAD = 5;
  */
 export function createSheetPointerHandlers(args: SheetPointerArgs) {
   const { modelRef, viewportRef, ctxRef, fontsRef, hoverRef } = args;
+  const { columnMarkRef } = args;
   const { editor, drag, rangeDrag, onGripHover } = args;
   const { getCell, requestPaint } = args;
-  const { onOpenColumn, onRemoveColumn, onToggleAudio } = args;
+  const { onOpenColumn, onToggleAudio } = args;
 
   /** Canvas-relative CSS pixels. DPR never enters this — see `geometry`. */
   const localPoint = (event: MouseEvent<HTMLElement>) => {
@@ -259,12 +265,30 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
       return;
     }
     if (hit.kind === "plus") onOpenColumn();
-    else if (hit.kind === "header-delete") {
-      const columnId = modelRef.current?.columns[hit.col]?.id;
-      if (columnId) onRemoveColumn(columnId);
-    } else if (hit.kind === "header") {
-      onOpenColumn(modelRef.current?.columns[hit.col]?.id);
-    }
+    else if (isHeaderColumnHit(hit)) selectColumn(hit.col);
+  };
+
+  /**
+   * A header click selects the whole column (its stored rows) and marks it,
+   * so the toolbar can offer Delete column. The mark goes down first: the
+   * selection change below is what makes the grid look for it.
+   */
+  const selectColumn = (col: number) => {
+    const model = modelRef.current;
+    const column = model?.columns[col];
+    if (!model || !column) return;
+    const { anchor, active, rowLast } = columnSelection(model, col);
+    columnMarkRef.current = { columnId: column.id, rowLast };
+    editor.selectRange(anchor, active);
+  };
+
+  /** Double-clicking a column's header opens its settings. */
+  const handleHeaderDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
+    const { x, y } = localPoint(event);
+    const hit = hitTestHeader(x, y, viewportRef.current);
+    if (!isHeaderColumnHit(hit)) return;
+    const columnId = modelRef.current?.columns[hit.col]?.id;
+    if (columnId) onOpenColumn(columnId);
   };
 
   const handleHeaderPointerMove = (event: PointerEvent<HTMLDivElement>) => {
@@ -273,8 +297,8 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     const { x, y } = localPoint(event);
     const hit = hitTestHeader(x, y, viewportRef.current);
     const previous = hoverRef.current;
-    // The three column kinds are distinct on purpose: crossing onto the grip
-    // or the delete glyph within one column must still repaint.
+    // The two column kinds are distinct on purpose: crossing onto the grip
+    // within one column must still repaint.
     const same = isHeaderColumnHit(hit)
       ? previous.kind === hit.kind &&
         "col" in previous &&
@@ -310,6 +334,7 @@ export function createSheetPointerHandlers(args: SheetPointerArgs) {
     handleBodyPointerCancel,
     handleBodyDoubleClick,
     handleHeaderPointerDown,
+    handleHeaderDoubleClick,
     handleHeaderPointerMove,
     handleHeaderPointerUp,
     handleHeaderPointerCancel,

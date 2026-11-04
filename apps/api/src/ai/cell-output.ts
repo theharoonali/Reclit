@@ -12,26 +12,52 @@ import {
   cellValueSchema,
   isPlainObject,
 } from "../modules/spreadsheet/spreadsheet.schema";
-import type { AttachmentSummary, Attachments } from "./cell-attachments";
-import { collectAttachments, summariseAttachments } from "./cell-attachments";
-import type { CrawlResolver, CrawlSummary, Crawls } from "./cell-crawls";
-import { collectCrawls, summariseCrawls } from "./cell-crawls";
+import type {
+  AttachmentSummary,
+  Attachments,
+  FetchLike,
+} from "./cell-attachments";
+import { fetchAttachments, summariseAttachments } from "./cell-attachments";
+import type {
+  CrawlKey,
+  CrawlResolution,
+  CrawlSummary,
+  Crawls,
+} from "./cell-crawls";
+import {
+  collectCrawls,
+  crawlKeys,
+  resolveCrawlsInProcess,
+  summariseCrawls,
+} from "./cell-crawls";
+import type {
+  ConversionSummary,
+  Conversions,
+  MarkdownKey,
+  MarkdownResolution,
+  MarkdownStore,
+} from "./cell-markdown";
+import {
+  conversionMisses,
+  conversionsFrom,
+  isImageMediaType,
+  isYoutubeUrl,
+  planConversions,
+  resolveMarkdownsInProcess,
+  summariseConversions,
+} from "./cell-markdown";
 import type { CellMessages, CellSourceNote } from "./cell-prompt";
 import { buildCellMessages, cellOutputSchema } from "./cell-prompt";
-import type {
-  TranscriptDeps,
-  TranscriptSummary,
-  Transcripts,
-} from "./cell-transcripts";
-import { collectTranscripts, summariseTranscripts } from "./cell-transcripts";
 import type { CompanyContext } from "./company-context";
 import { aiModel, cachedContentOptions } from "./model";
 
 // The one model call behind an AI cell, and the typed-output call every
-// generator ends on. The row's file cells are fetched and attached as file
-// parts, its audio cells are resolved to transcripts and its url cells to
-// crawled websites (both cached in `ExternalApi`) and read as text — all
-// three in parallel, before the prompt is built. The answer is structured
+// generator ends on. Before the prompt is built, the row's file, audio and
+// YouTube cells are resolved to markdown (markitdown) and its other url cells
+// to crawled websites — both cached in `ExternalApi`, both read as text, both
+// produced by child tasks in ONE batch wait (Trigger.dev refuses two waits at
+// once). Only images, and files whose conversion failed, are then fetched and
+// attached as file parts. The answer is structured
 // output typed by the column (`Output.object`), free JSON for a `json`
 // column (`Output.json`), and passes the same `cellValueMatchesType` check
 // the spreadsheet applies on write, so a run never completes with a value
@@ -146,22 +172,106 @@ export type CellGeneration = {
   usage: CellUsage;
   /** What travelled with the prompt, and what could not — never the bytes. */
   attachments: AttachmentSummary[];
-  /** What was transcribed, reused or not, and what could not — never the text. */
-  transcripts: TranscriptSummary[];
+  /** What was converted to markdown, reused or not, and what could not — never the markdown. */
+  conversions: ConversionSummary[];
   /** What was crawled, reused or not, and what could not — never the pages. */
   crawls: CrawlSummary[];
 };
 
+/** What a running cell still needs produced: the row's crawls, and its conversions the store did not hold. */
+export type SourceRequest = { crawls: CrawlKey[]; conversions: MarkdownKey[] };
+export type SourceResolutions = {
+  crawls: CrawlResolution[];
+  conversions: MarkdownResolution[];
+};
+/**
+ * Resolves a whole request at once, each list in order. The `run-ai-cell`
+ * task backs it with one `batch.triggerByTaskAndWait` over `crawl-website`
+ * and `convert-to-markdown`; the contract test with Maps.
+ */
+export type SourceResolver = (
+  request: SourceRequest,
+) => Promise<SourceResolutions>;
+
+/**
+ * Outside a task: crawls in process, and no converter — a conversion fails
+ * and its file is attached instead, as before markitdown.
+ */
+export const resolveSourcesInProcess: SourceResolver = async (request) => ({
+  crawls: await resolveCrawlsInProcess(request.crawls),
+  conversions: await resolveMarkdownsInProcess({})(request.conversions),
+});
+
 /**
  * How the row's sources are resolved. Every entry is optional: the defaults
- * are the real store and the real providers; the `run-ai-cell` task hands in
- * a crawl resolver backed by the `crawl-website` task, and the contract test
+ * are the real store, in-process crawls and real fetches; the `run-ai-cell`
+ * task hands in a resolver backed by child tasks, and the contract test
  * hands in fakes.
  */
 export type CellSourceDeps = {
-  transcripts?: TranscriptDeps;
-  crawls?: CrawlResolver;
+  sources?: SourceResolver;
+  store?: Pick<MarkdownStore, "find" | "findByInput" | "save">;
+  fetchImpl?: FetchLike;
 };
+
+type RowCell = RunAiInput["row"]["cells"][number];
+
+/**
+ * The row's crawls and conversions through one resolver call — skipped when
+ * the store already answered everything. Never throws: a resolver that
+ * fails as a whole fails every key it was asked for.
+ */
+export async function resolveRowSources(
+  address: CellAddress,
+  cells: RowCell[],
+  deps: CellSourceDeps = {},
+): Promise<{ crawls: Crawls; conversions: Conversions }> {
+  const targets = await planConversions(address, cells, deps.store);
+  const request: SourceRequest = {
+    crawls: crawlKeys(address, cells),
+    conversions: conversionMisses(targets),
+  };
+  let resolved: SourceResolutions = { crawls: [], conversions: [] };
+  if (request.crawls.length > 0 || request.conversions.length > 0) {
+    try {
+      resolved = await (deps.sources ?? resolveSourcesInProcess)(request);
+    } catch (error) {
+      const failed = { error: describeError(error).message };
+      resolved = {
+        crawls: request.crawls.map(() => failed),
+        conversions: request.conversions.map(() => failed),
+      };
+    }
+  }
+  return {
+    // Already resolved above; collectCrawls only maps them back to cells.
+    crawls: await collectCrawls(address, cells, async () => resolved.crawls),
+    conversions: conversionsFrom(targets, resolved.conversions),
+  };
+}
+
+/**
+ * The cells whose file the model is also given: an image (its markdown is
+ * only metadata, the model reads the picture) and any file whose conversion
+ * failed. A YouTube page is never attached — it is not a file.
+ */
+export function cellsToAttach(
+  cells: RowCell[],
+  conversions: Conversions,
+): (RowCell & { value: string })[] {
+  const picked = new Set([
+    ...conversions.documents
+      .filter((doc) => isImageMediaType(doc.mediaType))
+      .map((doc) => doc.columnId),
+    ...conversions.failures
+      .filter((failure) => !isYoutubeUrl(failure.url))
+      .map((failure) => failure.columnId),
+  ]);
+  return cells.filter(
+    (cell): cell is RowCell & { value: string } =>
+      typeof cell.value === "string" && picked.has(cell.id),
+  );
+}
 
 /**
  * The model's raw answer as a value the target cell would accept, or a throw
@@ -193,34 +303,44 @@ export function coerceCellValue(
   return output;
 }
 
-function notesOf(
+/**
+ * One note per source cell. A converted file reads as its markdown (and says
+ * so when the file travels too); a failed conversion reads as the attached
+ * file when the fallback fetch worked, and as the conversion's failure when
+ * it did not.
+ */
+export function notesOf(
   attachments: Attachments,
-  transcripts: Transcripts,
+  conversions: Conversions,
   crawls: Crawls,
 ) {
   const notes = new Map<string, CellSourceNote>();
-  for (const file of attachments.files) {
-    notes.set(file.columnId, { kind: "attached", filename: file.filename });
+  const attached = new Map(
+    attachments.files.map((file) => [file.columnId, file.filename]),
+  );
+  for (const failure of conversions.failures) {
+    const filename = attached.get(failure.columnId);
+    notes.set(
+      failure.columnId,
+      filename
+        ? { kind: "attached", filename }
+        : { kind: "failed", step: "convert", error: failure.error },
+    );
   }
-  for (const failure of attachments.failures) {
-    notes.set(failure.columnId, {
-      kind: "failed",
-      step: "fetch",
-      error: failure.error,
-    });
-  }
-  for (const transcript of transcripts.texts) {
-    notes.set(transcript.columnId, {
-      kind: "transcribed",
-      text: transcript.text,
-    });
-  }
-  for (const failure of transcripts.failures) {
-    notes.set(failure.columnId, {
-      kind: "failed",
-      step: "transcribe",
-      error: failure.error,
-    });
+  for (const doc of conversions.documents) {
+    const isAttached = attached.has(doc.columnId);
+    notes.set(
+      doc.columnId,
+      // An image with no metadata has nothing to read; the file is the content.
+      !doc.content.trim() && isAttached
+        ? { kind: "attached", filename: doc.filename }
+        : {
+            kind: "converted",
+            filename: doc.filename,
+            content: doc.content,
+            attached: isAttached,
+          },
+    );
   }
   for (const site of crawls.sites) {
     notes.set(site.columnId, {
@@ -279,7 +399,7 @@ export async function generateTypedCellValue({
 
 /**
  * `address` is the running cell's scoped address: its sheet and row are the
- * key the row's transcripts and crawls are cached under (cell-transcripts.ts,
+ * key the row's conversions and crawls are cached under (cell-markdown.ts,
  * cell-crawls.ts). `options` carries the company block and, in a batch, the
  * explicit cache (`cellCalls`, `withCacheFallback`).
  */
@@ -289,14 +409,18 @@ export async function generateCellValue(
   deps: CellSourceDeps = {},
   options: CellCacheOptions = {},
 ): Promise<CellGeneration> {
-  const [attachments, transcripts, crawls] = await Promise.all([
-    collectAttachments(input.row.cells),
-    collectTranscripts(address, input.row.cells, deps.transcripts),
-    collectCrawls(address, input.row.cells, deps.crawls),
-  ]);
+  const { crawls, conversions } = await resolveRowSources(
+    address,
+    input.row.cells,
+    deps,
+  );
+  const attachments = await fetchAttachments(
+    cellsToAttach(input.row.cells, conversions),
+    deps.fetchImpl,
+  );
   const messages = buildCellMessages(
     input,
-    notesOf(attachments, transcripts, crawls),
+    notesOf(attachments, conversions, crawls),
     options.company,
   );
   const typed = await withCacheFallback(
@@ -306,7 +430,7 @@ export async function generateCellValue(
   return {
     ...typed,
     attachments: summariseAttachments(attachments),
-    transcripts: summariseTranscripts(transcripts),
+    conversions: summariseConversions(conversions),
     crawls: summariseCrawls(crawls),
   };
 }

@@ -70,7 +70,7 @@ Feature: [spreadsheet](../features/spreadsheet.md) ·
 | `spreadsheet.rows` | on load, every page (`lib/spreadsheet/fetch-all-rows.ts` walks `hasMore`/`nextCursor` and merges) | — |
 | `spreadsheet.setCell` | per cell edit, debounced 400 ms, latest wins; a failure snaps the cell back | — (local model is the truth) |
 | `spreadsheet.createColumn` · `updateColumn` | column form submit; every field sent explicitly, so a cleared node/prompt goes out as `null` | — |
-| `spreadsheet.removeColumn` | header × on a hovered column; pending writes discarded first | — |
+| `spreadsheet.removeColumn` | toolbar Delete column while a column is selected; pending writes discarded first | — |
 | `spreadsheet.reorderColumn` | grip drop; **optimistic** — the response's order is reconciled only where it differs, a failure restores the snapshot | — |
 | `spreadsheet.removeRows` | Delete rows in the header; pending writes discarded first | — |
 | `runAi.runCells` | Run; pending writes are flushed and awaited first, the stream is opened, the returned `pending` runs are seeded into their cells in one paint | — |
@@ -115,16 +115,19 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   through a ratio, so 5,000,000 rows stay under browser element limits. The
   wheel is handled directly (a notch ≈ three rows); scrollbars are hidden.
 - **Columns.** Types come from the payload; unknown types degrade to `string`.
-  Clicking a header opens the panel to edit; the `+` after the last column adds
+  Clicking a header selects the whole column (rows 0 to the last stored row;
+  `lib/ai-spreadsheet/column-selection.ts` marks it so it is told apart from
+  an ordinary range), which washes the header orange and puts **Edit column**
+  and **Delete column** in the toolbar; double-clicking a header (or Edit
+  column) opens the panel to edit; the `+` after the last column adds
   one, always on a blank form (every open remounts it, since the closed panel
   keeps rendering its last content while it slides away). Each column
   auto-fits its widest content between 96px and 360px (`MIN_COL_WIDTH` /
   `MAX_COL_WIDTH` in `layout.ts`); there is no drag-resize. There is no cell
   hover tooltip (removed by request): a cell's full content is reached by
   selecting it (the in-place scroller), editing it, or the cell dialog.
-  Hovering a header shows a red × (delete) at the right and a six-dot grip
-  (reorder) at the left; the grip's lane is reserved on every column so the
-  name never shifts.
+  Hovering a header swaps the type label at its right edge for a six-dot grip
+  (reorder); there is no per-column × — deleting goes through the selection.
 - **Column nodes.** The form offers None / AI / Mail / API / Google Search.
   API is locked (a lock on the capsule; it cannot be selected) and is not a
   wire node. Mail is the wire node `email`. Choosing an unlocked node reveals
@@ -136,8 +139,9 @@ of remounting. Never `resetQueries`/`removeQueries` here.
   any failed, summed from the loaded cells). A column whose node has an icon
   (`ai` → Hugeicons `AiSparklesIcon` in the primary orange, `email` →
   `Mail01Icon`; `NODE_ICONS` / `NODE_ICON_ACCENT` in
-  `lib/ai-spreadsheet/node-icons.ts`) shows it on its picker capsule and
-  paints the same path data before its name in the header. An `ai` or
+  `lib/ai-spreadsheet/node-icons.ts`) shows it on its picker capsule. In the
+  header a Mail column paints the same path data before its name; an accented
+  (AI) column paints no icon and gets a light orange header wash instead. An `ai` or
   `google_search` column's prompt is what Run executes; a Google Search
   column searches Google about the row before answering.
 - **Mail columns.** Run finds addresses in the column's prompt and in any of

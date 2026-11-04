@@ -22,8 +22,14 @@
  *
  * KINDS  `output.kind` values in use. Each one's shape is declared in
  * `modules/external-api/external-api.schema.ts`; a reader switches on `kind`.
+ *   "document-markdown"    { kind; provider: "markitdown"; version; source: "file" | "youtube";
+ *                            markdown; title: string | null; filename; mediaType;
+ *                            bytes: number | null; characters; convertedAt: ISO string }  —
+ *                            markitdown over a file, audio or YouTube cell
+ *                            (`src/ai/cell-markdown.ts`, the `convert-to-markdown` task)
  *   "audio-transcription"  { kind; provider; model; text; languageCode: string | null;
- *                            filename; mediaType; bytes }
+ *                            filename; mediaType; bytes }  — legacy (ElevenLabs), no
+ *                            longer written; a run re-converts and replaces it
  *   "website-crawl"        { kind; provider; crawlId; url; options: { limit; maxDiscoveryDepth;
  *                            allowSubdomains; crawlEntireDomain }; pages: { url; title: string | null;
  *                            statusCode: number | null; characters; markdown }[]; total; completed;
@@ -38,15 +44,19 @@
  *
  * NOTES
  * - Read-only over tRPC. The writers are the processors inside the Trigger.dev
- *   worker: `src/ai/cell-transcripts.ts` and `src/ai/cell-crawls.ts` (the
- *   latter through the `crawl-website` task) today.
+ *   worker: `src/ai/cell-markdown.ts` (through the `convert-to-markdown`
+ *   task) and `src/ai/cell-crawls.ts` (through the `crawl-website` task).
  * - `listByCell` is `createdAt` descending. An unknown or cell-less id returns
  *   `[]`, never NOT_FOUND — a cell that was cleared has no results by
  *   definition.
- * - **Deletion is a cascade, never a call.** There is no remove procedure:
- *   deleting the Cell row deletes its results, and a Cell row is deleted by
- *   clearing the cell (`spreadsheet.setCell` with `null`), deleting its row,
- *   deleting the column, deleting the sheet, or re-importing the sheet.
+ * - **Deletion follows the cell, never a call.** There is no remove
+ *   procedure: deleting the Cell row deletes its results (the cascade), and a
+ *   Cell row is deleted by clearing the cell (`spreadsheet.setCell` with
+ *   `null`), deleting its row, deleting the column, deleting the sheet, or
+ *   re-importing the sheet. Writing a NEW value to a cell (`setCell`,
+ *   `updateRow`, `updateCells`) deletes, in the same transaction, every
+ *   result whose `input` is not that value — a replaced file's markdown, a
+ *   changed URL's crawl; a result for the value the cell still holds stays.
  * - Service surface (in-process callers — the worker):
  *     `find({ cellId, input })`      -> newest match or null
  *     `findByInput(input)`           -> newest match for that source in ANY cell, or null
@@ -449,5 +459,43 @@ describe.skipIf(!dbUp)("cascade delete", () => {
     });
     await spreadsheetService.remove(sheet.sheetId);
     expect(await countFor(sheet.cellId)).toBe(0);
+  });
+
+  it("drops the results of a replaced file, and keeps the ones for the value the cell still holds", async () => {
+    const cell = await makeSheetWithAudioCell();
+    await externalApiService.save({
+      cellId: cell.cellId,
+      input: cell.url,
+      output: transcript("old file"),
+    });
+
+    // Re-writing the same value keeps the result: it still describes the cell.
+    await caller.spreadsheet.setCell({
+      id: cell.sheetId,
+      rowIndex: 0,
+      columnIndex: cell.columnIndex,
+      value: cell.url,
+    });
+    expect(await countFor(cell.cellId)).toBe(1);
+
+    // A new file in the same cell: the old one's result is gone.
+    const replacement = `${cell.url}?v=2`;
+    await caller.spreadsheet.updateRow({
+      id: cell.sheetId,
+      rowIndex: 0,
+      cells: [{ columnIndex: cell.columnIndex, value: replacement }],
+    });
+    expect(await countFor(cell.cellId)).toBe(0);
+
+    await externalApiService.save({
+      cellId: cell.cellId,
+      input: replacement,
+      output: transcript("new file"),
+    });
+    await caller.spreadsheet.updateCells({
+      id: cell.sheetId,
+      cells: [{ rowIndex: 0, columnIndex: cell.columnIndex, value: cell.url }],
+    });
+    expect(await countFor(cell.cellId)).toBe(0);
   });
 });
