@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { aptGet, ffmpeg } from "@trigger.dev/build/extensions/core";
 import { prismaExtension } from "@trigger.dev/build/extensions/prisma";
@@ -25,10 +25,18 @@ const devPython = resolve(
 // subdirectory the extension (4.5.x) COPYs it to the image root but points pip
 // at the original path, so the deploy build fails with "Could not open
 // requirements file". The list form writes requirements.txt in place instead.
-const pythonRequirements = readFileSync("./python/requirements.txt", "utf-8")
-  .split("\n")
-  .map((line) => line.trim())
-  .filter((line) => line !== "" && !line.startsWith("#"));
+//
+// The file is read only when it exists: Trigger.dev's indexer re-evaluates
+// this config inside the built image, where python/ holds only the copied .py
+// scripts. Build extensions don't run there, so the list is unused at that
+// point; on the CLI (dev and deploy) the file is present and required.
+const requirementsPath = "./python/requirements.txt";
+const pythonRequirements = existsSync(requirementsPath)
+  ? readFileSync(requirementsPath, "utf-8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "" && !line.startsWith("#"))
+  : [];
 
 export default defineConfig({
   project: "proj_rjcebnrktkgcqviaukov",
